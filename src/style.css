@@ -1,0 +1,81 @@
+@import "tailwindcss";
+
+@theme {
+  /* Colores de marca */
+  --color-brand-50: #f0fdf4;
+  --color-brand-100: #dcfce7;
+  --color-brand-200: #bbf7d0;
+  --color-brand-300: #86efac;
+  --color-brand-400: #4ade80;
+  --color-brand-500: #22c55e;
+  --color-brand-600: #16a34a;
+  --color-brand-700: #15803d;
+  --color-brand-800: #166534;
+  --color-brand-900: #14532d;
+
+  --color-sidebar: #0a1120;
+  --color-sidebar-hover: rgb(255 255 255 / 0.06);
+  --color-sidebar-active: var(--color-brand-600);
+
+  --color-surface: #f8fafc;
+  --color-surface-card: #ffffff;
+
+  --color-heading: #1e3a4f;
+  --color-muted: #94a3b8;
+
+  /* Fondo oscuro de página (todo el área fuera del sidebar) y el panel "glass" de cabecera que
+     vive sobre él — el contenido de cada sección se renderiza dentro de un contenedor blanco
+     aparte (bg-surface-card), no directamente sobre este fondo. */
+  --color-page: #0a1120;
+  --color-page-2: #0f1c33;
+  --color-glass: rgb(255 255 255 / 0.045);
+  --color-glass-border: rgb(255 255 255 / 0.08);
+
+  /* Colores de acento para sectores */
+  --color-accent-teal: #0d9488;
+  --color-accent-blue: #2563eb;
+  --color-accent-amber: #d97706;
+  --color-accent-emerald: #059669;
+  --color-accent-orange: #ea580c;
+  --color-accent-red: #dc2626;
+  --color-accent-cyan: #0891b2;
+  --color-accent-purple: #7c3aed;
+
+  /* Tipografía */
+  --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+
+  /* Radios reducidos — aplica a todos los usos de rounded-* en la app (contenedores, tarjetas,
+     modales, botones) desde un solo lugar, sin tocar componente por componente. */
+  --radius-sm: 0.125rem;
+  --radius-md: 0.1875rem;
+  --radius-lg: 0.25rem;
+  --radius-xl: 0.3125rem;
+  --radius-2xl: 0.375rem;
+  --radius-3xl: 0.5rem;
+
+  /* Sombras */
+  --shadow-card: 0 1px 3px 0 rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.06);
+  --shadow-modal: 0 20px 60px -12px rgb(0 0 0 / 0.25);
+}
+
+/* Scrollbar sutil */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--color-page);
+}
