@@ -84,6 +84,12 @@ const router = createRouter({
           component: () => import('@/features/docente/HorarioDocenteEditor.vue'),
           meta: { soloDocente: true },
         },
+        {
+          path: 'about',
+          name: 'about',
+          component: () => import('@/features/about/AboutPage.vue'),
+          meta: { soloSuperusuario: true },
+        },
       ],
     },
   ],
@@ -105,6 +111,9 @@ router.beforeEach((to) => {
     return { name: 'home' };
   }
   if (to.meta.soloDocente && session.sesion?.rol !== 'docente') {
+    return { name: 'home' };
+  }
+  if (to.meta.soloSuperusuario && session.sesion?.rol !== 'superusuario') {
     return { name: 'home' };
   }
   if (to.name === 'login' && session.sesion) {

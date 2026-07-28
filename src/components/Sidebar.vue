@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faHouse, faLayerGroup, faAngleLeft, faUserGear, faFileCirclePlus, faChalkboardUser, faLock, faCalendarWeek } from '@/lib/icons';
+import { faHouse, faLayerGroup, faAngleLeft, faUserGear, faFileCirclePlus, faChalkboardUser, faLock, faCalendarWeek, faCircleInfo } from '@/lib/icons';
 import UserMenu from '@/features/settings/UserMenu.vue';
 import NotificacionesBell from '@/features/asesoria/NotificacionesBell.vue';
 import { useSessionStore } from '@/stores/session';
@@ -37,6 +37,9 @@ const navItems = computed(() => {
   }
   if (session.sesion && puedeAccederGestionUsuarios(session.sesion.rol)) {
     items.push({ to: '/usuarios', label: 'Usuarios y permisos', icon: faUserGear });
+  }
+  if (session.sesion?.rol === 'superusuario') {
+    items.push({ to: '/about', label: 'About', icon: faCircleInfo });
   }
   return items;
 });
