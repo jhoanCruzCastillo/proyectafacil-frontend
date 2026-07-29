@@ -4,13 +4,17 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
-    # Docker/Railway's embedded DNS — sin esto, nginx resuelve BACKEND_INTERNAL_HOST UNA sola vez al
-    # arrancar y cachea esa IP para siempre. Cuando el backend se reinicia (deploy, redeploy, o
-    # incluso un `php spark db:seed` que reinicia el contenedor), Railway le asigna una IP interna
-    # nueva y nginx se queda apuntando a la vieja -> "no live upstreams", 502 en todo /api/, hasta
-    # que se reinicia el frontend también. Usar una variable en proxy_pass fuerza a nginx a
-    # re-resolver el hostname en cada petición (respetando el TTL de `valid`) en vez de una sola vez.
-    resolver 127.0.0.11 valid=10s ipv6=off;
+    # Sin esto, nginx resuelve BACKEND_INTERNAL_HOST UNA sola vez al arrancar y cachea esa IP para
+    # siempre. Cuando el backend se reinicia (deploy, redeploy, o incluso un `php spark db:seed`
+    # que reinicia el contenedor), Railway le asigna una IP interna nueva y nginx se queda apuntando
+    # a la vieja -> "no live upstreams", 502 en todo /api/, hasta que se reinicia el frontend
+    # también. Usar una variable en proxy_pass fuerza a nginx a re-resolver el hostname en cada
+    # petición (respetando el TTL de `valid`) en vez de una sola vez.
+    #
+    # RESOLVER_IP la calcula nginx-entrypoint.sh leyendo /etc/resolv.conf del propio contenedor —
+    # Railway NO usa el DNS embebido de Docker Compose (127.0.0.11); hardcodearlo rompe la
+    # resolución por completo ("recv() failed, Connection refused") en vez de solo cachear.
+    resolver ${RESOLVER_IP} valid=10s ipv6=off;
 
     location /api/ {
         set $backend_upstream "http://${BACKEND_INTERNAL_HOST}:${BACKEND_INTERNAL_PORT}";

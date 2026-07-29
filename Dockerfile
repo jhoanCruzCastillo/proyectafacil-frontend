@@ -36,5 +36,9 @@ RUN npm run build
 FROM nginx:1.27-alpine
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf.template /etc/nginx/templates/default.conf.template
+COPY nginx-entrypoint.sh /nginx-entrypoint.sh
+RUN chmod +x /nginx-entrypoint.sh
 
 EXPOSE 80
+ENTRYPOINT ["/nginx-entrypoint.sh"]
+CMD ["nginx", "-g", "daemon off;"]
