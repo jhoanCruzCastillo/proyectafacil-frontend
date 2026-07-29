@@ -34,6 +34,12 @@ app.use(VueQueryPlugin)
 
 // Resuelve la sesión antes de montar: el guard de rutas en router/index.ts lee session.sesion de
 // forma síncrona en la primera navegación, así que debe estar listo antes de app.mount().
-await useSessionStore().restaurar()
+// Si el backend no responde (502, red caída, etc.), no debe tumbar el montaje entero de la app —
+// sin este catch, una excepción acá deja la pantalla en blanco para siempre (Vue nunca monta).
+try {
+  await useSessionStore().restaurar()
+} catch (e) {
+  console.error('[restaurar sesión] falló, se continúa sin sesión:', e)
+}
 
 app.mount('#app')
