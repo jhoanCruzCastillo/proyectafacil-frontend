@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faUserTie, faXmark, faPaperPlane, faVideo, faArrowUpRightFromSquare, faCircleCheck } from '@/lib/icons';
+import { faXmark, faPaperPlane, faVideo, faArrowUpRightFromSquare, faCircleCheck } from '@/lib/icons';
 import { useMensajesQuery, useEnviarMensaje, useFinalizarSolicitud } from '@/composables/useAsesoria';
+import Avatar from '@/components/Avatar.vue';
 import type { SolicitudAsesoria } from '@/types';
 
 // Panel de chat compartido entre cliente y docente para una solicitud de asesoría ya aceptada —
@@ -13,6 +14,7 @@ const props = defineProps<{
   solicitud: SolicitudAsesoria;
   usuarioActualId: string;
   otraParteNombre: string;
+  otraParteFotoUrl?: string | null;
 }>();
 
 const emit = defineEmits<{ close: []; finalizada: [] }>();
@@ -53,7 +55,7 @@ async function handleFinalizar() {
   <div class="fixed bottom-6 left-64 w-96 h-[520px] bg-white rounded-2xl shadow-modal border border-gray-200 flex flex-col z-40 overflow-hidden">
     <div class="shrink-0 px-4 py-3 bg-brand-600 text-white flex items-center justify-between">
       <div class="flex items-center gap-2 min-w-0">
-        <FontAwesomeIcon :icon="faUserTie" class="w-4 h-4 shrink-0" />
+        <Avatar :nombre="otraParteNombre" :fotoUrl="otraParteFotoUrl" size="w-7 h-7" />
         <div class="min-w-0">
           <p class="text-sm font-bold leading-tight truncate">{{ otraParteNombre }}</p>
           <p class="text-[10px] text-brand-100 leading-tight">{{ solicitud.tipo === 'video' ? 'Asesoría por videollamada' : 'Asesoría por chat' }}</p>

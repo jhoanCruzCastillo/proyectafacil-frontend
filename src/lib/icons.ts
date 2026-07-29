@@ -18,6 +18,8 @@ import {
   faUmbrellaBeach,
   faFileInvoice,
   faLayerGroup,
+  faToggleOn,
+  faToggleOff,
   faFileAlt,
   faPencil,
   faAngleLeft,
@@ -51,6 +53,8 @@ import {
   faChevronLeft,
   faCircleQuestion,
   faCircleCheck,
+  faCircleXmark,
+  faHourglassHalf,
   faEllipsisVertical,
   faTrash,
   faLightbulb,
@@ -86,6 +90,8 @@ import {
   faDesktop,
   faCartShopping,
   faUserPlus,
+  faUserSlash,
+  faUserCheck,
   faLockOpen,
   faMinus,
   faMobileScreenButton,
@@ -119,6 +125,10 @@ import {
   faCalendarWeek,
   faClock,
   faCalendarPlus,
+  faCalendarXmark,
+  faGlobe,
+  faCrown,
+  faEnvelope,
   type IconDefinition,
 } from '@fortawesome/free-solid-svg-icons';
 import type { RolUsuario, TipoInstrumento, TipologiaIoarr, TipoCampo, TipoColumna, SubtipoTabla, MetodoPago } from '@/types';
@@ -165,7 +175,16 @@ export const rolUsuarioLabels: Record<RolUsuario, string> = {
   superusuario: 'Superusuario',
   administrador: 'Administrador',
   cliente: 'Cliente',
-  docente: 'Docente',
+  administrativo_asesorias: 'Administrativo de Asesorías',
+  asesor: 'Asesor',
+};
+
+export const rolUsuarioIcons: Record<RolUsuario, IconDefinition> = {
+  superusuario: faCrown,
+  administrador: faUserGear,
+  administrativo_asesorias: faUserGroup,
+  cliente: faUser,
+  asesor: faBriefcase,
 };
 
 export const metodoPagoIcons: Record<MetodoPago, IconDefinition> = {
@@ -293,6 +312,9 @@ export const columnTypePrimitivos: TipoColumna[] = [
 export {
   faHouse,
   faLayerGroup,
+  faToggleOn,
+  faToggleOff,
+  faPeopleGroup,
   faFileAlt,
   faPencil,
   faAngleLeft,
@@ -324,6 +346,8 @@ export {
   faChevronLeft,
   faCircleQuestion,
   faCircleCheck,
+  faCircleXmark,
+  faHourglassHalf,
   faEllipsisVertical,
   faTrash,
   faLightbulb,
@@ -351,6 +375,8 @@ export {
   faDesktop,
   faCartShopping,
   faUserPlus,
+  faUserSlash,
+  faUserCheck,
   faLockOpen,
   faMinus,
   faDisplay,
@@ -384,4 +410,12 @@ export {
   faCalendarWeek,
   faClock,
   faCalendarPlus,
+  faCalendarXmark,
+  faGlobe,
+  faCrown,
+  faEnvelope,
+  faFileInvoice,
+  faBook,
+  faMoneyBillTransfer,
+  faListCheck,
 };

@@ -41,9 +41,8 @@ export const catalogoPermisos: CategoriaPermisos[] = [
     id: 'usuarios',
     nombre: 'Usuarios y permisos',
     permisos: [
-      { id: 'usuarios.gestionar_clientes', etiqueta: 'Gestionar clientes', descripcion: 'Crear, editar y eliminar cuentas de clientes.' },
-      { id: 'usuarios.gestionar_administradores', etiqueta: 'Gestionar administradores', descripcion: 'Crear, editar y eliminar cuentas de administrador.' },
-      { id: 'usuarios.gestionar_superusuarios', etiqueta: 'Gestionar superusuarios', descripcion: 'Crear, editar y eliminar cuentas de superusuario.' },
+      { id: 'usuarios.gestionar', etiqueta: 'Gestionar usuarios', descripcion: 'Crear, editar y eliminar cuentas de usuario.' },
+      { id: 'roles.gestionar', etiqueta: 'Gestionar roles y permisos', descripcion: 'Editar los permisos base de cada rol desde "Gestionar roles".' },
     ],
   },
   {
@@ -60,14 +59,6 @@ export const catalogoPermisos: CategoriaPermisos[] = [
     nombre: 'Colaboradores',
     permisos: [
       { id: 'colaboradores.gestionar', etiqueta: 'Gestionar colaboradores', descripcion: 'Agregar, editar y eliminar usuarios adicionales de la cuenta.' },
-    ],
-  },
-  {
-    id: 'mentorias',
-    nombre: 'Mentorías',
-    permisos: [
-      { id: 'mentorias.acceder', etiqueta: 'Acceder a mentorías', descripcion: 'Unirse a sesiones grupales en vivo con un mentor.' },
-      { id: 'mentorias.preguntas_respuestas', etiqueta: 'Preguntas y respuestas', descripcion: 'Ver y participar en el Q&A de cada sesión de mentoría.' },
     ],
   },
   {
@@ -89,14 +80,23 @@ export const catalogoPermisos: CategoriaPermisos[] = [
     id: 'asesoria',
     nombre: 'Asesoría 1:1',
     permisos: [
-      { id: 'asesoria.solicitar', etiqueta: 'Solicitar asesoría', descripcion: 'Pedirle ayuda a un docente por chat o videollamada mientras se llena una ficha.' },
-      { id: 'asesoria.atender', etiqueta: 'Atender solicitudes de asesoría', descripcion: 'Recibir y responder solicitudes de asesoría de clientes.' },
+      { id: 'asesoria.solicitar', etiqueta: 'Solicitar asesoría', descripcion: 'Pedirle ayuda a un asesor por chat o videollamada mientras se llena una ficha.' },
+      { id: 'asesoria.atender_chat', etiqueta: 'Responder chat', descripcion: 'Recibir y responder solicitudes de asesoría por chat.' },
+      { id: 'asesoria.atender_video', etiqueta: 'Atender videollamada', descripcion: 'Recibir y atender solicitudes de asesoría por videollamada.' },
+      { id: 'asesoria.marcar_disponibilidad', etiqueta: 'Marcar disponibilidad', descripcion: 'Configurar el horario semanal de referencia como asesor.' },
+      { id: 'asesoria.autorizar_pagos', etiqueta: 'Autorizar pagos a asesores', descripcion: 'Aprobar los pagos generados por sesiones de asesoría.' },
+      { id: 'asesoria.configurar_sla', etiqueta: 'Configurar SLA', descripcion: 'Definir los tiempos de respuesta esperados para las solicitudes de asesoría.' },
+      { id: 'asesoria.tickets_gestionar', etiqueta: 'Gestionar tickets de asesoría', descripcion: 'Administrar las solicitudes/tickets de asesoría 1:1.' },
+      { id: 'asesoria.cobertura_horarios', etiqueta: 'Ver cobertura de horarios', descripcion: 'Ver la disponibilidad horaria de los asesores.' },
+      { id: 'asesoria.matchmaking', etiqueta: 'Intervenir en matchmaking', descripcion: 'Reasignar manualmente qué asesor atiende a qué cliente.' },
     ],
   },
 ];
 
 export const TODOS_LOS_PERMISOS: PermisoId[] = catalogoPermisos.flatMap((c) => c.permisos.map((p) => p.id));
 
+// Estos defaults son el fallback inicial (y el "seed" del rol en el backend) — el set real y
+// editable vive en `roles_permisos_base`, administrado desde "Gestionar roles" (GestionarRolesModal).
 const PERMISOS_ADMINISTRADOR: PermisoId[] = [
   'sectores.ver',
   'sectores.gestionar',
@@ -106,19 +106,27 @@ const PERMISOS_ADMINISTRADOR: PermisoId[] = [
   'estructura.editar',
   'ejemplos.gestionar',
   'excel.asignar',
-  'usuarios.gestionar_clientes',
+  'usuarios.gestionar',
+  'roles.gestionar',
 ];
 
-const PERMISOS_DOCENTE: PermisoId[] = ['asesoria.atender'];
+const PERMISOS_ASESOR: PermisoId[] = ['asesoria.atender_chat', 'asesoria.atender_video', 'asesoria.marcar_disponibilidad'];
+const PERMISOS_ADMINISTRATIVO_ASESORIAS: PermisoId[] = [
+  'asesoria.tickets_gestionar',
+  'asesoria.cobertura_horarios',
+  'asesoria.matchmaking',
+  'asesoria.autorizar_pagos',
+  'asesoria.configurar_sla',
+];
 
 // Espeja las features de cada plan en data/planes.ts — un cliente Nivel 2 acumula también lo de
 // Nivel 0 y 1. asesoria.solicitar está disponible desde el Nivel 0 (no es un beneficio de plan
 // pago, es el canal de ayuda base).
 function permisosDefaultCliente(numeroNivel: number): PermisoId[] {
   const permisos: PermisoId[] = ['fichas.crear', 'facturacion.gestionar', 'asesoria.solicitar'];
-  if (numeroNivel >= 1) permisos.push('mentorias.acceder', 'ia.mejora_texto', 'ia.asesor');
+  if (numeroNivel >= 1) permisos.push('ia.mejora_texto', 'ia.asesor');
   if (numeroNivel >= 2) {
-    permisos.push('fichas.compartir', 'fichas.ver_historial', 'colaboradores.gestionar', 'mentorias.preguntas_respuestas');
+    permisos.push('fichas.compartir', 'fichas.ver_historial', 'colaboradores.gestionar');
   }
   return permisos;
 }
@@ -126,7 +134,8 @@ function permisosDefaultCliente(numeroNivel: number): PermisoId[] {
 export function permisosDefaultPorRol(rol: RolUsuario, numeroNivel: number): PermisoId[] {
   if (rol === 'superusuario') return TODOS_LOS_PERMISOS;
   if (rol === 'administrador') return PERMISOS_ADMINISTRADOR;
-  if (rol === 'docente') return PERMISOS_DOCENTE;
+  if (rol === 'administrativo_asesorias') return PERMISOS_ADMINISTRATIVO_ASESORIAS;
+  if (rol === 'asesor') return PERMISOS_ASESOR;
   return permisosDefaultCliente(numeroNivel);
 }
 
@@ -134,4 +143,66 @@ export function permisosDefaultPorRol(rol: RolUsuario, numeroNivel: number): Per
 // calculan por defecto según su rol (y su nivel de plan si es cliente).
 export function permisosDe(usuario: Usuario, numeroNivel: number): PermisoId[] {
   return usuario.permisos ?? permisosDefaultPorRol(usuario.rol, numeroNivel);
+}
+
+// Vista curada usada por "Gestionar roles" y "Permisos individuales" — un subconjunto pequeño y
+// con nombres pensados para esas 2 pantallas (no el catálogo completo de arriba, que es más
+// granular/histórico). Cada categoría pertenece "de forma nativa" a un rol; en el modal de permisos
+// por usuario, la categoría propia del usuario se muestra siempre, y las demás solo si ya tiene
+// ahí algún permiso activado fuera de su rol base.
+export type ClaveCategoriaRol = 'administrador' | 'administrativo_asesorias' | 'cliente' | 'asesor';
+
+export interface CategoriaPermisoRol {
+  clave: ClaveCategoriaRol;
+  nombre: string;
+  items: DefinicionPermiso[];
+}
+
+export const CATEGORIAS_PERMISOS_POR_ROL: CategoriaPermisoRol[] = [
+  {
+    clave: 'administrador',
+    nombre: 'Plataforma',
+    items: [
+      { id: 'usuarios.gestionar', etiqueta: 'Gestionar usuarios', descripcion: 'Crear, editar y desactivar usuarios de la plataforma.' },
+      { id: 'roles.gestionar', etiqueta: 'Gestionar roles y permisos', descripcion: 'Administrar roles y permisos base de la plataforma.' },
+      { id: 'sectores.gestionar', etiqueta: 'Gestionar sectores', descripcion: 'Crear, editar y eliminar sectores.' },
+    ],
+  },
+  {
+    clave: 'administrativo_asesorias',
+    nombre: 'Gestión de Asesorías',
+    items: [
+      { id: 'asesoria.tickets_gestionar', etiqueta: 'Gestionar tickets de asesoría', descripcion: 'Administrar las solicitudes/tickets de asesoría 1:1.' },
+      { id: 'asesoria.cobertura_horarios', etiqueta: 'Ver cobertura de horarios', descripcion: 'Ver la disponibilidad horaria de los asesores.' },
+      { id: 'asesoria.matchmaking', etiqueta: 'Intervenir en matchmaking', descripcion: 'Reasignar manualmente qué asesor atiende a qué cliente.' },
+      { id: 'asesoria.autorizar_pagos', etiqueta: 'Autorizar pagos a asesores', descripcion: 'Autorizar y procesar pagos a asesores por su trabajo.' },
+      { id: 'asesoria.configurar_sla', etiqueta: 'Configurar SLA', descripcion: 'Definir y modificar los tiempos (SLA) de la plataforma.' },
+    ],
+  },
+  {
+    clave: 'cliente',
+    nombre: 'Cliente',
+    items: [
+      { id: 'fichas.crear', etiqueta: 'Llenar fichas técnicas', descripcion: 'Crear fichas propias a partir del catálogo oficial y llenarlas.' },
+      { id: 'facturacion.gestionar', etiqueta: 'Comprar planes y add-ons', descripcion: 'Cambiar de plan, método de pago y contratar add-ons.' },
+      { id: 'asesoria.solicitar', etiqueta: 'Solicitar asesoría', descripcion: 'Pedirle ayuda a un asesor por chat o videollamada mientras se llena una ficha.' },
+    ],
+  },
+  {
+    clave: 'asesor',
+    nombre: 'Asesoría',
+    items: [
+      { id: 'asesoria.atender_chat', etiqueta: 'Responder chat', descripcion: 'Recibir y responder solicitudes de asesoría por chat.' },
+      { id: 'asesoria.atender_video', etiqueta: 'Atender videollamada', descripcion: 'Recibir y atender solicitudes de asesoría por videollamada.' },
+      { id: 'asesoria.marcar_disponibilidad', etiqueta: 'Marcar disponibilidad', descripcion: 'Configurar el horario semanal de referencia como asesor.' },
+    ],
+  },
+];
+
+export function claveCategoriaDe(rol: RolUsuario): ClaveCategoriaRol | null {
+  if (rol === 'administrador') return 'administrador';
+  if (rol === 'administrativo_asesorias') return 'administrativo_asesorias';
+  if (rol === 'cliente') return 'cliente';
+  if (rol === 'asesor') return 'asesor';
+  return null;
 }

@@ -67,22 +67,64 @@ const router = createRouter({
           meta: { soloCliente: true },
         },
         {
+          path: 'asesorias',
+          name: 'asesorias',
+          component: () => import('@/features/cliente/AsesoriasPage.vue'),
+          meta: { soloCliente: true },
+        },
+        {
           path: 'mis-fichas/:ejemploId',
           name: 'mis-ficha-editar',
           component: () => import('@/features/cliente/ClienteFichaEditPage.vue'),
           meta: { soloCliente: true },
         },
         {
-          path: 'mentorias',
-          name: 'mentorias',
-          component: () => import('@/features/cliente/MentoriasPage.vue'),
-          meta: { soloCliente: true },
+          path: 'docente/consultas',
+          name: 'docente-consultas',
+          component: () => import('@/features/docente/MisConsultasPage.vue'),
+          meta: { soloAsesor: true },
         },
         {
           path: 'docente/horario',
           name: 'docente-horario',
           component: () => import('@/features/docente/HorarioDocenteEditor.vue'),
-          meta: { soloDocente: true },
+          meta: { soloAsesor: true },
+        },
+        {
+          path: 'docente/especialidades',
+          name: 'docente-especialidades',
+          component: () => import('@/features/docente/MisEspecialidadesAsesor.vue'),
+          meta: { soloAsesor: true },
+        },
+        {
+          path: 'asesoria/tickets',
+          name: 'tickets-asesoria',
+          component: () => import('@/features/administrativo/TicketsAsesoriaPage.vue'),
+          meta: { soloAdministrativoAsesorias: true },
+        },
+        {
+          path: 'asesoria/tickets-mismo-horario',
+          name: 'tickets-mismo-horario',
+          component: () => import('@/features/administrativo/TicketsMismoHorarioPage.vue'),
+          meta: { soloAdministrativoAsesorias: true },
+        },
+        {
+          path: 'asesoria/cobertura-horarios',
+          name: 'cobertura-horarios',
+          component: () => import('@/features/administrativo/CoberturaHorariosPage.vue'),
+          meta: { soloAdministrativoAsesorias: true },
+        },
+        {
+          path: 'asesoria/liquidaciones',
+          name: 'liquidaciones',
+          component: () => import('@/features/administrativo/LiquidacionesPage.vue'),
+          meta: { soloAdministrativoAsesorias: true },
+        },
+        {
+          path: 'asesoria/docentes',
+          name: 'docentes-admin',
+          component: () => import('@/features/administrativo/DocentesAdminPage.vue'),
+          meta: { soloAdministrativoAsesorias: true },
         },
         {
           path: 'about',
@@ -101,7 +143,7 @@ router.beforeEach((to) => {
   if (to.meta.requiresAuth && !session.sesion) {
     return { name: 'login' };
   }
-  if (to.meta.noCliente && (session.sesion?.rol === 'cliente' || session.sesion?.rol === 'docente')) {
+  if (to.meta.noCliente && (session.sesion?.rol === 'cliente' || session.sesion?.rol === 'asesor')) {
     return { name: 'home' };
   }
   if (to.meta.gestionUsuarios && !(session.sesion && puedeAccederGestionUsuarios(session.sesion.rol))) {
@@ -110,10 +152,17 @@ router.beforeEach((to) => {
   if (to.meta.soloCliente && session.sesion?.rol !== 'cliente') {
     return { name: 'home' };
   }
-  if (to.meta.soloDocente && session.sesion?.rol !== 'docente') {
+  if (to.meta.soloAsesor && session.sesion?.rol !== 'asesor') {
     return { name: 'home' };
   }
   if (to.meta.soloSuperusuario && session.sesion?.rol !== 'superusuario') {
+    return { name: 'home' };
+  }
+  if (
+    to.meta.soloAdministrativoAsesorias &&
+    session.sesion?.rol !== 'administrativo_asesorias' &&
+    session.sesion?.rol !== 'superusuario'
+  ) {
     return { name: 'home' };
   }
   if (to.name === 'login' && session.sesion) {

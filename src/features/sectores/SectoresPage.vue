@@ -20,8 +20,9 @@ const busqueda = ref('');
 const sectoresFiltrados = computed(() => {
   const q = busqueda.value.trim().toLowerCase();
   const lista = sectores.value ?? [];
-  if (!q) return lista;
-  return lista.filter((s) => s.nombre.toLowerCase().includes(q));
+  const filtrada = q ? lista.filter((s) => s.nombre.toLowerCase().includes(q)) : lista;
+  // Los sectores "General" (ej. Formatos Generales) no son un ámbito sectorial más — van primero.
+  return [...filtrada].sort((a, b) => Number(a.tipoSector !== 'General') - Number(b.tipoSector !== 'General'));
 });
 
 const ultimaActualizacion = computed(() => {

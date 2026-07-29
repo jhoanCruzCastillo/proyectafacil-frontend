@@ -1,13 +1,14 @@
 import type { RolUsuario, Usuario, Sesion, Ejemplo } from '@/types';
 
-// Reglas de gestión de usuarios: un superusuario gestiona cualquier rol; un administrador
-// gestiona clientes y docentes (los docentes son personal, no clientes finales); un cliente y un
-// docente no gestionan a nadie y no acceden a esta sección.
+// Reglas de gestión de usuarios: un superusuario gestiona cualquier rol; un administrador gestiona
+// clientes, asesores y administrativos de asesorías (personal, no clientes finales); el resto de
+// roles no gestionan a nadie y no acceden a esta sección.
 const ROLES_GESTIONABLES: Record<RolUsuario, RolUsuario[]> = {
-  superusuario: ['superusuario', 'administrador', 'docente', 'cliente'],
-  administrador: ['docente', 'cliente'],
-  docente: [],
+  superusuario: ['superusuario', 'administrador', 'cliente', 'administrativo_asesorias', 'asesor'],
+  administrador: ['cliente', 'administrativo_asesorias', 'asesor'],
   cliente: [],
+  administrativo_asesorias: [],
+  asesor: [],
 };
 
 export function rolesGestionablesPor(actorRol: RolUsuario): RolUsuario[] {

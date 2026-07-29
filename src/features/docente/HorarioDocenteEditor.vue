@@ -123,7 +123,7 @@ async function guardar() {
 </script>
 
 <template>
-  <PageShell :icon="faCalendarWeek" title="Mi horario" description="Gestiona los bloques semanales en los que sueles estar disponible para dar asesoría.">
+  <PageShell :icon="faCalendarWeek" title="Mi disponibilidad" description="Gestiona los bloques semanales en los que sueles estar disponible para dar asesoría.">
     <template #actions>
       <button
         @click="guardar"

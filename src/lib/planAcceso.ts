@@ -49,20 +49,8 @@ export function diasRestantesEntrenamiento(facturacion: FacturacionMock): number
   return Math.max(0, Math.ceil(restante / (1000 * 60 * 60 * 24)));
 }
 
-// Mentorías grupales en línea: ventaja de los planes Nivel 1 (Profesional) y Nivel 2 (Premium).
-export const NIVEL_MENTORIAS = 1;
-export function puedeAccederMentorias(numeroNivel: number): boolean {
-  return numeroNivel >= NIVEL_MENTORIAS;
-}
-
 // Histórico de cambios en fichas llenadas: ventaja exclusiva del plan Nivel 2 (Premium).
 export const NIVEL_HISTORIAL = 2;
 export function puedeVerHistorial(numeroNivel: number): boolean {
   return numeroNivel >= NIVEL_HISTORIAL;
-}
-
-// Preguntas y respuestas dentro de una mentoría grupal: ventaja exclusiva del plan Nivel 2 (Premium).
-export const NIVEL_QA_MENTORIAS = 2;
-export function puedeVerPreguntasMentoria(numeroNivel: number): boolean {
-  return numeroNivel >= NIVEL_QA_MENTORIAS;
 }

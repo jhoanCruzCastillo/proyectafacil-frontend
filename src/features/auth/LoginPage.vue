@@ -2,11 +2,10 @@
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faUser, faLock, faEye, faEyeSlash, faRightToBracket, faCircleExclamation, faUserGear, faUserTie, faUsers, faChalkboardUser } from '@/lib/icons';
+import { faUser, faLock, faEye, faEyeSlash, faRightToBracket, faCircleExclamation, faListCheck } from '@/lib/icons';
 import { useSessionStore } from '@/stores/session';
 import { useUiStore } from '@/stores/ui';
 import { rolUsuarioLabels } from '@/lib/icons';
-import type { RolUsuario } from '@/types';
 
 const session = useSessionStore();
 const ui = useUiStore();
@@ -17,19 +16,24 @@ const password = ref('Super#2026');
 const showPassword = ref(false);
 const error = ref('');
 
-// Solo en desarrollo (npm run dev): credenciales de los 3 usuarios de muestra sembrados por
-// UsuariosSeeder — acelera probar cada rol sin tener que escribir usuario/contraseña a mano. Se
-// excluye del build de producción — el template no puede evaluar import.meta directamente, así
-// que se resuelve una sola vez acá.
+// Solo en desarrollo (npm run dev): credenciales de los 6 usuarios de muestra sembrados por
+// UsuariosSeeder — un usuario por rol (Cliente cuenta con uno de origen Alumno y otro Externo,
+// ya que esa distinción cambia el comportamiento de la app) — acelera probar cada combinación sin
+// escribir usuario/contraseña a mano. Se excluye del build de producción — el template no puede
+// evaluar import.meta directamente, así que se resuelve una sola vez acá.
 const esDev = import.meta.env.DEV;
-const credencialesDev: { rol: RolUsuario; usuario: string; password: string; icon: typeof faUserGear }[] = [
-  { rol: 'superusuario', usuario: 'superuser', password: 'Super#2026', icon: faUserGear },
-  { rol: 'administrador', usuario: 'admin', password: 'Admin#2026', icon: faUserTie },
-  { rol: 'cliente', usuario: 'cliente', password: 'Cliente#2026', icon: faUsers },
-  { rol: 'docente', usuario: 'docente1', password: 'Docente#2026', icon: faChalkboardUser },
+const credencialesDev = [
+  { id: 'superusuario', label: `${rolUsuarioLabels.superusuario} — Carlos Núñez`, usuario: 'superuser', password: 'Super#2026' },
+  { id: 'administrador', label: `${rolUsuarioLabels.administrador} — María Quispe`, usuario: 'admin', password: 'Admin#2026' },
+  { id: 'administrativo_asesorias', label: `${rolUsuarioLabels.administrativo_asesorias} — Roberto Salas`, usuario: 'coord.asesorias', password: 'Asesorias#2026' },
+  { id: 'cliente-alumno', label: `${rolUsuarioLabels.cliente} (Alumno) — Juan Pérez`, usuario: 'cliente', password: 'Cliente#2026' },
+  { id: 'cliente-externo', label: `${rolUsuarioLabels.cliente} (Externo) — Ana Gómez`, usuario: 'cliente2', password: 'Cliente#2026' },
+  { id: 'asesor', label: `${rolUsuarioLabels.asesor} — Pedro Ríos`, usuario: 'asesor1', password: 'Asesor#2026' },
 ];
 
-function usarCredencialDev(c: (typeof credencialesDev)[number]) {
+function usarCredencialDev(id: string) {
+  const c = credencialesDev.find((cred) => cred.id === id);
+  if (!c) return;
   usuario.value = c.usuario;
   password.value = c.password;
   error.value = '';
@@ -87,18 +91,15 @@ async function handleSubmit() {
 
         <div v-if="esDev" class="mb-5">
           <p class="text-[11px] font-semibold uppercase tracking-widest text-muted mb-2">Acceso rápido (solo desarrollo)</p>
-          <div class="grid grid-cols-4 gap-2">
-            <button
-              v-for="c in credencialesDev"
-              :key="c.rol"
-              type="button"
-              @click="usarCredencialDev(c)"
-              class="flex flex-col items-center gap-1 py-2.5 rounded-lg border text-[11px] font-medium transition-colors duration-75"
-              :class="usuario === c.usuario ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-gray-200 text-gray-500 hover:border-gray-300 hover:bg-gray-50'"
+          <div class="relative">
+            <FontAwesomeIcon :icon="faListCheck" class="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+            <select
+              @change="usarCredencialDev(($event.target as HTMLSelectElement).value)"
+              class="w-full pl-10 pr-3 py-2.5 rounded-lg border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500"
             >
-              <FontAwesomeIcon :icon="c.icon" class="w-3.5 h-3.5" />
-              {{ rolUsuarioLabels[c.rol] }}
-            </button>
+              <option value="" disabled selected>Selecciona un usuario de prueba…</option>
+              <option v-for="c in credencialesDev" :key="c.id" :value="c.id">{{ c.label }}</option>
+            </select>
           </div>
         </div>
 
@@ -150,7 +151,7 @@ async function handleSubmit() {
         </button>
 
         <p class="text-[11px] text-muted text-center mt-6">
-          Acceso para superusuarios, administradores, docentes y clientes autorizados.
+          Acceso para superusuarios, administradores, asesores y clientes autorizados.
         </p>
       </form>
     </div>
