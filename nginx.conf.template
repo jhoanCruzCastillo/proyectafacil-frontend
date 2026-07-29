@@ -11,12 +11,11 @@ server {
     # también. Usar una variable en proxy_pass fuerza a nginx a re-resolver el hostname en cada
     # petición (respetando el TTL de `valid`) en vez de una sola vez.
     #
-    # NGINX_LOCAL_RESOLVERS: variable que la propia imagen oficial nginx:1.27-alpine calcula al
-    # arrancar (docker-entrypoint.d/15-local-resolvers.envsh, lee /etc/resolv.conf) — ya viene con
-    # el formato correcto incluyendo corchetes si es IPv6 (en Railway suele serlo, ej. "[fd12::10]:53").
-    # Nunca hardcodear el resolver acá: 127.0.0.11 (DNS embebido de Docker Compose) no existe en la
-    # red de Railway y rompe la resolución por completo ("Connection refused").
-    resolver ${NGINX_LOCAL_RESOLVERS};
+    # RESOLVER_ADDR la arma nginx-entrypoint.sh leyendo /etc/resolv.conf del propio contenedor, ya
+    # con el formato que nginx exige (corchetes si es IPv6, ej. "[fd12::10]:53" — Railway usa IPv6
+    # acá). Nunca hardcodear el resolver: ni 127.0.0.11 (DNS embebido de Docker Compose, no existe
+    # en la red de Railway) ni la IP sin corchetes (nginx rechaza el arranque con "invalid port").
+    resolver ${RESOLVER_ADDR} valid=10s;
 
     location /api/ {
         set $backend_upstream "http://${BACKEND_INTERNAL_HOST}:${BACKEND_INTERNAL_PORT}";
