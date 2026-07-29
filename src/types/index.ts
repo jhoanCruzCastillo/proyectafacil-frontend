@@ -215,7 +215,11 @@ export interface Ejemplo {
   estado?: 'publicado' | 'archivado';
 }
 
-export type RolUsuario = 'superusuario' | 'administrador' | 'cliente' | 'docente';
+export type RolUsuario = 'superusuario' | 'administrador' | 'cliente' | 'administrativo_asesorias' | 'asesor';
+
+// Solo aplica a rol 'cliente' — de dónde viene la cuenta (alumno de un curso vs. cliente externo
+// que se registró directo). null/ausente para el resto de roles.
+export type OrigenCliente = 'alumno' | 'externo';
 
 // Etiqueta de rol personalizada (ej. "Soporte Técnico", "Coordinador") que el admin puede crear
 // desde "Gestionar roles" — hereda el nivel de permisos de Administrador o Cliente (nivelBase), no
@@ -243,20 +247,24 @@ export type PermisoId =
   | 'ejemplos.gestionar'
   | 'excel.asignar'
   | 'json.ver'
-  | 'usuarios.gestionar_clientes'
-  | 'usuarios.gestionar_administradores'
-  | 'usuarios.gestionar_superusuarios'
+  | 'usuarios.gestionar'
+  | 'roles.gestionar'
   | 'fichas.crear'
   | 'fichas.compartir'
   | 'fichas.ver_historial'
   | 'colaboradores.gestionar'
-  | 'mentorias.acceder'
-  | 'mentorias.preguntas_respuestas'
   | 'ia.mejora_texto'
   | 'ia.asesor'
   | 'facturacion.gestionar'
   | 'asesoria.solicitar'
-  | 'asesoria.atender';
+  | 'asesoria.atender_chat'
+  | 'asesoria.atender_video'
+  | 'asesoria.marcar_disponibilidad'
+  | 'asesoria.autorizar_pagos'
+  | 'asesoria.configurar_sla'
+  | 'asesoria.tickets_gestionar'
+  | 'asesoria.cobertura_horarios'
+  | 'asesoria.matchmaking';
 
 export interface Usuario {
   id: string;
@@ -275,6 +283,18 @@ export interface Usuario {
   /** Etiqueta personalizada (ver TipoUsuario) que reemplaza el nombre del rol al mostrarlo — el
    * control de acceso real sigue basado en `rol`, esto es solo la etiqueta visible. */
   tipoUsuarioId?: string;
+  /** Solo tiene sentido cuando rol === 'cliente'. */
+  origen?: OrigenCliente | null;
+  correo?: string;
+  /** Avatar generado (DiceBear) o subido — ilustrado, no una foto real. */
+  fotoUrl?: string | null;
+  /** Solo tiene sentido cuando rol === 'cliente' y origen === 'alumno' — fecha ISO (YYYY-MM-DD). */
+  vigenciaAlumnoHasta?: string | null;
+  /** Rastro de auditoría cuando un admin cambió `origen` a mano — lo setea el backend, nunca el cliente. */
+  origenCambiadoPorNombre?: string | null;
+  origenCambiadoEn?: string | null;
+  /** Solo tiene sentido cuando rol === 'asesor' — toggle propio de disponibilidad para recibir solicitudes. */
+  disponible?: boolean;
 }
 
 // Sesión activa — nunca guarda la contraseña
@@ -373,36 +393,6 @@ export interface CatalogoExcelPlantilla {
   asignadoId?: string;
 }
 
-// Sesión de mentoría grupal en vivo (ventaja del plan Nivel 1+) — sin integración real
-// de video ni calendario.
-export interface SesionMentoria {
-  id: string;
-  tema: string;
-  mentor: string;
-  /** ISO datetime de inicio */
-  fechaISO: string;
-  cuposTotales: number;
-  /** cuentaId (usuarioId del titular) de quienes se inscribieron */
-  inscritos: string[];
-  /** Enlace de la videollamada (Zoom, Google Meet, etc.) — de muestra, no lleva a una reunión real */
-  linkReunion: string;
-  /** Enlace a la grabación — solo presente en sesiones que ya ocurrieron */
-  grabacionUrl?: string;
-  /** Preguntas y respuestas de esta sesión (ventaja exclusiva del plan Nivel 2) */
-  preguntas: PreguntaMentoria[];
-}
-
-export interface PreguntaMentoria {
-  id: string;
-  usuarioId: string;
-  pregunta: string;
-  /** ISO datetime */
-  fechaPregunta: string;
-  respuesta?: string;
-  /** ISO datetime */
-  fechaRespuesta?: string;
-}
-
 // Histórico de cambios en una ficha llenada (ventaja del plan Nivel 2) — ayuda a un equipo con
 // colaboradores a ver quién editó qué. Se registra una entrada por cada vez que se presiona
 // "Guardar" y hubo campos con valores distintos, no por cada tecla.
@@ -423,8 +413,7 @@ export interface CambioFicha {
   campos: CampoCambio[];
 }
 
-// Asesoría 1:1 cliente↔docente (chat o videollamada por link externo) — no confundir con
-// SesionMentoria (grupal, sembrada por admin). diaSemana: 1=lunes .. 7=domingo.
+// Asesoría 1:1 cliente↔docente (chat o videollamada por link externo). diaSemana: 1=lunes .. 7=domingo.
 export interface HorarioDocente {
   id: string;
   diaSemana: number;
@@ -437,31 +426,167 @@ export interface HorarioDocente {
 export interface Docente {
   id: string;
   nombre: string;
+  fotoUrl?: string | null;
   /** Bloques semanales de referencia — no es un calendario de citas, solo indica cuándo suele estar disponible */
   horario: HorarioDocente[];
 }
 
 export type TipoAsesoria = 'chat' | 'video';
 
-export type EstadoSolicitudAsesoria = 'pendiente' | 'aceptada' | 'rechazada' | 'finalizada';
+// Vocabulario final del documento (docs/proyectafacil-asesorias.md §3.2): Pendiente → Asignado
+// (chat) / Agendado (video) — el matchmaking por broadcast del Módulo 3 asigna un asesor — →
+// Completado | Cancelado | En espera (sin cobertura para reasignar, Módulo 4).
+export type EstadoSolicitudAsesoria = 'pendiente' | 'asignado' | 'agendado' | 'completado' | 'cancelado' | 'en_espera';
+
+// Los 4 tipos de documento del Formato 6A (docs/proyectafacil-asesorias.md §3.3) — paso 2 del
+// chatbot guiado, misma categorización que la asesor autogestiona en Mis especialidades.
+export type TipoDocumento = 'formatos' | 'ioarr' | 'fichas_tecnicas' | 'perfiles';
 
 export interface SolicitudAsesoria {
   id: string;
   clienteId: string;
   clienteNombre?: string | null;
-  docenteId: string;
+  clienteFotoUrl?: string | null;
+  /** null hasta que el matchmaking (broadcast) asigna un asesor — ver docs §4 Fase 2 */
+  docenteId: string | null;
   docenteNombre?: string | null;
+  docenteFotoUrl?: string | null;
   /** Ficha que el cliente estaba llenando al pedir ayuda, si aplica */
   ejemploId?: string | null;
+  /** Sector MEF elegido en el paso 1 del chatbot guiado */
+  sectorId?: string | null;
+  sectorNombre?: string | null;
+  tipoDocumento?: TipoDocumento | null;
   tipo: TipoAsesoria;
   estado: EstadoSolicitudAsesoria;
   mensajeInicial?: string | null;
-  /** Link externo (Zoom/Meet) que el docente pega al aceptar una solicitud de tipo 'video' — igual mecanismo que SesionMentoria.linkReunion */
+  /** Horario elegido en la ruta Video — ISO date (YYYY-MM-DD) */
+  horarioFecha?: string | null;
+  /** "HH:MM" */
+  horarioHoraInicio?: string | null;
+  /** "HH:MM" */
+  horarioHoraFin?: string | null;
+  /** Link externo (Zoom/Meet) que el docente pega al aceptar una solicitud de tipo 'video' */
   linkReunion?: string | null;
+  /** ISO datetime — plazo para que algún asesor acepte antes de requerir intervención manual (Módulo 4) */
+  slaVenceEn?: string | null;
+  /** 1-5, solo presente cuando estado='completado' y el alumno ya calificó (Módulo 6) */
+  calificacion?: number | null;
+  calificacionComentario?: string | null;
   /** ISO datetime */
   creadoEn: string;
   /** ISO datetime */
   actualizadoEn?: string | null;
+}
+
+// Módulo 4 — vista del Administrativo de Asesorías.
+export interface DocenteNotificado {
+  id: string;
+  nombre: string;
+  fotoUrl?: string | null;
+  /** ISO datetime */
+  notificadoEn: string;
+}
+
+export interface TicketAsesoriaDetalle extends SolicitudAsesoria {
+  clienteCorreo?: string | null;
+  docentesNotificados: DocenteNotificado[];
+}
+
+export interface DocenteDisponibleAhora {
+  id: string;
+  nombre: string;
+  fotoUrl?: string | null;
+  /** Especialidad representativa (el docente puede tener varias) para la tarjeta del modal de intervención manual. */
+  especialidad?: string | null;
+  /** Promedio de calificación (1-5) de sus consultas completadas de siempre — null si aún no tiene ninguna calificada. */
+  calificacionPromedio?: number | null;
+  /** Total de consultas completadas de siempre (no solo del mes). */
+  consultasAtendidas?: number;
+}
+
+export interface DashboardAsesoria {
+  pendientes: number;
+  enEspera: number;
+  completadosHoy: number;
+  slaPorVencer: number;
+}
+
+// Módulo 6 — honorarios y Liquidaciones (Administrativo de Asesorías).
+export interface LiquidacionAsesor {
+  asesorId: string;
+  asesorNombre: string;
+  asesorFotoUrl?: string | null;
+  ticketsCompletados: number;
+  ticketsPendientes: number;
+  honorarioTotal: number;
+  honorarioPendiente: number;
+  todoPagado: boolean;
+}
+
+export interface Liquidaciones {
+  /** "YYYY-MM" */
+  periodo: string;
+  honorarioPorTicket: number;
+  asesores: LiquidacionAsesor[];
+}
+
+// Módulo 5 — mapa de calor de cobertura de horarios y gestión de docentes.
+export interface CeldaCobertura {
+  /** ISO date (YYYY-MM-DD) */
+  fecha: string;
+  /** "HH:MM" */
+  horaInicio: string;
+  docentes: DocenteDisponibleAhora[];
+  /** true si hay un ticket de video pendiente/en espera sin resolver para esta fecha+hora exacta */
+  pendiente: boolean;
+}
+
+export interface CoberturaHorarios {
+  /** ISO date del lunes de la semana mostrada */
+  lunes: string;
+  /** ISO date del domingo de la semana mostrada */
+  domingo: string;
+  dias: string[];
+  franjas: string[];
+  celdas: CeldaCobertura[];
+}
+
+export interface EspecialidadDocente {
+  id: string;
+  nombre: string;
+}
+
+export interface DocenteAdmin {
+  id: string;
+  nombre: string;
+  correo?: string | null;
+  fotoUrl?: string | null;
+  disponible: boolean;
+  estado: EstadoUsuario;
+  especialidades: EspecialidadDocente[];
+  consultasAtendidasMes: number;
+}
+
+export type OrigenTicketConsulta = 'plan' | 'addon';
+export type EstadoTicketConsulta = 'disponible' | 'reservado' | 'consumido' | 'liberado' | 'expirado';
+
+export interface TicketConsulta {
+  id: string;
+  usuarioId: string;
+  origen: OrigenTicketConsulta;
+  estado: EstadoTicketConsulta;
+  /** Ficha de chat o de videoconferencia — son dos tipos separados, un ticket de una modalidad
+   * nunca se puede usar para solicitar la otra (ver AsesoriaController::reservarTicket). */
+  modalidad: TipoAsesoria;
+  /** Duración en minutos de la consulta que da el asesor — fija según la modalidad al momento
+   * en que se emitió esta ficha. */
+  duracionMinutos: number;
+  /** ISO date (YYYY-MM-DD), solo aplica a tickets origen 'plan' */
+  fechaExpira?: string | null;
+  solicitudAsesoriaId?: string | null;
+  /** ISO datetime */
+  creadoEn: string;
 }
 
 export interface MensajeAsesoria {

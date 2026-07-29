@@ -34,7 +34,6 @@ export const planes: Plan[] = [
       'Asesor de IA 24/7 para llenado de las plantillas',
       'Límite de 1 usuario y hasta 3 plantillas simultáneas',
       '3 consultas de asesoría 1:1 con un docente',
-      'Acceso a mentorías grupales en línea',
       'Incluye todos los formatos',
     ],
   },
@@ -53,7 +52,6 @@ export const planes: Plan[] = [
       '6 consultas de asesoría 1:1 con un docente',
       'Histórico de cambio en las plantillas llenadas',
       'Sugerencias inteligentes de IA',
-      'Acceso a sección de preguntas y respuestas en las mentorías grupales',
     ],
   },
 ];

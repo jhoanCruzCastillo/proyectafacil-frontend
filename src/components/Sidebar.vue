@@ -1,20 +1,16 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faHouse, faLayerGroup, faAngleLeft, faUserGear, faFileCirclePlus, faChalkboardUser, faLock, faCalendarWeek, faCircleInfo } from '@/lib/icons';
+import { faHouse, faLayerGroup, faAngleLeft, faUserGear, faFileCirclePlus, faCalendarWeek, faCircleInfo, faListCheck, faUserTie, faPeopleGroup, faMoneyBillTransfer } from '@/lib/icons';
 import UserMenu from '@/features/settings/UserMenu.vue';
 import NotificacionesBell from '@/features/asesoria/NotificacionesBell.vue';
 import { useSessionStore } from '@/stores/session';
 import { puedeAccederGestionUsuarios } from '@/lib/permisos';
-import { puedeAccederMentorias } from '@/lib/planAcceso';
-import { useEstadoEntrenamiento } from '@/composables/useEstadoEntrenamiento';
 import logo from '@/assets/logo.png';
 
 const session = useSessionStore();
-const { numeroNivel } = useEstadoEntrenamiento();
 const esCliente = computed(() => session.sesion?.rol === 'cliente');
-const esDocente = computed(() => session.sesion?.rol === 'docente');
-const mentoriasBloqueadas = computed(() => esCliente.value && !puedeAccederMentorias(numeroNivel.value));
+const esAsesor = computed(() => session.sesion?.rol === 'asesor');
 
 const navItems = computed(() => {
   let items: { to: string; label: string; icon: typeof faHouse }[];
@@ -22,18 +18,25 @@ const navItems = computed(() => {
     items = [
       { to: '/', label: 'Mis fichas', icon: faHouse },
       { to: '/fichas-oficiales', label: 'Fichas oficiales', icon: faFileCirclePlus },
-      { to: '/mentorias', label: 'Mentorías', icon: faChalkboardUser },
+      { to: '/asesorias', label: 'Asesorías', icon: faUserTie },
     ];
-  } else if (esDocente.value) {
+  } else if (esAsesor.value) {
     items = [
-      { to: '/', label: 'Solicitudes', icon: faHouse },
-      { to: '/docente/horario', label: 'Mi horario', icon: faCalendarWeek },
+      { to: '/', label: 'Mis consultas', icon: faHouse },
+      { to: '/docente/especialidades', label: 'Mis especialidades', icon: faListCheck },
+      { to: '/docente/horario', label: 'Mi disponibilidad', icon: faCalendarWeek },
     ];
   } else {
     items = [
       { to: '/', label: 'Inicio', icon: faHouse },
       { to: '/sectores', label: 'Sectores', icon: faLayerGroup },
     ];
+    if (session.sesion?.rol === 'administrativo_asesorias' || session.sesion?.rol === 'superusuario') {
+      items.push({ to: '/asesoria/tickets', label: 'Tickets de asesoría', icon: faListCheck });
+      items.push({ to: '/asesoria/cobertura-horarios', label: 'Cobertura de horarios', icon: faCalendarWeek });
+      items.push({ to: '/asesoria/docentes', label: 'Docentes', icon: faPeopleGroup });
+      items.push({ to: '/asesoria/liquidaciones', label: 'Liquidaciones', icon: faMoneyBillTransfer });
+    }
   }
   if (session.sesion && puedeAccederGestionUsuarios(session.sesion.rol)) {
     items.push({ to: '/usuarios', label: 'Usuarios y permisos', icon: faUserGear });
@@ -89,12 +92,6 @@ const emit = defineEmits<{ hide: [] }>();
             >
               <FontAwesomeIcon :icon="item.icon" class="w-4 text-center" />
               <span class="flex-1">{{ item.label }}</span>
-              <FontAwesomeIcon
-                v-if="item.to === '/mentorias' && mentoriasBloqueadas"
-                :icon="faLock"
-                class="w-3 h-3 text-white/40"
-                title="Disponible desde Nivel 1 — actualiza tu plan"
-              />
             </a>
           </RouterLink>
         </li>

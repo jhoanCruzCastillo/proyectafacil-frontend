@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faPlus, faPen, faTrash, faShieldHalved, faTags, faUserGear, rolUsuarioLabels } from '@/lib/icons';
+import { faPlus, faPen, faTrash, faShieldHalved, faTags, faUserGear, faUserGroup, faGlobe, faGraduationCap, faSearch, rolUsuarioLabels } from '@/lib/icons';
 import { rolesGestionablesPor } from '@/lib/permisos';
 import { useSessionStore } from '@/stores/session';
 import { useUsuariosQuery, useEliminarUsuario } from '@/composables/useUsuarios';
@@ -15,7 +15,7 @@ import PageShell from '@/components/PageShell.vue';
 import UsuarioModal from './UsuarioModal.vue';
 import GestionarRolesModal from './GestionarRolesModal.vue';
 import PermisosUsuarioModal from './PermisosUsuarioModal.vue';
-import type { Usuario, RolUsuario } from '@/types';
+import type { Usuario, RolUsuario, OrigenCliente } from '@/types';
 
 const session = useSessionStore();
 const ui = useUiStore();
@@ -30,13 +30,35 @@ const tiposUsuario = computed(() => tiposUsuarioData.value ?? []);
 const rolBadge: Record<RolUsuario, string> = {
   superusuario: 'bg-amber-50 text-amber-700 border border-amber-200',
   administrador: 'bg-brand-50 text-brand-700 border border-brand-200',
-  docente: 'bg-violet-50 text-violet-700 border border-violet-200',
   cliente: 'bg-sky-50 text-sky-700 border border-sky-200',
+  administrativo_asesorias: 'bg-teal-50 text-teal-700 border border-teal-200',
+  asesor: 'bg-fuchsia-50 text-fuchsia-700 border border-fuchsia-200',
+};
+
+const origenBadge: Record<OrigenCliente, { label: string; icon: typeof faGraduationCap; class: string }> = {
+  alumno: { label: 'Alumno', icon: faGraduationCap, class: 'bg-brand-50 text-brand-700' },
+  externo: { label: 'Externo', icon: faGlobe, class: 'bg-gray-100 text-gray-600' },
 };
 
 const actorRol = computed(() => session.sesion?.rol ?? 'cliente');
 const rolesVisibles = computed(() => rolesGestionablesPor(actorRol.value));
-const lista = computed(() => usuarios.value.filter((u) => rolesVisibles.value.includes(u.rol)));
+
+const filtroRol = ref<RolUsuario | ''>('');
+const filtroOrigen = ref<OrigenCliente | ''>('');
+const busqueda = ref('');
+
+const lista = computed(() => {
+  const q = busqueda.value.trim().toLowerCase();
+  return usuarios.value.filter((u) => {
+    if (!rolesVisibles.value.includes(u.rol)) return false;
+    if (filtroRol.value && u.rol !== filtroRol.value) return false;
+    if (filtroOrigen.value && u.origen !== filtroOrigen.value) return false;
+    if (q && !u.nombre.toLowerCase().includes(q) && !u.usuario.toLowerCase().includes(q)) return false;
+    return true;
+  });
+});
+
+const rolesFiltrables = computed(() => rolesVisibles.value);
 
 const showModal = ref(false);
 const showRolesModal = ref(false);
@@ -96,12 +118,46 @@ async function handleDelete() {
       </button>
     </template>
 
+    <div class="flex flex-wrap items-center gap-3 px-6 pt-6 pb-2">
+      <div class="relative">
+        <FontAwesomeIcon :icon="faUserGroup" class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+        <select
+          v-model="filtroRol"
+          class="appearance-none pl-9 pr-8 py-2.5 rounded-lg border border-gray-200 text-sm text-heading bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500"
+        >
+          <option value="">Todos los roles</option>
+          <option v-for="r in rolesFiltrables" :key="r" :value="r">{{ rolUsuarioLabels[r] }}</option>
+        </select>
+      </div>
+      <div class="relative">
+        <FontAwesomeIcon :icon="faGlobe" class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+        <select
+          v-model="filtroOrigen"
+          class="appearance-none pl-9 pr-8 py-2.5 rounded-lg border border-gray-200 text-sm text-heading bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500"
+        >
+          <option value="">Todos los orígenes</option>
+          <option value="alumno">Alumno</option>
+          <option value="externo">Externo</option>
+        </select>
+      </div>
+      <div class="relative ml-auto">
+        <FontAwesomeIcon :icon="faSearch" class="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+        <input
+          v-model="busqueda"
+          type="text"
+          placeholder="Buscar usuario..."
+          class="w-64 pl-10 pr-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500"
+        />
+      </div>
+    </div>
+
     <table class="w-full">
       <thead>
         <tr class="border-b border-gray-100">
           <th class="text-left text-[11px] font-semibold uppercase tracking-wider text-muted px-6 py-4">Nombre</th>
           <th class="text-left text-[11px] font-semibold uppercase tracking-wider text-muted px-4 py-4">Usuario</th>
           <th class="text-left text-[11px] font-semibold uppercase tracking-wider text-muted px-4 py-4">Rol</th>
+          <th class="text-left text-[11px] font-semibold uppercase tracking-wider text-muted px-4 py-4">Origen</th>
           <th class="text-center text-[11px] font-semibold uppercase tracking-wider text-muted px-6 py-4">Acciones</th>
         </tr>
       </thead>
@@ -113,6 +169,17 @@ async function handleDelete() {
             <span class="text-xs font-semibold px-2.5 py-1 rounded-full" :class="rolBadge[u.rol]">
               {{ tiposUsuario.find((t) => t.id === u.tipoUsuarioId)?.nombre ?? rolUsuarioLabels[u.rol] }}
             </span>
+          </td>
+          <td class="px-4 py-4">
+            <span
+              v-if="u.origen"
+              class="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full"
+              :class="origenBadge[u.origen].class"
+            >
+              <FontAwesomeIcon :icon="origenBadge[u.origen].icon" class="w-3 h-3" />
+              {{ origenBadge[u.origen].label }}
+            </span>
+            <span v-else class="text-sm text-gray-300">—</span>
           </td>
           <td class="px-6 py-4">
             <div class="flex items-center justify-center gap-2">
@@ -145,7 +212,7 @@ async function handleDelete() {
           </td>
         </tr>
         <tr v-if="lista.length === 0">
-          <td colspan="4" class="px-6 py-8 text-center text-sm text-muted">No hay usuarios para mostrar.</td>
+          <td colspan="5" class="px-6 py-8 text-center text-sm text-muted">No hay usuarios para mostrar.</td>
         </tr>
       </tbody>
     </table>

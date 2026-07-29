@@ -9,6 +9,6 @@ const session = useSessionStore();
 
 <template>
   <MisFichasPage v-if="session.sesion?.rol === 'cliente'" />
-  <DocenteHomePage v-else-if="session.sesion?.rol === 'docente'" />
+  <DocenteHomePage v-else-if="session.sesion?.rol === 'asesor'" />
   <DashboardPage v-else />
 </template>
