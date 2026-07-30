@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faListCheck, faClock, faHourglassHalf, faCircleCheck, faTriangleExclamation, faUserCheck, faComments, faVideo } from '@/lib/icons';
+import { faListCheck, faClock, faHourglassHalf, faCircleCheck, faTriangleExclamation, faUserCheck, faComments, faVideo, faChevronLeft, faChevronRight, faAnglesLeft, faAnglesRight } from '@/lib/icons';
 import PageShell from '@/components/PageShell.vue';
 import Avatar from '@/components/Avatar.vue';
 import TicketDetalleModal from './TicketDetalleModal.vue';
@@ -39,6 +39,48 @@ const ticketsFiltrados = computed(() => {
   if (tabActiva.value === 'pendiente') return (tickets.value ?? []).filter((t) => t.estado === 'pendiente' || t.estado === 'asignado' || t.estado === 'agendado');
   return (tickets.value ?? []).filter((t) => t.estado === (tabActiva.value as EstadoSolicitudAsesoria));
 });
+
+const PORCIONES = [10, 25, 50];
+const porPagina = ref(10);
+const paginaActual = ref(1);
+
+function cambiarTab(tab: Tab) {
+  tabActiva.value = tab;
+  paginaActual.value = 1;
+}
+
+const totalPaginas = computed(() => Math.max(1, Math.ceil(ticketsFiltrados.value.length / porPagina.value)));
+
+const ticketsPagina = computed(() => {
+  const inicio = (paginaActual.value - 1) * porPagina.value;
+  return ticketsFiltrados.value.slice(inicio, inicio + porPagina.value);
+});
+
+const rangoDesde = computed(() => (ticketsFiltrados.value.length === 0 ? 0 : (paginaActual.value - 1) * porPagina.value + 1));
+const rangoHasta = computed(() => Math.min(paginaActual.value * porPagina.value, ticketsFiltrados.value.length));
+
+// Lista de páginas a mostrar en la paginación, con "…" cuando hay más de 7 páginas — ej. 1 … 4 5 6 … 12.
+const paginasVisibles = computed<(number | '…')[]>(() => {
+  const total = totalPaginas.value;
+  const actual = paginaActual.value;
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+
+  const paginas: (number | '…')[] = [1];
+  if (actual > 3) paginas.push('…');
+  for (let p = Math.max(2, actual - 1); p <= Math.min(total - 1, actual + 1); p++) paginas.push(p);
+  if (actual < total - 2) paginas.push('…');
+  paginas.push(total);
+  return paginas;
+});
+
+function irAPagina(p: number) {
+  paginaActual.value = Math.min(Math.max(1, p), totalPaginas.value);
+}
+
+function cambiarPorPagina(valor: number) {
+  porPagina.value = valor;
+  paginaActual.value = 1;
+}
 
 const detalleId = ref<string | null>(null);
 const intervencionTicket = ref<SolicitudAsesoria | null>(null);
@@ -85,7 +127,7 @@ function slaDe(t: SolicitudAsesoria) {
       <button
         v-for="tab in TABS"
         :key="tab.value"
-        @click="tabActiva = tab.value"
+        @click="cambiarTab(tab.value)"
         type="button"
         class="px-4 py-2.5 text-sm font-medium border-b-2 transition-colors duration-75"
         :class="tabActiva === tab.value ? 'border-brand-600 text-brand-700' : 'border-transparent text-gray-500 hover:text-gray-700'"
@@ -111,7 +153,7 @@ function slaDe(t: SolicitudAsesoria) {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="t in ticketsFiltrados" :key="t.id" class="border-b border-gray-200 last:border-b-0">
+          <tr v-for="t in ticketsPagina" :key="t.id" class="border-b border-gray-200 last:border-b-0">
             <td class="py-4 px-4 font-mono text-xs whitespace-nowrap" :class="slaDe(t).vencido ? 'text-red-600 font-semibold' : 'text-heading'">{{ codigoTicketFalso(t.id) }}</td>
             <td class="py-4 px-4 text-heading whitespace-nowrap">
               <div class="flex items-center gap-2">
@@ -126,7 +168,7 @@ function slaDe(t: SolicitudAsesoria) {
             <td class="py-4 px-4">
               <span
                 class="w-7 h-7 rounded-full flex items-center justify-center"
-                :class="t.tipo === 'video' ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'"
+                :class="t.tipo === 'video' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'"
                 :title="t.tipo === 'video' ? 'Videollamada' : 'Chat'"
               >
                 <FontAwesomeIcon :icon="t.tipo === 'video' ? faVideo : faComments" class="w-3.5 h-3.5" />
@@ -174,6 +216,50 @@ function slaDe(t: SolicitudAsesoria) {
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <div v-if="!isLoading && ticketsFiltrados.length > 0" class="flex flex-wrap items-center justify-between gap-4 mt-4">
+      <p class="text-xs text-muted">Mostrando {{ rangoDesde }} a {{ rangoHasta }} de {{ ticketsFiltrados.length }} tickets</p>
+
+      <div class="flex items-center gap-1">
+        <button type="button" :disabled="paginaActual === 1" @click="irAPagina(1)" class="w-8 h-8 rounded-lg border border-gray-200 text-gray-500 flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors duration-75">
+          <FontAwesomeIcon :icon="faAnglesLeft" class="w-3 h-3" />
+        </button>
+        <button type="button" :disabled="paginaActual === 1" @click="irAPagina(paginaActual - 1)" class="w-8 h-8 rounded-lg border border-gray-200 text-gray-500 flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors duration-75">
+          <FontAwesomeIcon :icon="faChevronLeft" class="w-3 h-3" />
+        </button>
+
+        <template v-for="(p, i) in paginasVisibles" :key="i">
+          <span v-if="p === '…'" class="w-8 h-8 flex items-center justify-center text-gray-400 text-sm">…</span>
+          <button
+            v-else
+            type="button"
+            @click="irAPagina(p)"
+            class="w-8 h-8 rounded-lg text-sm font-medium flex items-center justify-center transition-colors duration-75"
+            :class="p === paginaActual ? 'border-2 border-brand-600 text-brand-700' : 'border border-gray-200 text-gray-600 hover:bg-gray-50'"
+          >
+            {{ p }}
+          </button>
+        </template>
+
+        <button type="button" :disabled="paginaActual === totalPaginas" @click="irAPagina(paginaActual + 1)" class="w-8 h-8 rounded-lg border border-gray-200 text-gray-500 flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors duration-75">
+          <FontAwesomeIcon :icon="faChevronRight" class="w-3 h-3" />
+        </button>
+        <button type="button" :disabled="paginaActual === totalPaginas" @click="irAPagina(totalPaginas)" class="w-8 h-8 rounded-lg border border-gray-200 text-gray-500 flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors duration-75">
+          <FontAwesomeIcon :icon="faAnglesRight" class="w-3 h-3" />
+        </button>
+      </div>
+
+      <label class="flex items-center gap-2 text-xs text-muted">
+        Mostrar:
+        <select
+          :value="porPagina"
+          @change="cambiarPorPagina(Number(($event.target as HTMLSelectElement).value))"
+          class="rounded-lg border border-gray-200 text-sm text-heading px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500"
+        >
+          <option v-for="n in PORCIONES" :key="n" :value="n">{{ n }} por página</option>
+        </select>
+      </label>
     </div>
   </PageShell>
 
