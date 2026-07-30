@@ -8,8 +8,14 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
     ...options,
   });
 
+  // DEBUG TEMPORAL — quitar cuando se resuelva el issue de producción devolviendo datos mock.
+  // Si este log NUNCA aparece para un recurso (ej. usuarios), es la prueba de que ese recurso está
+  // en modo mock (VITE_MOCK_* sin definir) y ni siquiera está intentando llamar al backend real.
+  console.log(`[DEBUG apiFetch] ${options.method ?? 'GET'} /api/${path} ->`, res.status);
+
   if (!res.ok) {
     const body = await res.json().catch(() => null);
+    console.log(`[DEBUG apiFetch] error body /api/${path}:`, body);
     throw new Error(body?.error ?? `Error ${res.status} en /api/${path}`);
   }
 

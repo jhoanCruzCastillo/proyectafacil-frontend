@@ -4,17 +4,28 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
-    # Docker/Railway's embedded DNS — sin esto, nginx resuelve BACKEND_INTERNAL_HOST UNA sola vez al
-    # arrancar y cachea esa IP para siempre. Cuando el backend se reinicia (deploy, redeploy, o
-    # incluso un `php spark db:seed` que reinicia el contenedor), Railway le asigna una IP interna
-    # nueva y nginx se queda apuntando a la vieja -> "no live upstreams", 502 en todo /api/, hasta
-    # que se reinicia el frontend también. Usar una variable en proxy_pass fuerza a nginx a
-    # re-resolver el hostname en cada petición (respetando el TTL de `valid`) en vez de una sola vez.
-    resolver 127.0.0.11 valid=10s ipv6=off;
+    # Sin esto, nginx resuelve BACKEND_INTERNAL_HOST UNA sola vez al arrancar y cachea esa IP para
+    # siempre. Cuando el backend se reinicia (deploy, redeploy, o incluso un `php spark db:seed`
+    # que reinicia el contenedor), Railway le asigna una IP interna nueva y nginx se queda apuntando
+    # a la vieja -> "no live upstreams", 502 en todo /api/, hasta que se reinicia el frontend
+    # también. Usar una variable en proxy_pass fuerza a nginx a re-resolver el hostname en cada
+    # petición (respetando el TTL de `valid`) en vez de una sola vez.
+    #
+    # RESOLVER_ADDR la arma nginx-entrypoint.sh leyendo /etc/resolv.conf del propio contenedor, ya
+    # con el formato que nginx exige (corchetes si es IPv6, ej. "[fd12::10]:53" — Railway usa IPv6
+    # acá). Nunca hardcodear el resolver: ni 127.0.0.11 (DNS embebido de Docker Compose, no existe
+    # en la red de Railway) ni la IP sin corchetes (nginx rechaza el arranque con "invalid port").
+    resolver ${RESOLVER_ADDR} valid=10s;
 
     location /api/ {
+        # Con proxy_pass apuntando a una VARIABLE (necesario para forzar la re-resolución de DNS),
+        # nginx deja de anexar automáticamente la parte de la URL que matcheó este location — todo
+        # se reenviaba literalmente como "/api/" pelado, sin importar qué venía después
+        # (/api/auth/me, /api/sectores, etc. — todos llegaban al backend como "/api"). $request_uri
+        # es la URL completa tal cual la mandó el cliente (path + query string) y hay que anexarla
+        # explícitamente para que el backend reciba la ruta real.
         set $backend_upstream "http://${BACKEND_INTERNAL_HOST}:${BACKEND_INTERNAL_PORT}";
-        proxy_pass $backend_upstream/api/;
+        proxy_pass $backend_upstream$request_uri;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
