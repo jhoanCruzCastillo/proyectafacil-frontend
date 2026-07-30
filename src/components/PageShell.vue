@@ -20,6 +20,9 @@ withDefaults(
     /** true = el slot por defecto ya trae su propio contenedor blanco (ej. una tabla con su
      * propio bg-surface-card) — PageShell no agrega uno encima, solo deja el margen superior. */
     bare?: boolean;
+    /** true = cabecera más baja (menos padding, título/ícono más chicos) — para páginas donde los
+     * indicadores viven en el contenido blanco en vez de dentro de la cabecera oscura. */
+    compact?: boolean;
   }>(),
   { contentClass: 'p-6 sm:p-8' },
 );
@@ -32,29 +35,29 @@ withDefaults(
         <slot name="breadcrumb" />
       </div>
 
-      <div class="rounded-2xl bg-glass border border-glass-border p-6 sm:p-8">
+      <div class="rounded-2xl bg-glass border border-glass-border" :class="compact ? 'p-4 sm:p-5' : 'p-6 sm:p-8'">
         <div class="flex flex-wrap items-start justify-between gap-6">
           <div class="min-w-0">
             <div class="flex items-center gap-3">
               <div
                 v-if="icon"
-                class="w-11 h-11 rounded-xl flex items-center justify-center shrink-0"
-                :class="iconColor ? '' : 'bg-brand-500/15 text-brand-400'"
+                class="rounded-xl flex items-center justify-center shrink-0"
+                :class="[compact ? 'w-9 h-9' : 'w-11 h-11', iconColor ? '' : 'bg-brand-500/15 text-brand-400']"
                 :style="iconColor ? { backgroundColor: iconColor + '26', color: iconColor } : undefined"
               >
-                <FontAwesomeIcon :icon="icon" class="w-5 h-5" />
+                <FontAwesomeIcon :icon="icon" :class="compact ? 'w-4 h-4' : 'w-5 h-5'" />
               </div>
-              <h1 class="text-2xl sm:text-3xl font-bold text-white">{{ title }}</h1>
+              <h1 class="font-bold text-white" :class="compact ? 'text-lg sm:text-xl' : 'text-2xl sm:text-3xl'">{{ title }}</h1>
             </div>
-            <p v-if="description" class="mt-2 text-sm text-white/60 max-w-xl">{{ description }}</p>
-            <div class="mt-3 h-1 w-10 rounded-full bg-brand-500" />
+            <p v-if="description" class="text-white/60 max-w-xl" :class="compact ? 'mt-1 text-xs' : 'mt-2 text-sm'">{{ description }}</p>
+            <div class="rounded-full bg-brand-500" :class="compact ? 'mt-2 h-0.5 w-8' : 'mt-3 h-1 w-10'" />
           </div>
           <div v-if="$slots.actions" class="flex items-center gap-3 shrink-0">
             <slot name="actions" />
           </div>
         </div>
 
-        <div v-if="$slots.stats" class="mt-8 grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div v-if="$slots.stats" class="grid grid-cols-2 lg:grid-cols-4 gap-4" :class="compact ? 'mt-5' : 'mt-8'">
           <slot name="stats" />
         </div>
       </div>
