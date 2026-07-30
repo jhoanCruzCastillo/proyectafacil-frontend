@@ -61,9 +61,31 @@ const router = createRouter({
           meta: { gestionUsuarios: true },
         },
         {
-          path: 'fichas-oficiales',
-          name: 'fichas-oficiales',
-          component: () => import('@/features/cliente/FichasOficialesPage.vue'),
+          path: 'formatos',
+          name: 'formatos',
+          component: () => import('@/features/cliente/InstrumentoPage.vue'),
+          props: { tipo: 'formato' },
+          meta: { soloCliente: true },
+        },
+        {
+          path: 'fichas-tecnicas',
+          name: 'fichas-tecnicas',
+          component: () => import('@/features/cliente/InstrumentoPage.vue'),
+          props: { tipo: 'ficha_tecnica' },
+          meta: { soloCliente: true },
+        },
+        {
+          path: 'ioarr',
+          name: 'ioarr-cliente',
+          component: () => import('@/features/cliente/InstrumentoPage.vue'),
+          props: { tipo: 'ioarr' },
+          meta: { soloCliente: true },
+        },
+        {
+          path: 'perfiles',
+          name: 'perfiles',
+          component: () => import('@/features/cliente/InstrumentoPage.vue'),
+          props: { tipo: 'perfil' },
           meta: { soloCliente: true },
         },
         {
@@ -142,6 +164,11 @@ router.beforeEach((to) => {
 
   if (to.meta.requiresAuth && !session.sesion) {
     return { name: 'login' };
+  }
+  // El home genérico no aplica a cliente — su "inicio" es Formatos (primer ítem del sidebar,
+  // ver Sidebar.vue), para que la URL activa coincida con el ítem resaltado en la navegación.
+  if (to.name === 'home' && session.sesion?.rol === 'cliente') {
+    return { name: 'formatos' };
   }
   if (to.meta.noCliente && (session.sesion?.rol === 'cliente' || session.sesion?.rol === 'asesor')) {
     return { name: 'home' };

@@ -14,6 +14,19 @@ const props = withDefaults(
 const errorAlCargar = ref(false);
 watch(() => props.fotoUrl, () => { errorAlCargar.value = false; });
 
+// Decisión de frontend, sin tocar la BD: los `foto_url` sembrados (AsesoriasDemoSeeder) son
+// avatares ilustrados de DiceBear — para que la demo se vea más profesional se muestran fotos de
+// personas en su lugar (Pravatar, gratis, sin API key). Estable por nombre vía el parámetro `u`
+// (mismo nombre → misma foto siempre). Si algún día hay una foto real subida por el usuario (no
+// DiceBear), esa se respeta tal cual.
+const esAvatarIlustrado = computed(() => !props.fotoUrl || props.fotoUrl.includes('dicebear.com'));
+
+const fotoMostrada = computed(() => (
+  esAvatarIlustrado.value
+    ? `https://i.pravatar.cc/300?u=${encodeURIComponent(props.nombre)}`
+    : props.fotoUrl!
+));
+
 const iniciales = computed(() => {
   const partes = props.nombre.trim().split(/\s+/).filter(Boolean);
   if (partes.length === 0) return '?';
@@ -32,8 +45,8 @@ const colorFondo = computed(() => {
 
 <template>
   <img
-    v-if="fotoUrl && !errorAlCargar"
-    :src="fotoUrl"
+    v-if="!errorAlCargar"
+    :src="fotoMostrada"
     :alt="nombre"
     :class="[size, 'rounded-full object-cover shrink-0 bg-gray-100']"
     @error="errorAlCargar = true"

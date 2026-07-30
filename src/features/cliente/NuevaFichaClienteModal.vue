@@ -22,6 +22,8 @@ const props = defineProps<{
   isOpen: boolean;
   /** Si se abre desde el catálogo "Fichas oficiales" con una plantilla ya elegida, se salta la selección de sector/tipo/ficha */
   presetPlantillaId?: string;
+  /** Si se abre desde una página de tipo de instrumento (Formatos/IOARR/Perfiles/Fichas técnicas), arranca con ese tipo ya seleccionado */
+  presetTipo?: TipoInstrumento;
 }>();
 
 const emit = defineEmits<{ close: [] }>();
@@ -76,6 +78,8 @@ watch(
         tipo.value = preset.instrumento;
         selectedPlantillaId.value = preset.id;
       }
+    } else if (props.presetTipo) {
+      tipo.value = props.presetTipo;
     }
   },
 );

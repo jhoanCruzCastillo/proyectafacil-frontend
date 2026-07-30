@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faFileCirclePlus, faMagnifyingGlass, faFilter, faPlus, faGraduationCap, faBriefcase, faList, instrumentoIcons, instrumentoLabels } from '@/lib/icons';
-import PageShell from '@/components/PageShell.vue';
+import { faMagnifyingGlass, faFilter, faPlus, faGraduationCap, faBriefcase, faList, instrumentoIcons, instrumentoLabels } from '@/lib/icons';
 import { usePlantillasQuery } from '@/composables/usePlantillas';
 import { useSectoresQuery } from '@/composables/useSectores';
 import { useUsuariosQuery } from '@/composables/useUsuarios';
@@ -13,7 +12,12 @@ import { cuentaEfectivaDe } from '@/lib/permisos';
 import { addOns } from '@/data/planes';
 import NuevaFichaClienteModal from './NuevaFichaClienteModal.vue';
 import ComprarAddOnModal from '@/features/settings/ComprarAddOnModal.vue';
-import type { Plantilla } from '@/types';
+import type { Plantilla, TipoInstrumento } from '@/types';
+
+// Extraído de la antigua FichasOficialesPage.vue (catálogo "elegir una nueva ficha") — misma
+// lógica, con filtro opcional por tipo de instrumento para que InstrumentoPage.vue pueda mostrar
+// "Más Formatos"/"Más IOARR"/etc. sin duplicar nada. Sin PageShell propio.
+const props = defineProps<{ tipo?: TipoInstrumento }>();
 
 type Tab = 'todas' | 'practica' | 'proyecto';
 
@@ -24,7 +28,7 @@ const { data: usuariosData } = useUsuariosQuery();
 const { data: ejemplosData } = useEjemplosQuery();
 const { esNivel0, vencido, diasRestantes, limiteFichas } = useEstadoEntrenamiento();
 
-const plantillas = computed(() => plantillasData.value ?? []);
+const plantillas = computed(() => (plantillasData.value ?? []).filter((p) => !props.tipo || p.instrumento === props.tipo));
 const sectores = computed(() => sectoresData.value ?? []);
 
 const tab = ref<Tab>('proyecto');
@@ -68,81 +72,79 @@ function motivoBloqueo(p: Plantilla): string | undefined {
 </script>
 
 <template>
-  <PageShell :icon="faFileCirclePlus" title="Fichas oficiales" description="Elige una ficha oficial para crear y empezar a llenar tu propio caso">
-    <div>
-      <div class="flex gap-2">
-        <button
-          @click="tab = 'todas'"
-          type="button"
-          class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors duration-75"
-          :class="tab === 'todas' ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'"
-        >
-          <FontAwesomeIcon :icon="faList" class="w-3 h-3" />
-          Todas
-        </button>
-        <button
-          @click="tab = 'proyecto'"
-          type="button"
-          class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors duration-75"
-          :class="tab === 'proyecto' ? 'bg-brand-100 text-brand-700' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'"
-        >
-          <FontAwesomeIcon :icon="faBriefcase" class="w-3 h-3" />
-          Fichas para tu proyecto
-        </button>
-        <button
-          @click="tab = 'practica'"
-          type="button"
-          class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors duration-75"
-          :class="tab === 'practica' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'"
-        >
-          <FontAwesomeIcon :icon="faGraduationCap" class="w-3 h-3" />
-          Ejercicios de práctica
-        </button>
-      </div>
-
-      <div
-        class="mt-4 flex items-center gap-2 px-3 py-2 rounded-lg border text-xs"
-        :class="vencido ? 'bg-red-50 border-red-200 text-red-700' : limiteAlcanzado ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-blue-50 border-blue-200 text-blue-700'"
+  <div>
+    <div class="flex gap-2">
+      <button
+        @click="tab = 'todas'"
+        type="button"
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors duration-75"
+        :class="tab === 'todas' ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'"
       >
-        <FontAwesomeIcon :icon="faGraduationCap" class="w-3.5 h-3.5 shrink-0" />
-        <template v-if="esNivel0">
-          <template v-if="vencido">Tu plan de entrenamiento venció — ya no puedes crear nuevos ejercicios.</template>
-          <template v-else>
-            Plan Pedagógico · {{ diasRestantes }} día{{ diasRestantes === 1 ? '' : 's' }} restantes — las fichas de "Fichas para tu proyecto" se desbloquean desde Nivel 1.
-          </template>
-        </template>
-        <span v-else>
-          {{ misFichasCount }}/{{ limiteFichas }} plantillas simultáneas
-          <template v-if="limiteAlcanzado">
-            —
-            <button @click="showComprarAddon = true" type="button" class="font-semibold underline hover:text-amber-900">
-              compra "Plantilla adicional" para sumar más
-            </button>
-          </template>
-        </span>
-      </div>
-
-      <div class="flex gap-2 mt-4 max-w-md">
-        <div class="relative flex-1">
-          <FontAwesomeIcon :icon="faMagnifyingGlass" class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-300" />
-          <input
-            v-model="busqueda"
-            type="text"
-            placeholder="Buscar por nombre, código o descripción..."
-            class="w-full pl-9 pr-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500"
-          />
-        </div>
-        <button
-          type="button"
-          title="Filtros (próximamente)"
-          class="w-10 h-10 shrink-0 rounded-lg border border-gray-200 flex items-center justify-center text-gray-400 hover:bg-gray-50 transition-colors duration-75"
-        >
-          <FontAwesomeIcon :icon="faFilter" class="w-3.5 h-3.5" />
-        </button>
-      </div>
+        <FontAwesomeIcon :icon="faList" class="w-3 h-3" />
+        Todas
+      </button>
+      <button
+        @click="tab = 'proyecto'"
+        type="button"
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors duration-75"
+        :class="tab === 'proyecto' ? 'bg-brand-100 text-brand-700' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'"
+      >
+        <FontAwesomeIcon :icon="faBriefcase" class="w-3 h-3" />
+        Fichas para tu proyecto
+      </button>
+      <button
+        @click="tab = 'practica'"
+        type="button"
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors duration-75"
+        :class="tab === 'practica' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'"
+      >
+        <FontAwesomeIcon :icon="faGraduationCap" class="w-3 h-3" />
+        Ejercicios de práctica
+      </button>
     </div>
 
-    <div class="space-y-6">
+    <div
+      class="mt-4 flex items-center gap-2 px-3 py-2 rounded-lg border text-xs"
+      :class="vencido ? 'bg-red-50 border-red-200 text-red-700' : limiteAlcanzado ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-blue-50 border-blue-200 text-blue-700'"
+    >
+      <FontAwesomeIcon :icon="faGraduationCap" class="w-3.5 h-3.5 shrink-0" />
+      <template v-if="esNivel0">
+        <template v-if="vencido">Tu plan de entrenamiento venció — ya no puedes crear nuevos ejercicios.</template>
+        <template v-else>
+          Plan Pedagógico · {{ diasRestantes }} día{{ diasRestantes === 1 ? '' : 's' }} restantes — las fichas de "Fichas para tu proyecto" se desbloquean desde Nivel 1.
+        </template>
+      </template>
+      <span v-else>
+        {{ misFichasCount }}/{{ limiteFichas }} plantillas simultáneas
+        <template v-if="limiteAlcanzado">
+          —
+          <button @click="showComprarAddon = true" type="button" class="font-semibold underline hover:text-amber-900">
+            compra "Plantilla adicional" para sumar más
+          </button>
+        </template>
+      </span>
+    </div>
+
+    <div class="flex gap-2 mt-4 max-w-md">
+      <div class="relative flex-1">
+        <FontAwesomeIcon :icon="faMagnifyingGlass" class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-300" />
+        <input
+          v-model="busqueda"
+          type="text"
+          placeholder="Buscar por nombre, código o descripción..."
+          class="w-full pl-9 pr-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500"
+        />
+      </div>
+      <button
+        type="button"
+        title="Filtros (próximamente)"
+        class="w-10 h-10 shrink-0 rounded-lg border border-gray-200 flex items-center justify-center text-gray-400 hover:bg-gray-50 transition-colors duration-75"
+      >
+        <FontAwesomeIcon :icon="faFilter" class="w-3.5 h-3.5" />
+      </button>
+    </div>
+
+    <div class="space-y-6 mt-6">
       <div v-for="{ sector, fichas } in grupos" :key="sector.id">
         <p class="text-[11px] font-semibold uppercase tracking-widest text-muted mb-2 pb-1 border-b border-gray-100">
           {{ sector.nombre }} <span class="text-gray-300 normal-case font-normal">· {{ fichas.length }}</span>
@@ -189,5 +191,5 @@ function motivoBloqueo(p: Plantilla): string | undefined {
       :addon="addOns.find((a) => a.id === 'plantilla-adicional') ?? null"
       @close="showComprarAddon = false"
     />
-  </PageShell>
+  </div>
 </template>

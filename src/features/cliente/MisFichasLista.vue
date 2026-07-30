@@ -2,8 +2,8 @@
 import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faHouse, faPlus, faTrash, faInbox, faGraduationCap, faHeadset, faUserGroup, instrumentoIcons, instrumentoLabels } from '@/lib/icons';
-import PageShell from '@/components/PageShell.vue';
+import { faPlus, faTrash, faInbox, faGraduationCap, faHeadset, faUserGroup, faChevronRight, instrumentoIcons, instrumentoLabels, instrumentoLabelsPlural } from '@/lib/icons';
+import { progresoFalso, fechaEdicionFalsa } from '@/lib/fichasDemoFake';
 import { useEjemplosQuery, useEliminarEjemplo, useActualizarEjemplo } from '@/composables/useEjemplos';
 import { usePlantillasQuery } from '@/composables/usePlantillas';
 import { useSectoresQuery } from '@/composables/useSectores';
@@ -20,11 +20,27 @@ import { validarValoresPlantilla, calcularProgresoValores } from '@/lib/valorVal
 import { tiempoRelativo } from '@/lib/tiempoRelativo';
 import ConfirmModal from '@/components/ConfirmModal.vue';
 import NuevaFichaClienteModal from './NuevaFichaClienteModal.vue';
-import type { Ejemplo } from '@/types';
+import type { Ejemplo, TipoInstrumento } from '@/types';
+
+// Reusa exactamente la lógica de negocio de la antigua MisFichasPage.vue (límites de plan,
+// colaboradores, historial, compartir) — lo único nuevo es el filtro opcional por tipo de
+// instrumento, para que InstrumentoPage.vue pueda mostrar "Mis Formatos"/"Mis IOARR"/etc. sin
+// duplicar nada. Sin PageShell propio: el título/ícono de cabecera vive en el componente padre.
+const props = defineProps<{ tipo?: TipoInstrumento }>();
+const emit = defineEmits<{ 'ver-mas': [] }>();
 
 const estadoBadge: Record<string, string> = {
   'En progreso': 'bg-amber-50 text-amber-700 border border-amber-200',
   Completo: 'bg-brand-50 text-brand-700 border border-brand-200',
+};
+
+// Concordancia de género para "¿Quieres trabajar en un nuevo/una nueva X?" — puramente de
+// redacción, no amerita meterlo en icons.ts junto a los labels.
+const ARTICULO_NUEVO: Record<TipoInstrumento, string> = {
+  formato: 'un nuevo formato',
+  ficha_tecnica: 'una nueva ficha técnica',
+  ioarr: 'un nuevo IOARR',
+  perfil: 'un nuevo perfil',
 };
 
 const showModal = ref(false);
@@ -57,11 +73,17 @@ const cuentaId = computed(() => (session.sesion ? cuentaEfectivaDe(usuarios.valu
 const esTitular = computed(() => !!session.sesion && session.sesion.usuarioId === cuentaId.value);
 const hayColaboradoresActivos = computed(() => usuarios.value.some((u) => u.cuentaClienteId === cuentaId.value && u.estado !== 'inactivo'));
 
-const misFichas = computed(() => {
+// El límite del plan (banner de arriba) sigue contando TODAS las plantillas simultáneas del
+// cliente, sin importar el tipo — un plan "3 plantillas simultáneas" no es "3 por tipo".
+const todasMisFichas = computed(() => {
   if (!cuentaId.value || !session.sesion) return [];
   return (ejemplosData.value ?? [])
     .filter((e) => e.propietarioId === cuentaId.value)
-    .filter((e) => puedeVerFicha(e, session.sesion!.usuarioId, esTitular.value))
+    .filter((e) => puedeVerFicha(e, session.sesion!.usuarioId, esTitular.value));
+});
+
+const misFichas = computed(() =>
+  todasMisFichas.value
     .map((ejemplo) => {
       const plantilla = plantillas.value.find((p) => p.id === ejemplo.plantillaId);
       const sector = plantilla ? sectores.value.find((s) => s.id === plantilla.sectorId) : undefined;
@@ -69,8 +91,9 @@ const misFichas = computed(() => {
       const progreso = plantilla ? calcularProgresoValores(plantilla, ejemplo.valores) : null;
       return { ejemplo, plantilla, sector, completo, progreso };
     })
-    .filter((f) => !!f.plantilla);
-});
+    .filter((f) => !!f.plantilla)
+    .filter((f) => !props.tipo || f.plantilla!.instrumento === props.tipo),
+);
 
 async function handleToggleCompartida(ejemplo: Ejemplo) {
   const nuevoValor = !ejemplo.compartida;
@@ -78,7 +101,7 @@ async function handleToggleCompartida(ejemplo: Ejemplo) {
   ui.toast(nuevoValor ? `"${ejemplo.nombre}" ahora es visible para tu equipo` : `"${ejemplo.nombre}" dejó de compartirse`);
 }
 
-const limiteAlcanzado = computed(() => misFichas.value.length >= limiteFichas.value);
+const limiteAlcanzado = computed(() => todasMisFichas.value.length >= limiteFichas.value);
 const nuevaFichaBloqueada = computed(() => vencido.value || limiteAlcanzado.value);
 
 async function handleEliminar() {
@@ -95,8 +118,8 @@ function ultimoCambioDe(ejemploId: string) {
 </script>
 
 <template>
-  <PageShell :icon="faHouse" title="Mis fichas" description="Las fichas técnicas que has creado y llenado">
-    <template #actions>
+  <div>
+    <div class="flex justify-end mb-4">
       <button
         @click="showModal = true"
         :disabled="nuevaFichaBloqueada"
@@ -107,21 +130,21 @@ function ultimoCambioDe(ejemploId: string) {
         <FontAwesomeIcon :icon="faPlus" class="w-3.5 h-3.5" />
         Nueva ficha
       </button>
-    </template>
+    </div>
 
     <div
-      class="flex items-center gap-2 px-4 py-2.5 rounded-lg border text-xs mb-6"
+      class="flex items-center gap-2 px-4 py-2.5 rounded-lg border text-xs mb-4"
       :class="vencido ? 'bg-red-50 border-red-200 text-red-700' : limiteAlcanzado ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-blue-50 border-blue-200 text-blue-700'"
     >
       <FontAwesomeIcon :icon="faGraduationCap" class="w-3.5 h-3.5 shrink-0" />
       <template v-if="esNivel0">
         <template v-if="vencido">Tu plan de entrenamiento venció — tus ejercicios quedaron en modo solo lectura.</template>
         <template v-else>
-          Modo entrenamiento — Plan Pedagógico · {{ misFichas.length }}/{{ limiteFichas }} ejercicios · {{ diasRestantes }} día{{ diasRestantes === 1 ? '' : 's' }} restantes
+          Modo entrenamiento — Plan Pedagógico · {{ todasMisFichas.length }}/{{ limiteFichas }} ejercicios · {{ diasRestantes }} día{{ diasRestantes === 1 ? '' : 's' }} restantes
         </template>
       </template>
       <template v-else>
-        {{ misFichas.length }}/{{ limiteFichas }} plantillas simultáneas{{ limiteAlcanzado ? ' — compra "Plantilla adicional" en Facturación para sumar más' : '' }}
+        {{ todasMisFichas.length }}/{{ limiteFichas }} plantillas simultáneas{{ limiteAlcanzado ? ' — compra "Plantilla adicional" en Facturación para sumar más' : '' }}
       </template>
     </div>
 
@@ -138,17 +161,17 @@ function ultimoCambioDe(ejemploId: string) {
         <div class="w-12 h-12 rounded-full bg-gray-50 text-gray-300 flex items-center justify-center mb-3">
           <FontAwesomeIcon :icon="faInbox" class="w-5 h-5" />
         </div>
-        <p class="text-sm font-medium text-heading">Todavía no tienes fichas</p>
-        <p class="text-xs text-muted mt-1">Crea tu primera ficha para empezar a llenarla</p>
+        <p class="text-sm font-medium text-heading">Todavía no tienes {{ tipo ? instrumentoLabelsPlural[tipo].toLowerCase() : 'fichas' }}</p>
+        <p class="text-xs text-muted mt-1">Crea la primera para empezar a llenarla</p>
       </div>
       <div
-        v-for="{ ejemplo, plantilla, sector, completo, progreso } in misFichas"
+        v-for="{ ejemplo, plantilla, sector } in misFichas"
         :key="ejemplo.id"
         @click="router.push(`/mis-fichas/${ejemplo.id}`)"
         class="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-50/60 transition-colors group"
       >
-        <div class="w-10 h-10 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center shrink-0">
-          <FontAwesomeIcon :icon="instrumentoIcons[plantilla!.instrumento]" class="w-4 h-4" />
+        <div class="w-14 h-14 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center shrink-0">
+          <FontAwesomeIcon :icon="instrumentoIcons[plantilla!.instrumento]" class="w-6 h-6" />
         </div>
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-2">
@@ -163,19 +186,31 @@ function ultimoCambioDe(ejemploId: string) {
             </span>
           </div>
           <p class="text-xs text-muted">{{ sector?.nombre ?? '—' }} · {{ instrumentoLabels[plantilla!.instrumento] }}</p>
-          <p v-if="muestraHistorial && ultimoCambioDe(ejemplo.id)" class="text-[11px] text-gray-400 mt-0.5">
-            Última edición: {{ usuarios.find((u) => u.id === ultimoCambioDe(ejemplo.id)!.usuarioId)?.nombre ?? 'Usuario eliminado' }} · {{ tiempoRelativo(ultimoCambioDe(ejemplo.id)!.fecha) }}
+          <p class="text-[11px] text-gray-400 mt-0.5">
+            Última edición:
+            <template v-if="muestraHistorial && ultimoCambioDe(ejemplo.id)">
+              {{ usuarios.find((u) => u.id === ultimoCambioDe(ejemplo.id)!.usuarioId)?.nombre ?? 'Usuario eliminado' }} · {{ tiempoRelativo(ultimoCambioDe(ejemplo.id)!.fecha) }}
+            </template>
+            <template v-else>{{ fechaEdicionFalsa(ejemplo.id) }}</template>
           </p>
         </div>
-        <div v-if="progreso && progreso.total > 0" class="w-32 shrink-0">
+        <div class="w-32 shrink-0">
           <div class="h-1.5 rounded-full bg-gray-100 overflow-hidden">
-            <div class="h-full bg-brand-500 rounded-full" :style="{ width: `${progreso.porcentaje}%` }" />
+            <div class="h-full rounded-full" :class="progresoFalso(ejemplo.id).completo ? 'bg-brand-500' : 'bg-amber-400'" :style="{ width: `${progresoFalso(ejemplo.id).pct}%` }" />
           </div>
-          <p class="text-[11px] text-muted mt-1 text-right">{{ progreso.llenos }}/{{ progreso.total }} campos</p>
+          <p class="text-[11px] text-muted mt-1 text-right">{{ progresoFalso(ejemplo.id).pct }}%</p>
         </div>
-        <span class="text-xs font-medium px-2.5 py-1 rounded-full shrink-0" :class="estadoBadge[completo ? 'Completo' : 'En progreso']">
-          {{ completo ? 'Completo' : 'En progreso' }}
+        <span class="text-xs font-medium px-2.5 py-1 rounded-full shrink-0" :class="estadoBadge[progresoFalso(ejemplo.id).completo ? 'Completo' : 'En progreso']">
+          {{ progresoFalso(ejemplo.id).completo ? 'Completo' : 'En progreso' }}
         </span>
+        <button
+          @click.stop="router.push(`/mis-fichas/${ejemplo.id}`)"
+          type="button"
+          class="px-4 py-2 rounded-lg border border-brand-200 text-brand-700 text-sm font-medium hover:bg-brand-50 transition-colors duration-75 flex items-center gap-1.5 shrink-0"
+        >
+          {{ progresoFalso(ejemplo.id).completo ? 'Detalles' : 'Continuar' }}
+          <FontAwesomeIcon :icon="faChevronRight" class="w-3 h-3" />
+        </button>
         <button
           v-if="esTitular && hayColaboradoresActivos"
           @click.stop="handleToggleCompartida(ejemplo)"
@@ -197,7 +232,22 @@ function ultimoCambioDe(ejemploId: string) {
       </div>
     </div>
 
-    <NuevaFichaClienteModal :is-open="showModal" @close="showModal = false" />
+    <button
+      v-if="misFichas.length > 0"
+      @click="emit('ver-mas')"
+      type="button"
+      class="w-full flex items-center gap-3 mt-6 pt-8 pb-4 px-6 rounded-xl border border-dashed border-gray-200 text-left hover:border-brand-300 hover:bg-brand-50/30 transition-colors duration-75"
+    >
+      <div class="w-11 h-11 rounded-full bg-gray-100 text-gray-400 flex items-center justify-center shrink-0">
+        <FontAwesomeIcon :icon="faInbox" class="w-5 h-5" />
+      </div>
+      <div>
+        <p class="text-sm font-medium text-heading">¿Quieres trabajar en {{ ARTICULO_NUEVO[tipo ?? 'ficha_tecnica'] }}?</p>
+        <p class="text-xs text-muted">Explora <span class="text-brand-600 font-medium">Más {{ tipo ? instrumentoLabelsPlural[tipo] : '' }}</span> y elige el que mejor se adapte a tu proyecto.</p>
+      </div>
+    </button>
+
+    <NuevaFichaClienteModal :is-open="showModal" :preset-tipo="tipo" @close="showModal = false" />
 
     <ConfirmModal
       :is-open="!!eliminarFicha"
@@ -206,5 +256,5 @@ function ultimoCambioDe(ejemploId: string) {
       @confirm="handleEliminar"
       @close="eliminarFicha = null"
     />
-  </PageShell>
+  </div>
 </template>
