@@ -32,6 +32,14 @@ const ETIQUETAS_DOCENTE = [
   'Cancelado por alumno',
 ];
 
+// Código de ticket con formato "TKT-2026-1045", estable por ticket, para mostrar en vez del id
+// interno de la BD — cosmético, no se guarda en ningún lado.
+export function codigoTicketFalso(ticketId: string): string {
+  const rnd = crearPseudoAleatorio(hashSeed(ticketId) + 2);
+  const numero = 1000 + Math.floor(rnd() * 9000);
+  return `TKT-${new Date().getFullYear()}-${numero}`;
+}
+
 export function etiquetaDocenteFalsa(ticketId: string): string {
   const rnd = crearPseudoAleatorio(hashSeed(ticketId));
   return ETIQUETAS_DOCENTE[Math.floor(rnd() * ETIQUETAS_DOCENTE.length)];

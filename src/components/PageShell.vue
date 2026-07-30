@@ -24,7 +24,7 @@ withDefaults(
      * indicadores viven en el contenido blanco en vez de dentro de la cabecera oscura. */
     compact?: boolean;
   }>(),
-  { contentClass: 'p-6 sm:p-8' },
+  { contentClass: 'p-6 sm:p-8 lg:px-12 xl:px-16' },
 );
 </script>
 

@@ -8,7 +8,7 @@ import TicketDetalleModal from './TicketDetalleModal.vue';
 import IntervencionManualModal from './IntervencionManualModal.vue';
 import { useDashboardAsesoriaQuery, useTicketsAsesoriaQuery } from '@/composables/useTicketsAsesoria';
 import { ESTADO_ASESORIA_LABEL, ESTADO_ASESORIA_CLASE } from '@/lib/estadoAsesoria';
-import { etiquetaDocenteFalsa, claseCategoria, slaFalsoConfig, slaFalsoEstado } from '@/lib/ticketsDemoFake';
+import { etiquetaDocenteFalsa, claseCategoria, codigoTicketFalso, slaFalsoConfig, slaFalsoEstado } from '@/lib/ticketsDemoFake';
 import type { EstadoSolicitudAsesoria, SolicitudAsesoria } from '@/types';
 
 type Tab = 'todos' | 'pendiente' | 'en_espera' | 'completado' | 'cancelado';
@@ -96,34 +96,34 @@ function slaDe(t: SolicitudAsesoria) {
 
     <p v-if="isLoading" class="text-sm text-muted">Cargando…</p>
     <p v-else-if="ticketsFiltrados.length === 0" class="text-sm text-muted py-8 text-center">No hay tickets en esta categoría.</p>
-    <div v-else class="overflow-x-auto">
-      <table class="w-full text-sm">
+    <div v-else class="overflow-x-auto rounded-xl border border-gray-200">
+      <table class="w-full text-sm border-collapse">
         <thead>
-          <tr class="text-left text-[11px] uppercase tracking-widest text-muted border-b border-gray-100">
-            <th class="pb-2 pr-4 font-semibold">Ticket</th>
-            <th class="pb-2 pr-4 font-semibold">Alumno</th>
-            <th class="pb-2 pr-4 font-semibold">Categoría</th>
-            <th class="pb-2 pr-4 font-semibold">Modalidad</th>
-            <th class="pb-2 pr-4 font-semibold">Estado</th>
-            <th class="pb-2 pr-4 font-semibold">Docente</th>
-            <th class="pb-2 pr-4 font-semibold">SLA (tiempo restante)</th>
-            <th class="pb-2"></th>
+          <tr class="text-left text-xs font-semibold text-gray-600 bg-gray-50 border-b border-gray-200">
+            <th class="py-3 px-4">Ticket</th>
+            <th class="py-3 px-4">Alumno</th>
+            <th class="py-3 px-4">Categoría</th>
+            <th class="py-3 px-4">Modalidad</th>
+            <th class="py-3 px-4">Estado</th>
+            <th class="py-3 px-4">Docente</th>
+            <th class="py-3 px-4">SLA (tiempo restante)</th>
+            <th class="py-3 px-4"></th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="t in ticketsFiltrados" :key="t.id" class="border-b border-gray-50">
-            <td class="py-3 pr-4 font-mono text-xs text-heading whitespace-nowrap">#{{ t.id }}</td>
-            <td class="py-3 pr-4 text-heading whitespace-nowrap">
+          <tr v-for="t in ticketsFiltrados" :key="t.id" class="border-b border-gray-200 last:border-b-0">
+            <td class="py-4 px-4 font-mono text-xs whitespace-nowrap" :class="slaDe(t).vencido ? 'text-red-600 font-semibold' : 'text-heading'">{{ codigoTicketFalso(t.id) }}</td>
+            <td class="py-4 px-4 text-heading whitespace-nowrap">
               <div class="flex items-center gap-2">
                 <Avatar :nombre="t.clienteNombre ?? '?'" :fotoUrl="t.clienteFotoUrl" size="w-7 h-7" />
                 {{ t.clienteNombre }}
               </div>
             </td>
-            <td class="py-3 pr-4">
+            <td class="py-4 px-4">
               <span v-if="t.sectorNombre" class="px-2.5 py-1 rounded-full text-[11px] font-medium" :class="claseCategoria(t.sectorNombre)">{{ t.sectorNombre }}</span>
               <span v-else class="text-muted">—</span>
             </td>
-            <td class="py-3 pr-4">
+            <td class="py-4 px-4">
               <span
                 class="w-7 h-7 rounded-full flex items-center justify-center"
                 :class="t.tipo === 'video' ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'"
@@ -132,10 +132,10 @@ function slaDe(t: SolicitudAsesoria) {
                 <FontAwesomeIcon :icon="t.tipo === 'video' ? faVideo : faComments" class="w-3.5 h-3.5" />
               </span>
             </td>
-            <td class="py-3 pr-4">
+            <td class="py-4 px-4">
               <span class="px-2.5 py-1 rounded-full text-[11px] font-medium" :class="ESTADO_ASESORIA_CLASE[t.estado]">{{ ESTADO_ASESORIA_LABEL[t.estado] }}</span>
             </td>
-            <td class="py-3 pr-4 text-muted whitespace-nowrap">
+            <td class="py-4 px-4 text-muted whitespace-nowrap">
               <div v-if="t.docenteNombre" class="flex items-center gap-2">
                 <Avatar :nombre="t.docenteNombre" :fotoUrl="t.docenteFotoUrl" size="w-7 h-7" />
                 <div class="leading-tight">
@@ -148,13 +148,13 @@ function slaDe(t: SolicitudAsesoria) {
                 <span class="text-[11px] text-muted">· {{ etiquetaDocenteFalsa(t.id) }}</span>
               </span>
             </td>
-            <td class="py-3 pr-4 whitespace-nowrap min-w-[160px]">
+            <td class="py-4 px-4 whitespace-nowrap min-w-[160px]">
               <div class="h-1.5 w-full rounded-full bg-gray-100 overflow-hidden">
                 <div class="h-full rounded-full transition-all duration-1000 ease-linear" :class="slaDe(t).barraClase" :style="{ width: slaDe(t).pct + '%' }" />
               </div>
               <span class="text-xs" :class="slaDe(t).textoClase">{{ slaDe(t).texto }}</span>
             </td>
-            <td class="py-3 text-right whitespace-nowrap">
+            <td class="py-4 px-4 text-right whitespace-nowrap">
               <button
                 v-if="slaDe(t).vencido"
                 @click="intervencionTicket = t"
