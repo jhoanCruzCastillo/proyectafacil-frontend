@@ -219,6 +219,15 @@ export const instrumentoLabels: Record<TipoInstrumento, string> = {
   perfil: 'Perfil',
 };
 
+// Plural — para títulos de página y sidebar (Sidebar.vue, InstrumentoPage.vue), separado de
+// instrumentoLabels porque ese se usa en singular junto a un artículo/badge por fila.
+export const instrumentoLabelsPlural: Record<TipoInstrumento, string> = {
+  formato: 'Formatos',
+  ioarr: 'IOARR',
+  ficha_tecnica: 'Fichas técnicas',
+  perfil: 'Perfiles',
+};
+
 export const tipologiaIoarrLabels: Record<TipologiaIoarr, string> = {
   optimizacion: 'Optimización',
   ampliacion_marginal: 'Ampliación marginal',

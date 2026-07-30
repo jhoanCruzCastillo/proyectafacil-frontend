@@ -1,9 +1,16 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faArrowLeft, faSave, faDownload, faFileExport, faEye, faCircleCheck, faTriangleExclamation, faClockRotateLeft } from '@/lib/icons';
-import type { Ejemplo, Plantilla } from '@/types';
+import { faArrowLeft, faSave, faDownload, faFileExport, faEye, faCircleCheck, faTriangleExclamation, faClockRotateLeft, instrumentoLabelsPlural } from '@/lib/icons';
+import type { Ejemplo, Plantilla, TipoInstrumento } from '@/types';
 import type { ProgresoFicha } from '@/lib/valorValidation';
+
+const RUTA_POR_INSTRUMENTO: Record<TipoInstrumento, string> = {
+  formato: 'formatos',
+  ficha_tecnica: 'fichas-tecnicas',
+  ioarr: 'ioarr-cliente',
+  perfil: 'perfiles',
+};
 
 defineProps<{
   plantilla: Plantilla;
@@ -27,9 +34,9 @@ const router = useRouter();
     <div class="flex items-center justify-between">
       <div class="flex items-center gap-3">
         <button
-          @click="router.push('/')"
+          @click="router.push({ name: RUTA_POR_INSTRUMENTO[plantilla.instrumento] })"
           type="button"
-          title="Volver a Mis fichas"
+          :title="`Volver a Mis ${instrumentoLabelsPlural[plantilla.instrumento]}`"
           class="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
         >
           <FontAwesomeIcon :icon="faArrowLeft" class="w-4 h-4" />

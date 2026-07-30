@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faHouse, faLayerGroup, faAngleLeft, faUserGear, faFileCirclePlus, faCalendarWeek, faCircleInfo, faListCheck, faUserTie, faPeopleGroup, faMoneyBillTransfer } from '@/lib/icons';
+import { faHouse, faLayerGroup, faAngleLeft, faUserGear, faCalendarWeek, faCircleInfo, faListCheck, faHeadset, faPeopleGroup, faMoneyBillTransfer, instrumentoIcons } from '@/lib/icons';
 import UserMenu from '@/features/settings/UserMenu.vue';
 import NotificacionesBell from '@/features/asesoria/NotificacionesBell.vue';
 import { useSessionStore } from '@/stores/session';
@@ -16,9 +16,11 @@ const navItems = computed(() => {
   let items: { to: string; label: string; icon: typeof faHouse }[];
   if (esCliente.value) {
     items = [
-      { to: '/', label: 'Mis fichas', icon: faHouse },
-      { to: '/fichas-oficiales', label: 'Fichas oficiales', icon: faFileCirclePlus },
-      { to: '/asesorias', label: 'Asesorías', icon: faUserTie },
+      { to: '/formatos', label: 'Formatos', icon: instrumentoIcons.formato },
+      { to: '/fichas-tecnicas', label: 'Fichas técnicas', icon: instrumentoIcons.ficha_tecnica },
+      { to: '/ioarr', label: 'IOARR', icon: instrumentoIcons.ioarr },
+      { to: '/perfiles', label: 'Perfiles', icon: instrumentoIcons.perfil },
+      { to: '/asesorias', label: 'Asesorías en vivo', icon: faHeadset },
     ];
   } else if (esAsesor.value) {
     items = [
