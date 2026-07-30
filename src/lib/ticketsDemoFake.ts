@@ -1,7 +1,9 @@
-// Datos ficticios generados en el FRONTEND para que la tabla de Tickets de asesoría se vea poblada
-// en la demo — pedido explícito del usuario, no viene del backend ni se guarda en ningún lado.
-// Todo es determinístico por el id del ticket (mismo ticket = mismos valores mientras dure la
-// sesión del navegador), salvo el conteo regresivo del SLA que sí avanza de verdad con el reloj.
+// Datos ficticios generados en el FRONTEND para que la tabla y el modal de detalle de Tickets de
+// asesoría se vean poblados en la demo — pedido explícito del usuario, no viene del backend ni se
+// guarda en ningún lado. Todo es determinístico por el id del ticket (mismo ticket = mismos
+// valores mientras dure la sesión del navegador), salvo el conteo regresivo del SLA que sí avanza
+// de verdad con el reloj.
+import { planes } from '@/data/planes';
 
 function hashSeed(texto: string): number {
   let h = 0;
@@ -98,6 +100,30 @@ export function slaFalsoEstado(cfg: SlaFalsoConfig, ahoraMs: number): SlaFalsoEs
     textoClase: vencido ? 'text-red-600 font-semibold' : pct < 50 ? 'text-amber-600' : 'text-muted',
     texto: formatearRestante(restanteMs, vencido),
   };
+}
+
+// Plan/nivel contratado por el alumno — no viene en SolicitudAsesoria, así que se elige (estable
+// por ticket) entre los planes reales del catálogo (data/planes.ts) para que el nombre coincida
+// con lo que existe de verdad en la app en vez de inventar niveles que no existen.
+export function nivelFalso(ticketId: string): string {
+  const rnd = crearPseudoAleatorio(hashSeed(ticketId) + 3);
+  const plan = planes[Math.floor(rnd() * planes.length)];
+  return `Nivel ${plan.numeroNivel} - ${plan.nombre}`;
+}
+
+export interface EstadoNotificacionFalso {
+  texto: string;
+  dotClase: string;
+  textoClase: string;
+}
+
+// Estado de "visto" del docente notificado — el backend solo sabe a quién se notificó, no si ya
+// abrió la notificación, así que ese detalle es puramente cosmético para la demo.
+export function estadoNotificacionFalso(seed: string): EstadoNotificacionFalso {
+  const rnd = crearPseudoAleatorio(hashSeed(seed) + 4);
+  return rnd() > 0.5
+    ? { texto: 'Visto', dotClase: 'bg-emerald-500', textoClase: 'text-emerald-600' }
+    : { texto: 'Notificado', dotClase: 'bg-blue-500', textoClase: 'text-blue-600' };
 }
 
 function formatearRestante(ms: number, vencido: boolean): string {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faListCheck, faClock, faHourglassHalf, faCircleCheck, faTriangleExclamation, faUserCheck, faComments, faVideo, faChevronLeft, faChevronRight, faAnglesLeft, faAnglesRight } from '@/lib/icons';
+import { faListCheck, faClock, faHourglassHalf, faCircleCheck, faTriangleExclamation, faUserCheck, faComments, faVideo, faChevronLeft, faChevronRight, faAnglesLeft, faAnglesRight, faMagnifyingGlass } from '@/lib/icons';
 import PageShell from '@/components/PageShell.vue';
 import Avatar from '@/components/Avatar.vue';
 import TicketDetalleModal from './TicketDetalleModal.vue';
@@ -44,20 +44,36 @@ const PORCIONES = [10, 25, 50];
 const porPagina = ref(10);
 const paginaActual = ref(1);
 
+const busqueda = ref('');
+const ticketsBuscados = computed(() => {
+  const q = busqueda.value.trim().toLowerCase();
+  if (!q) return ticketsFiltrados.value;
+  return ticketsFiltrados.value.filter((t) => (
+    (t.clienteNombre ?? '').toLowerCase().includes(q)
+    || (t.docenteNombre ?? '').toLowerCase().includes(q)
+    || codigoTicketFalso(t.id).toLowerCase().includes(q)
+  ));
+});
+
+function buscar(valor: string) {
+  busqueda.value = valor;
+  paginaActual.value = 1;
+}
+
 function cambiarTab(tab: Tab) {
   tabActiva.value = tab;
   paginaActual.value = 1;
 }
 
-const totalPaginas = computed(() => Math.max(1, Math.ceil(ticketsFiltrados.value.length / porPagina.value)));
+const totalPaginas = computed(() => Math.max(1, Math.ceil(ticketsBuscados.value.length / porPagina.value)));
 
 const ticketsPagina = computed(() => {
   const inicio = (paginaActual.value - 1) * porPagina.value;
-  return ticketsFiltrados.value.slice(inicio, inicio + porPagina.value);
+  return ticketsBuscados.value.slice(inicio, inicio + porPagina.value);
 });
 
-const rangoDesde = computed(() => (ticketsFiltrados.value.length === 0 ? 0 : (paginaActual.value - 1) * porPagina.value + 1));
-const rangoHasta = computed(() => Math.min(paginaActual.value * porPagina.value, ticketsFiltrados.value.length));
+const rangoDesde = computed(() => (ticketsBuscados.value.length === 0 ? 0 : (paginaActual.value - 1) * porPagina.value + 1));
+const rangoHasta = computed(() => Math.min(paginaActual.value * porPagina.value, ticketsBuscados.value.length));
 
 // Lista de páginas a mostrar en la paginación, con "…" cuando hay más de 7 páginas — ej. 1 … 4 5 6 … 12.
 const paginasVisibles = computed<(number | '…')[]>(() => {
@@ -123,21 +139,34 @@ function slaDe(t: SolicitudAsesoria) {
       </div>
     </div>
 
-    <div class="flex gap-1 mb-4 border-b border-gray-100">
-      <button
-        v-for="tab in TABS"
-        :key="tab.value"
-        @click="cambiarTab(tab.value)"
-        type="button"
-        class="px-4 py-2.5 text-sm font-medium border-b-2 transition-colors duration-75"
-        :class="tabActiva === tab.value ? 'border-brand-600 text-brand-700' : 'border-transparent text-gray-500 hover:text-gray-700'"
-      >
-        {{ tab.label }}
-      </button>
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+      <div class="flex gap-1 bg-gray-100 rounded-lg p-1">
+        <button
+          v-for="tab in TABS"
+          :key="tab.value"
+          @click="cambiarTab(tab.value)"
+          type="button"
+          class="px-4 py-2 text-sm font-medium rounded-md transition-colors duration-75"
+          :class="tabActiva === tab.value ? 'bg-white text-brand-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'"
+        >
+          {{ tab.label }}
+        </button>
+      </div>
+
+      <div class="relative w-full sm:w-72">
+        <FontAwesomeIcon :icon="faMagnifyingGlass" class="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+        <input
+          :value="busqueda"
+          @input="buscar(($event.target as HTMLInputElement).value)"
+          type="text"
+          placeholder="Buscar tickets, alumnos o docentes…"
+          class="w-full pl-9 pr-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500"
+        />
+      </div>
     </div>
 
     <p v-if="isLoading" class="text-sm text-muted">Cargando…</p>
-    <p v-else-if="ticketsFiltrados.length === 0" class="text-sm text-muted py-8 text-center">No hay tickets en esta categoría.</p>
+    <p v-else-if="ticketsBuscados.length === 0" class="text-sm text-muted py-8 text-center">No hay tickets que coincidan con la búsqueda.</p>
     <div v-else class="overflow-x-auto rounded-xl border border-gray-200">
       <table class="w-full text-sm border-collapse">
         <thead>
@@ -218,8 +247,8 @@ function slaDe(t: SolicitudAsesoria) {
       </table>
     </div>
 
-    <div v-if="!isLoading && ticketsFiltrados.length > 0" class="flex flex-wrap items-center justify-between gap-4 mt-4">
-      <p class="text-xs text-muted">Mostrando {{ rangoDesde }} a {{ rangoHasta }} de {{ ticketsFiltrados.length }} tickets</p>
+    <div v-if="!isLoading && ticketsBuscados.length > 0" class="flex flex-wrap items-center justify-between gap-4 mt-4">
+      <p class="text-xs text-muted">Mostrando {{ rangoDesde }} a {{ rangoHasta }} de {{ ticketsBuscados.length }} tickets</p>
 
       <div class="flex items-center gap-1">
         <button type="button" :disabled="paginaActual === 1" @click="irAPagina(1)" class="w-8 h-8 rounded-lg border border-gray-200 text-gray-500 flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors duration-75">

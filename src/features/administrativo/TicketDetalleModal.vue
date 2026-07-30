@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faXmark, faVideo, faComments, faCircleCheck, faCircle, faUserGear, faTrash, faEnvelope } from '@/lib/icons';
+import { faXmark, faVideo, faComments, faCheck, faUserGear, faTrash, faEnvelope, faListCheck, faWandMagicSparkles } from '@/lib/icons';
 import IntervencionManualModal from './IntervencionManualModal.vue';
 import CancelarTicketModal from './CancelarTicketModal.vue';
 import Avatar from '@/components/Avatar.vue';
 import { useTicketDetalleQuery, useCancelarTicketAdmin } from '@/composables/useTicketsAsesoria';
 import { useUiStore } from '@/stores/ui';
 import { ESTADO_ASESORIA_LABEL, ESTADO_ASESORIA_CLASE } from '@/lib/estadoAsesoria';
+import { codigoTicketFalso, nivelFalso, estadoNotificacionFalso } from '@/lib/ticketsDemoFake';
 
 const props = defineProps<{ isOpen: boolean; ticketId: string | null }>();
 const emit = defineEmits<{ close: [] }>();
@@ -16,14 +17,44 @@ const ui = useUiStore();
 const { data: ticket, isLoading } = useTicketDetalleQuery(() => (props.isOpen ? props.ticketId : null));
 const cancelarTicket = useCancelarTicketAdmin();
 
-const puedeIntervenir = computed(() => ticket.value?.estado === 'pendiente' || ticket.value?.estado === 'en_espera');
-
 const showIntervencion = ref(false);
 const showCancelar = ref(false);
 
 function formatFechaHora(iso: string): string {
   return new Date(iso).toLocaleString('es-PE', { day: '2-digit', month: 'short', hour: 'numeric', minute: '2-digit' });
 }
+
+interface PasoTimeline {
+  titulo: string;
+  detalle: string;
+  completado: boolean;
+}
+
+const pasosTimeline = computed<PasoTimeline[]>(() => {
+  if (!ticket.value) return [];
+  const t = ticket.value;
+  const pasos: PasoTimeline[] = [
+    { titulo: 'Creado', detalle: formatFechaHora(t.creadoEn), completado: true },
+  ];
+
+  if (t.docentesNotificados.length > 0) {
+    pasos.push({
+      titulo: 'Notificado a asesores',
+      detalle: `Se notificó a ${t.docentesNotificados.length} asesor${t.docentesNotificados.length === 1 ? '' : 'es'} disponible${t.docentesNotificados.length === 1 ? '' : 's'}.`,
+      completado: true,
+    });
+  }
+
+  if (t.estado === 'pendiente') {
+    pasos.push({ titulo: 'Esperando aceptación…', detalle: 'El ticket está pendiente de aceptación por parte de algún asesor.', completado: false });
+  } else if (t.estado === 'asignado' || t.estado === 'agendado') {
+    pasos.push({ titulo: ESTADO_ASESORIA_LABEL[t.estado], detalle: `Asignado a ${t.docenteNombre} · ${formatFechaHora(t.actualizadoEn ?? t.creadoEn)}`, completado: true });
+  } else {
+    pasos.push({ titulo: ESTADO_ASESORIA_LABEL[t.estado], detalle: formatFechaHora(t.actualizadoEn ?? t.creadoEn), completado: true });
+  }
+
+  return pasos;
+});
 
 async function confirmarCancelar() {
   if (!ticket.value) return;
@@ -38,10 +69,13 @@ async function confirmarCancelar() {
   <Transition name="fade">
     <div v-if="isOpen" class="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" @click="emit('close')">
       <Transition name="pop" appear>
-        <div class="bg-white rounded-2xl shadow-modal w-full max-w-2xl max-h-[85vh] overflow-y-auto" @click.stop>
+        <div class="bg-white rounded-2xl shadow-modal w-full max-w-3xl max-h-[85vh] overflow-y-auto" @click.stop>
           <div class="p-6 pb-4 flex items-start justify-between">
             <div class="flex items-center gap-3">
-              <h2 class="text-lg font-bold text-heading">Ticket #{{ ticketId }}</h2>
+              <div class="w-9 h-9 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center shrink-0">
+                <FontAwesomeIcon :icon="faListCheck" class="w-4 h-4" />
+              </div>
+              <h2 class="text-lg font-bold text-heading">{{ ticketId ? codigoTicketFalso(ticketId) : '' }}</h2>
               <span v-if="ticket" class="px-2.5 py-1 rounded-full text-[11px] font-medium" :class="ESTADO_ASESORIA_CLASE[ticket.estado]">
                 {{ ESTADO_ASESORIA_LABEL[ticket.estado] }}
               </span>
@@ -52,15 +86,18 @@ async function confirmarCancelar() {
           </div>
 
           <p v-if="isLoading" class="px-6 pb-6 text-sm text-muted">Cargando…</p>
-          <div v-else-if="ticket" class="px-6 pb-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div class="space-y-5">
+          <div v-else-if="ticket" class="px-6 pb-6">
+          <div class="rounded-xl border border-gray-200 overflow-hidden">
+          <div class="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-gray-200">
+            <div class="p-5 space-y-5">
               <div>
-                <h3 class="text-xs font-semibold uppercase tracking-widest text-muted mb-2">Datos del alumno</h3>
+                <h3 class="text-sm font-bold text-heading mb-2">Datos del alumno</h3>
                 <div class="flex items-center gap-3">
-                  <Avatar :nombre="ticket.clienteNombre ?? '?'" :fotoUrl="ticket.clienteFotoUrl" size="w-10 h-10" />
+                  <Avatar :nombre="ticket.clienteNombre ?? '?'" :fotoUrl="ticket.clienteFotoUrl" size="w-16 h-16" />
                   <div>
-                    <p class="font-semibold text-heading text-sm">{{ ticket.clienteNombre }}</p>
-                    <p v-if="ticket.clienteCorreo" class="text-xs text-muted mt-0.5 flex items-center gap-1.5">
+                    <p class="font-bold text-heading">{{ ticket.clienteNombre }}</p>
+                    <span class="inline-block mt-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-100 text-emerald-700">{{ nivelFalso(ticket.id) }}</span>
+                    <p v-if="ticket.clienteCorreo" class="text-xs text-muted mt-1.5 flex items-center gap-1.5">
                       <FontAwesomeIcon :icon="faEnvelope" class="w-2.5 h-2.5" />
                       {{ ticket.clienteCorreo }}
                     </p>
@@ -69,19 +106,28 @@ async function confirmarCancelar() {
               </div>
 
               <div>
-                <h3 class="text-xs font-semibold uppercase tracking-widest text-muted mb-2">Categoría de la consulta</h3>
+                <h3 class="text-sm font-bold text-heading mb-2">Categoría de la consulta</h3>
                 <span class="inline-block px-2.5 py-1 rounded-full text-xs font-medium bg-brand-50 text-brand-700">{{ ticket.sectorNombre ?? '—' }}</span>
               </div>
 
               <div v-if="ticket.mensajeInicial">
-                <h3 class="text-xs font-semibold uppercase tracking-widest text-muted mb-2">Duda del alumno</h3>
-                <p class="text-sm text-heading bg-gray-50 rounded-lg p-3 leading-relaxed">{{ ticket.mensajeInicial }}</p>
+                <div class="flex items-start gap-2.5 p-3 rounded-lg bg-purple-50 border border-purple-200">
+                  <div class="w-8 h-8 rounded-lg bg-purple-100 text-purple-500 flex items-center justify-center shrink-0">
+                    <FontAwesomeIcon :icon="faWandMagicSparkles" class="w-3.5 h-3.5" />
+                  </div>
+                  <div>
+                    <p class="text-xs font-semibold text-purple-700 mb-1">Resumen generado por IA</p>
+                    <p class="text-sm text-heading leading-relaxed">{{ ticket.mensajeInicial }}</p>
+                  </div>
+                </div>
               </div>
 
               <div>
-                <h3 class="text-xs font-semibold uppercase tracking-widest text-muted mb-2">Modalidad{{ ticket.horarioFecha ? ' y horario elegido' : '' }}</h3>
-                <div class="flex items-center gap-3 p-3 rounded-lg bg-gray-50">
-                  <FontAwesomeIcon :icon="ticket.tipo === 'video' ? faVideo : faComments" class="w-4 h-4 text-brand-600 shrink-0" />
+                <h3 class="text-sm font-bold text-heading mb-2">Modalidad{{ ticket.horarioFecha ? ' y horario elegido' : '' }}</h3>
+                <div class="flex items-center gap-3 p-3 rounded-lg bg-indigo-50 border border-indigo-200">
+                  <div class="w-10 h-10 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
+                    <FontAwesomeIcon :icon="ticket.tipo === 'video' ? faVideo : faComments" class="w-4 h-4" />
+                  </div>
                   <div class="text-sm">
                     <p class="font-medium text-heading">{{ ticket.tipo === 'video' ? 'Videollamada' : 'Chat' }}</p>
                     <p v-if="ticket.horarioFecha" class="text-xs text-muted">
@@ -90,54 +136,41 @@ async function confirmarCancelar() {
                     </p>
                   </div>
                 </div>
-                <RouterLink
-                  v-if="ticket.horarioFecha"
-                  :to="{ name: 'tickets-mismo-horario', query: { fecha: ticket.horarioFecha, horaInicio: ticket.horarioHoraInicio, horaFin: ticket.horarioHoraFin } }"
-                  class="inline-block mt-2 text-xs text-brand-600 font-medium hover:underline"
-                >
-                  Ver otras solicitudes en este horario →
-                </RouterLink>
               </div>
             </div>
 
-            <div class="space-y-5">
+            <div class="p-5 space-y-5">
               <div>
-                <h3 class="text-xs font-semibold uppercase tracking-widest text-muted mb-2">Asesores notificados</h3>
+                <h3 class="text-sm font-bold text-heading mb-2">Docentes notificados</h3>
                 <p v-if="ticket.docentesNotificados.length === 0" class="text-sm text-muted">Nadie fue notificado (sin cobertura elegible).</p>
-                <div v-else class="flex flex-wrap gap-2">
-                  <span v-for="d in ticket.docentesNotificados" :key="d.id" class="pl-1 pr-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700 flex items-center gap-1.5">
-                    <Avatar :nombre="d.nombre" :fotoUrl="d.fotoUrl" size="w-5 h-5" />
-                    {{ d.nombre }}
-                  </span>
+                <div v-else class="grid grid-cols-2 gap-2">
+                  <div v-for="d in ticket.docentesNotificados" :key="d.id" class="flex flex-col items-center text-center gap-1 p-2 rounded-lg border border-gray-200">
+                    <Avatar :nombre="d.nombre" :fotoUrl="d.fotoUrl" size="w-10 h-10" />
+                    <p class="text-xs font-medium text-heading truncate w-full">{{ d.nombre }}</p>
+                    <p class="text-[11px] flex items-center gap-1" :class="estadoNotificacionFalso(d.id).textoClase">
+                      <span class="w-1.5 h-1.5 rounded-full" :class="estadoNotificacionFalso(d.id).dotClase" />
+                      {{ estadoNotificacionFalso(d.id).texto }}
+                    </p>
+                  </div>
                 </div>
               </div>
 
               <div>
-                <h3 class="text-xs font-semibold uppercase tracking-widest text-muted mb-3">Línea de tiempo</h3>
-                <div class="space-y-3">
-                  <div class="flex gap-3">
-                    <FontAwesomeIcon :icon="faCircleCheck" class="w-4 h-4 text-brand-600 mt-0.5 shrink-0" />
-                    <div>
-                      <p class="text-sm font-medium text-heading">Creado</p>
-                      <p class="text-xs text-muted">{{ formatFechaHora(ticket.creadoEn) }}</p>
-                    </div>
-                  </div>
-                  <div v-if="ticket.docentesNotificados.length > 0" class="flex gap-3">
-                    <FontAwesomeIcon :icon="faCircleCheck" class="w-4 h-4 text-brand-600 mt-0.5 shrink-0" />
-                    <div>
-                      <p class="text-sm font-medium text-heading">Notificado a asesores</p>
-                      <p class="text-xs text-muted">Se notificó a {{ ticket.docentesNotificados.length }} asesor{{ ticket.docentesNotificados.length === 1 ? '' : 'es' }} disponible{{ ticket.docentesNotificados.length === 1 ? '' : 's' }}.</p>
-                    </div>
-                  </div>
-                  <div class="flex gap-3">
-                    <FontAwesomeIcon :icon="ticket.estado === 'pendiente' ? faCircle : faCircleCheck" class="w-4 h-4 mt-0.5 shrink-0" :class="ticket.estado === 'pendiente' ? 'text-gray-300' : 'text-brand-600'" />
-                    <div>
-                      <p class="text-sm font-medium text-heading">{{ ESTADO_ASESORIA_LABEL[ticket.estado] }}</p>
-                      <p class="text-xs text-muted">
-                        <template v-if="ticket.estado === 'pendiente'">El ticket está pendiente de aceptación por parte de algún asesor.</template>
-                        <template v-else-if="ticket.estado === 'asignado' || ticket.estado === 'agendado'">Asignado a {{ ticket.docenteNombre }} · {{ formatFechaHora(ticket.actualizadoEn ?? ticket.creadoEn) }}</template>
-                        <template v-else>{{ formatFechaHora(ticket.actualizadoEn ?? ticket.creadoEn) }}</template>
-                      </p>
+                <h3 class="text-sm font-bold text-heading mb-3">Línea de tiempo</h3>
+                <div class="relative">
+                  <div class="absolute left-3 top-2 bottom-2 w-px bg-gray-200" />
+                  <div class="space-y-4">
+                    <div v-for="(paso, i) in pasosTimeline" :key="i" class="flex gap-3 relative">
+                      <div
+                        class="w-6 h-6 rounded-full flex items-center justify-center shrink-0 z-10"
+                        :class="paso.completado ? 'bg-emerald-500 text-white' : 'bg-white border-2 border-gray-300'"
+                      >
+                        <FontAwesomeIcon v-if="paso.completado" :icon="faCheck" class="w-3 h-3" />
+                      </div>
+                      <div>
+                        <p class="text-sm font-semibold text-heading">{{ paso.titulo }}</p>
+                        <p class="text-xs text-muted mt-0.5">{{ paso.detalle }}</p>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -145,7 +178,15 @@ async function confirmarCancelar() {
             </div>
           </div>
 
-          <div v-if="ticket && puedeIntervenir" class="px-6 pb-6 flex justify-end gap-3 border-t border-gray-100 pt-4">
+          <div class="flex justify-end gap-3 border-t border-gray-200 p-4 bg-gray-50">
+            <button
+              @click="showIntervencion = true"
+              type="button"
+              class="px-4 py-2.5 rounded-lg border border-amber-300 text-sm font-medium text-amber-700 hover:bg-amber-50 transition-colors duration-75 flex items-center gap-2"
+            >
+              <FontAwesomeIcon :icon="faUserGear" class="w-3.5 h-3.5" />
+              Intervenir manualmente
+            </button>
             <button
               @click="showCancelar = true"
               type="button"
@@ -154,14 +195,8 @@ async function confirmarCancelar() {
               <FontAwesomeIcon :icon="faTrash" class="w-3.5 h-3.5" />
               Cancelar ticket
             </button>
-            <button
-              @click="showIntervencion = true"
-              type="button"
-              class="px-4 py-2.5 rounded-lg bg-amber-500 text-white text-sm font-medium hover:bg-amber-600 transition-colors duration-75 flex items-center gap-2"
-            >
-              <FontAwesomeIcon :icon="faUserGear" class="w-3.5 h-3.5" />
-              Intervenir manualmente
-            </button>
+          </div>
+          </div>
           </div>
         </div>
       </Transition>
