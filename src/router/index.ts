@@ -170,6 +170,11 @@ router.beforeEach((to) => {
   if (to.name === 'home' && session.sesion?.rol === 'cliente') {
     return { name: 'formatos' };
   }
+  // Ídem para asesor — pedido explícito del usuario: "Mis consultas" debe abrir directo la
+  // pantalla con tabs (Por Agendar/Agendadas/Reprogramadas/Atendidas), no el dashboard resumen.
+  if (to.name === 'home' && session.sesion?.rol === 'asesor') {
+    return { name: 'docente-consultas' };
+  }
   if (to.meta.noCliente && (session.sesion?.rol === 'cliente' || session.sesion?.rol === 'asesor')) {
     return { name: 'home' };
   }
