@@ -431,6 +431,19 @@ export interface Docente {
   horario: HorarioDocente[];
 }
 
+// Excepción puntual sobre el horario recurrente — marca una FECHA real (no un día de la semana)
+// como ocupada, ej. "este sábado 15 en particular no tengo tiempo" aunque el patrón recurrente
+// normalmente diga que sí. No se repite.
+export interface ExcepcionHorarioDocente {
+  id: string;
+  /** "YYYY-MM-DD" */
+  fecha: string;
+  /** "HH:MM" */
+  horaInicio: string;
+  /** "HH:MM" */
+  horaFin: string;
+}
+
 export type TipoAsesoria = 'chat' | 'video';
 
 // Vocabulario final del documento (docs/proyectafacil-asesorias.md §3.2): Pendiente → Asignado
