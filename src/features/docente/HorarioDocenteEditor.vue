@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faCalendarWeek, faCalendarDays, faCalendarXmark, faChevronLeft, faChevronRight, faSave, faPlus, faLock, faXmark } from '@/lib/icons';
 import PageShell from '@/components/PageShell.vue';
@@ -28,9 +28,9 @@ const DIAS: { valor: number; corta: string }[] = [
 
 const FILA_PX = 32;
 const GAP_PX = 4;
-// Rango visible sin necesidad de hacer scroll: 6am–9pm (15 horas = 30 franjas de media hora). El
-// resto del día (antes de las 6am, después de las 9pm) sigue disponible haciendo scroll.
-const ALTO_VISIBLE_PX = 30 * (FILA_PX + GAP_PX);
+// Rango visible sin necesidad de hacer scroll: 6am–9pm (15 franjas de una hora). El resto del día
+// (antes de las 6am, después de las 9pm) sigue disponible haciendo scroll.
+const ALTO_VISIBLE_PX = 15 * (FILA_PX + GAP_PX);
 
 const session = useSessionStore();
 const ui = useUiStore();
@@ -70,19 +70,22 @@ function horaAString(decimal: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
+// Pedido explícito del usuario: filas de hora en hora (12 am, 1 pm, 2 pm…), no de media hora en
+// media hora, para que quepan más horas en la pantalla sin scroll.
+const PASO = 1;
+
 function horaLabel(slot: number): string {
   const h24 = Math.floor(slot);
-  const min = Math.round((slot - h24) * 60);
   const ampm = h24 < 12 ? 'am' : 'pm';
   const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
-  return `${h12}:${String(min).padStart(2, '0')} ${ampm}`;
+  return `${h12} ${ampm}`;
 }
 
 // Pedido explícito del usuario: ver el día completo (24 horas), con scroll vertical en vez de
 // alargar la página entera.
 const slots = computed(() => {
   const lista: number[] = [];
-  for (let h = 0; h < 24; h += 0.5) lista.push(h);
+  for (let h = 0; h < 24; h += PASO) lista.push(h);
   return lista;
 });
 
@@ -99,8 +102,8 @@ function toggleSlot(dia: number, slot: number) {
 
   const marcados = new Set<number>();
   for (const b of propios) {
-    for (let s = horaADecimal(b.horaInicio); s < horaADecimal(b.horaFin) - 0.001; s += 0.5) {
-      marcados.add(Math.round(s * 2) / 2);
+    for (let s = horaADecimal(b.horaInicio); s < horaADecimal(b.horaFin) - 0.001; s += PASO) {
+      marcados.add(Math.round(s / PASO) * PASO);
     }
   }
   if (yaDisponible) marcados.delete(slot);
@@ -120,15 +123,15 @@ function comprimirEnBloques(dia: number, marcados: Set<number>): BloqueHorario[]
       anterior = s;
       continue;
     }
-    if (s === anterior! + 0.5) {
+    if (s === anterior! + PASO) {
       anterior = s;
       continue;
     }
-    nuevos.push({ diaSemana: dia, horaInicio: horaAString(inicio), horaFin: horaAString(anterior! + 0.5) });
+    nuevos.push({ diaSemana: dia, horaInicio: horaAString(inicio), horaFin: horaAString(anterior! + PASO) });
     inicio = s;
     anterior = s;
   }
-  if (inicio !== null) nuevos.push({ diaSemana: dia, horaInicio: horaAString(inicio), horaFin: horaAString(anterior! + 0.5) });
+  if (inicio !== null) nuevos.push({ diaSemana: dia, horaInicio: horaAString(inicio), horaFin: horaAString(anterior! + PASO) });
   return nuevos;
 }
 
@@ -204,9 +207,9 @@ function confirmarAgregarDisponible() {
   const propios = bloques.value.filter((b) => b.diaSemana === nuevoDia.value);
   const marcados = new Set<number>();
   for (const b of propios) {
-    for (let s = horaADecimal(b.horaInicio); s < horaADecimal(b.horaFin) - 0.001; s += 0.5) marcados.add(Math.round(s * 2) / 2);
+    for (let s = horaADecimal(b.horaInicio); s < horaADecimal(b.horaFin) - 0.001; s += PASO) marcados.add(Math.round(s / PASO) * PASO);
   }
-  for (let s = horaADecimal(nuevoDesde.value); s < horaADecimal(nuevoHasta.value) - 0.001; s += 0.5) marcados.add(Math.round(s * 2) / 2);
+  for (let s = horaADecimal(nuevoDesde.value); s < horaADecimal(nuevoHasta.value) - 0.001; s += PASO) marcados.add(Math.round(s / PASO) * PASO);
 
   bloques.value = [...bloques.value.filter((b) => b.diaSemana !== nuevoDia.value), ...comprimirEnBloques(nuevoDia.value, marcados)];
   showAgregarDisponible.value = false;
@@ -246,12 +249,27 @@ async function guardar() {
   ui.toast('Horario actualizado');
 }
 
-// Arranca el scroll de la grilla mostrando desde las 6am, en vez de medianoche.
+// Arranca el scroll de la grilla mostrando desde las 6am, en vez de medianoche. Se calcula desde
+// la posición real del elemento (offsetTop) en vez de estimarla a mano, para que no se desalinee
+// si cambian el padding/gap de la grilla. Ligado a `isLoading` (no a onMounted a secas) porque la
+// grilla recién existe en el DOM cuando termina de cargar — antes de eso `v-if="isLoading"` la
+// oculta por completo.
 const scrollRef = ref<HTMLElement | null>(null);
-onMounted(async () => {
+function irA6am() {
+  const filaSeisAm = scrollRef.value?.querySelector<HTMLElement>('[data-slot="6"]');
+  // offsetTop no es relativo a scrollRef (no tiene position:relative) sino al offsetParent común
+  // más cercano — se restan ambos offsets para obtener la posición real dentro del contenedor.
+  if (scrollRef.value && filaSeisAm) scrollRef.value.scrollTop = filaSeisAm.offsetTop - scrollRef.value.offsetTop;
+}
+watch(isLoading, async (cargando) => {
+  if (cargando) return;
+  // Con datos ya en caché (ej. al volver de otra pantalla) `isLoading` puede arrancar en false y
+  // el watch con `immediate` dispara antes de que `v-else` termine de montar la grilla — un solo
+  // nextTick no siempre alcanza, así que se reintenta también en el próximo frame pintado.
   await nextTick();
-  if (scrollRef.value) scrollRef.value.scrollTop = 6 * 2 * (FILA_PX + GAP_PX);
-});
+  irA6am();
+  requestAnimationFrame(irA6am);
+}, { immediate: true });
 </script>
 
 <template>
@@ -328,7 +346,7 @@ onMounted(async () => {
           <div ref="scrollRef" class="overflow-y-auto" :style="{ maxHeight: `${ALTO_VISIBLE_PX}px` }">
             <div class="grid gap-1 p-1" style="grid-template-columns: 64px repeat(7, 1fr)">
               <template v-for="slot in slots" :key="slot">
-                <div class="text-[10px] text-gray-400 text-right pr-2 flex items-center justify-end" :style="{ height: `${FILA_PX}px` }">
+                <div :data-slot="slot" class="text-[10px] text-gray-400 text-right pr-2 flex items-center justify-end" :style="{ height: `${FILA_PX}px` }">
                   {{ horaLabel(slot) }}
                 </div>
                 <template v-for="(dia, i) in DIAS" :key="`${dia.valor}-${slot}`">

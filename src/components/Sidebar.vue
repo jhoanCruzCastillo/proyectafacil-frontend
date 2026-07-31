@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faHouse, faLayerGroup, faAngleLeft, faUserGear, faCalendarWeek, faCircleInfo, faListCheck, faHeadset, faPeopleGroup, faMoneyBillTransfer, instrumentoIcons } from '@/lib/icons';
+import { faHouse, faLayerGroup, faAngleLeft, faUserGear, faCalendarWeek, faCalendarCheck, faCircleInfo, faListCheck, faHeadset, faPeopleGroup, faMoneyBillTransfer, instrumentoIcons } from '@/lib/icons';
 import UserMenu from '@/features/settings/UserMenu.vue';
 import NotificacionesBell from '@/features/asesoria/NotificacionesBell.vue';
 import { useSessionStore } from '@/stores/session';
@@ -27,6 +27,7 @@ const navItems = computed(() => {
       { to: '/docente/consultas', label: 'Mis consultas', icon: faHouse },
       { to: '/docente/especialidades', label: 'Mis especialidades', icon: faListCheck },
       { to: '/docente/horario', label: 'Mi disponibilidad', icon: faCalendarWeek },
+      { to: '/docente/cronograma', label: 'Cronograma', icon: faCalendarCheck },
     ];
   } else {
     items = [
