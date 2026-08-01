@@ -81,11 +81,13 @@ function horaLabel(slot: number): string {
   return `${h12} ${ampm}`;
 }
 
-// Pedido explícito del usuario: ver el día completo (24 horas), con scroll vertical en vez de
-// alargar la página entera.
+// Pedido explícito del usuario: por defecto arrancar en las 6am (no medianoche), pero mostrar
+// horas antes de esa si hay algo real ahí — un bloque disponible recurrente o una excepción
+// "ocupado" puntual dentro de la semana visible. `horaInicioGrid` se calcula más abajo, una vez
+// que `bloques`/`excepciones`/`fechasSemana` existen.
 const slots = computed(() => {
   const lista: number[] = [];
-  for (let h = 0; h < 24; h += PASO) lista.push(h);
+  for (let h = horaInicioGrid.value; h < 24; h += PASO) lista.push(h);
   return lista;
 });
 
@@ -169,6 +171,21 @@ const fechasSemana = computed(() => {
     fecha.setDate(lunes.getDate() + i);
     return fecha;
   });
+});
+
+// Hora en la que arranca la grilla: 6am por defecto, pero se adelanta si hay un bloque disponible
+// recurrente (aplica sin importar la semana) o una excepción "ocupado" puntual dentro de la semana
+// visible que empiecen antes de esa hora.
+const horaInicioGrid = computed(() => {
+  let min = 6;
+  for (const b of bloques.value) {
+    min = Math.min(min, Math.floor(horaADecimal(b.horaInicio)));
+  }
+  const fechasSemanaIso = new Set(fechasSemana.value.map(fechaISO));
+  for (const e of excepciones.value) {
+    if (fechasSemanaIso.has(e.fecha)) min = Math.min(min, Math.floor(horaADecimal(e.horaInicio)));
+  }
+  return Math.max(min, 0);
 });
 
 const rangoSemanaTexto = computed(() => {

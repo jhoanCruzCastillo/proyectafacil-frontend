@@ -431,6 +431,14 @@ export interface Docente {
   horario: HorarioDocente[];
 }
 
+// Segundo nivel de las especialidades del asesor: dentro de un sector MEF ("tema"), un subtema
+// específico — ej. dentro de Formatos Generales, "Liquidación por contrata".
+export interface SubtemaEspecialidad {
+  id: string;
+  sectorId: string;
+  nombre: string;
+}
+
 // Excepción puntual sobre el horario recurrente — marca una FECHA real (no un día de la semana)
 // como ocupada, ej. "este sábado 15 en particular no tengo tiempo" aunque el patrón recurrente
 // normalmente diga que sí. No se repite.

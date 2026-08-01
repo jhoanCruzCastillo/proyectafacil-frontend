@@ -26,16 +26,22 @@ const GAP_PX = 4;
 const PADDING_PX = 4;
 const ALTO_VISIBLE_PX = 15 * (FILA_PX + GAP_PX);
 
+// Por defecto arranca en las 6am; `horaInicioGrid` (más abajo, una vez que `propio`/`citasSemana`
+// existen) la adelanta si hay un bloque disponible recurrente o una cita real antes de esa hora.
 const slots = computed(() => {
   const lista: number[] = [];
-  for (let h = 0; h < 24; h++) lista.push(h);
+  for (let h = horaInicioGrid.value; h < 24; h++) lista.push(h);
   return lista;
 });
-const alturaTotalPx = slots.value.length * FILA_PX + (slots.value.length - 1) * GAP_PX + 2 * PADDING_PX;
+const alturaTotalPx = computed(() => slots.value.length * FILA_PX + (slots.value.length - 1) * GAP_PX + 2 * PADDING_PX);
 
 function topPx(horaDecimal: number): number {
-  return PADDING_PX + horaDecimal * (FILA_PX + GAP_PX);
+  return PADDING_PX + (horaDecimal - horaInicioGrid.value) * (FILA_PX + GAP_PX);
 }
+
+// Líneas horizontales de tabla, una por hora — formato de tabla pedido explícitamente por el
+// usuario, en vez de las tarjetas "flotantes" sin separación entre filas.
+const lineasHoraCss = `repeating-linear-gradient(180deg, #e2e8f0 0px, #e2e8f0 1px, transparent 1px, transparent ${FILA_PX + GAP_PX}px)`;
 
 function horaLabel(slot: number): string {
   const ampm = slot < 12 ? 'am' : 'pm';
@@ -135,6 +141,20 @@ const citasSemana = computed(() => {
   );
 });
 
+// Hora en la que arranca la grilla: 6am por defecto, adelantada si hay un bloque disponible
+// recurrente (aplica sin importar la semana) o una cita real dentro de la semana visible que
+// empiecen antes de esa hora.
+const horaInicioGrid = computed(() => {
+  let min = 6;
+  for (const h of propio.value?.horario ?? []) {
+    min = Math.min(min, Math.floor(horaADecimal(h.horaInicio)));
+  }
+  for (const s of citasSemana.value) {
+    min = Math.min(min, Math.floor(horaADecimal(s.horarioHoraInicio!)));
+  }
+  return Math.max(min, 0);
+});
+
 function bloquesCitaDia(fechaIso: string) {
   return citasSemana.value
     .filter((s) => s.horarioFecha === fechaIso)
@@ -144,7 +164,7 @@ function bloquesCitaDia(fechaIso: string) {
       rango: `${horaCorta(s.horarioHoraInicio!)} - ${horaCorta(s.horarioHoraFin!)}`,
       estado: s.estado,
       top: topPx(horaADecimal(s.horarioHoraInicio!)),
-      alto: Math.max((horaADecimal(s.horarioHoraFin!) - horaADecimal(s.horarioHoraInicio!)) * (FILA_PX + GAP_PX) - GAP_PX, 30),
+      alto: Math.max((horaADecimal(s.horarioHoraFin!) - horaADecimal(s.horarioHoraInicio!)) * (FILA_PX + GAP_PX) - GAP_PX, 36),
     }));
 }
 
@@ -204,20 +224,28 @@ watch(isLoading, async (cargando) => {
           </div>
 
           <div ref="scrollRef" class="overflow-y-auto" :style="{ maxHeight: `${ALTO_VISIBLE_PX}px` }">
-            <div class="grid gap-1 p-1" style="grid-template-columns: 64px repeat(7, 1fr)">
-              <div class="relative" :style="{ height: `${alturaTotalPx}px` }">
+            <div class="grid p-1 divide-x divide-gray-200" style="grid-template-columns: 64px repeat(7, 1fr)">
+              <div
+                class="relative"
+                :style="{ height: `${alturaTotalPx}px`, backgroundImage: lineasHoraCss, backgroundPosition: `0 ${PADDING_PX}px` }"
+              >
                 <div
                   v-for="slot in slots"
                   :key="slot"
                   :data-slot="slot"
-                  class="absolute left-0 right-0 text-[10px] text-gray-400 text-right pr-2 flex items-center justify-end"
+                  class="absolute left-0 right-0 text-[10px] text-heading font-semibold text-right pr-2 flex items-center justify-end"
                   :style="{ top: `${topPx(slot)}px`, height: `${FILA_PX}px` }"
                 >
                   {{ horaLabel(slot) }}
                 </div>
               </div>
 
-              <div v-for="(dia, i) in DIAS" :key="dia.valor" class="relative bg-white rounded-md" :style="{ height: `${alturaTotalPx}px` }">
+              <div
+                v-for="(dia, i) in DIAS"
+                :key="dia.valor"
+                class="relative bg-white"
+                :style="{ height: `${alturaTotalPx}px`, backgroundImage: lineasHoraCss, backgroundPosition: `0 ${PADDING_PX}px` }"
+              >
                 <div
                   v-for="bloque in bloquesDisponibleDia(dia.valor)"
                   :key="`disp-${bloque.id}`"
@@ -234,8 +262,8 @@ watch(isLoading, async (cargando) => {
                   :style="{ top: `${bloque.top}px`, height: `${bloque.alto}px` }"
                   :title="`${bloque.nombre} · ${bloque.rango}`"
                 >
-                  <span class="text-[10px] font-semibold truncate w-full">{{ bloque.nombre }}</span>
-                  <span class="text-[9px] font-normal opacity-90 truncate w-full">{{ bloque.rango }}</span>
+                  <span class="text-xs font-semibold truncate w-full">{{ bloque.nombre }}</span>
+                  <span class="text-[11px] font-normal opacity-90 truncate w-full">{{ bloque.rango }}</span>
                 </div>
               </div>
             </div>

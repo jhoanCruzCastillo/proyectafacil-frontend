@@ -25,7 +25,7 @@ const navItems = computed(() => {
   } else if (esAsesor.value) {
     items = [
       { to: '/docente/consultas', label: 'Mis consultas', icon: faHouse },
-      { to: '/docente/especialidades', label: 'Mis especialidades', icon: faListCheck },
+      { to: '/docente/especialidades', label: 'Temas de especialidad', icon: faListCheck },
       { to: '/docente/horario', label: 'Mi disponibilidad', icon: faCalendarWeek },
       { to: '/docente/cronograma', label: 'Cronograma', icon: faCalendarCheck },
     ];
