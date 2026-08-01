@@ -185,6 +185,13 @@ export interface Campo {
   config?: Record<string, unknown>;
   /** Ubicación de este campo en el Excel (captura) — no aplica a campos tipo tabla */
   captura?: CapturaCampo;
+  /** Lista fija de opciones (equivalente a `opciones` de ColumnaTabla, pero para un campo suelto):
+   * la celda del Excel se llena eligiendo de esta lista, no con texto libre. */
+  opciones?: string[];
+  /** Cómo se ve un valor booleano en el Excel oficial: `{ "true": "Sí", "false": "No" }`.
+   * Lo declara la plantilla porque cada formato usa sus propias palabras ("Sí"/"No", "X"/""), y
+   * tanto el volcado desde Excel como la inserción hacia Excel deben respetarlas. */
+  etiquetasBooleano?: { true: string; false: string };
 }
 
 export interface Ejemplo {
@@ -429,6 +436,112 @@ export interface Docente {
   fotoUrl?: string | null;
   /** Bloques semanales de referencia — no es un calendario de citas, solo indica cuándo suele estar disponible */
   horario: HorarioDocente[];
+}
+
+// --- Mi Liquidación (asesor) ---
+
+/** Una consulta completada, como la ve el asesor en su liquidación. */
+export interface LiquidacionDetalle {
+  id: string;
+  clienteNombre: string;
+  clienteFotoUrl?: string | null;
+  sectorNombre?: string | null;
+  /** Puede venir vacío: el flujo que crea solicitudes todavía no pide subtema. */
+  subtemaNombre?: string | null;
+  tipo: TipoAsesoria;
+  /** ISO — fecha real de cierre de la asesoría. */
+  atendidoEn: string;
+  pagado: boolean;
+  monto: number;
+}
+
+export type GranularidadLiquidacion = 'dia' | 'semana' | 'mes' | 'anio';
+
+export interface PuntoSerieLiquidacion {
+  clave: string;
+  etiqueta: string;
+  consultas: number;
+  monto: number;
+}
+
+export interface LiquidacionHistorico {
+  granularidad: GranularidadLiquidacion;
+  periodo: string;
+  periodoClave: string;
+  periodoLabel: string;
+  honorario: number;
+  kpis: {
+    consultasAtendidas: number;
+    ingresoHistorico: number;
+    promedioMensual: number;
+    pagadoALaFecha: number;
+  };
+  serie: PuntoSerieLiquidacion[];
+  detalle: LiquidacionDetalle[];
+  totalPeriodo: number;
+}
+
+export interface LiquidacionPendiente {
+  honorario: number;
+  kpis: {
+    consultasPorCobrar: number;
+    montoPendiente: number;
+    diasMasAntigua: number;
+    tarifaPorConsulta: number;
+  };
+  detalle: LiquidacionDetalle[];
+  totalPendiente: number;
+}
+
+export interface LiquidacionMes {
+  periodo: string;
+  periodoLabel: string;
+  honorario: number;
+  kpis: {
+    consultasDelMes: number;
+    ingresoDelMes: number;
+    videollamadas: number;
+    chats: number;
+  };
+  porSemana: { etiqueta: string; consultas: number }[];
+  detalle: LiquidacionDetalle[];
+  totalMes: number;
+}
+
+// Por qué una solicitud que le llegó al asesor terminó sin ser suya.
+export type MotivoNoAceptada = 'tomada_por_otro' | 'vencida_sin_respuesta' | 'cancelada_por_alumno';
+
+export interface SolicitudNoAceptada extends SolicitudAsesoria {
+  motivo: MotivoNoAceptada;
+}
+
+// Las dos listas de la pantalla "No atendidas / reasignadas" del asesor.
+export interface NoAtendidasAsesor {
+  /** Le llegaron por broadcast pero nunca fueron suyas. */
+  noAceptadas: SolicitudNoAceptada[];
+  /** Eran suyas y con hora fijada, pero la hora pasó sin cerrarse. */
+  agendadasNoAtendidas: SolicitudAsesoria[];
+}
+
+// Segundo nivel de las especialidades del asesor: dentro de un sector MEF ("tema"), un subtema
+// específico — ej. dentro de Formatos Generales, "Liquidación por contrata".
+export interface SubtemaEspecialidad {
+  id: string;
+  sectorId: string;
+  nombre: string;
+}
+
+// Excepción puntual sobre el horario recurrente — marca una FECHA real (no un día de la semana)
+// como ocupada, ej. "este sábado 15 en particular no tengo tiempo" aunque el patrón recurrente
+// normalmente diga que sí. No se repite.
+export interface ExcepcionHorarioDocente {
+  id: string;
+  /** "YYYY-MM-DD" */
+  fecha: string;
+  /** "HH:MM" */
+  horaInicio: string;
+  /** "HH:MM" */
+  horaFin: string;
 }
 
 export type TipoAsesoria = 'chat' | 'video';

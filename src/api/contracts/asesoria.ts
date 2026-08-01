@@ -1,4 +1,4 @@
-import type { SolicitudAsesoria, MensajeAsesoria, TipoAsesoria, TipoDocumento } from '@/types';
+import type { SolicitudAsesoria, MensajeAsesoria, TipoAsesoria, TipoDocumento, NoAtendidasAsesor } from '@/types';
 
 export interface CrearSolicitudAsesoriaData {
   clienteId: string;
@@ -15,6 +15,8 @@ export interface CrearSolicitudAsesoriaData {
 
 export interface AsesoriaApi {
   misSolicitudes(usuarioId: string, rol: 'cliente' | 'asesor'): Promise<SolicitudAsesoria[]>;
+  /** Las dos listas de "No atendidas / reasignadas" del asesor. */
+  noAtendidas(usuarioId: string): Promise<NoAtendidasAsesor>;
   crear(data: CrearSolicitudAsesoriaData): Promise<SolicitudAsesoria>;
   /** Puede rechazar con 409 si otro asesor ya la tomó — apiFetch propaga el mensaje del backend. */
   aceptar(solicitudId: string, asesorId: string, linkReunion?: string): Promise<SolicitudAsesoria>;

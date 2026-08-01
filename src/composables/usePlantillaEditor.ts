@@ -65,6 +65,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
   const editedValores = ref<Record<string, string>>({});
   const showNuevoEjemplo = ref(false);
   const deleteTarget = ref<Ejemplo | null>(null) as Ref<Ejemplo | null>;
+  const volcarTarget = ref<Ejemplo | null>(null) as Ref<Ejemplo | null>;
   const showExcelCatalogModal = ref(false);
   const showPreview = ref(false);
   const showInsertConfirm = ref(false);
@@ -145,6 +146,21 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
   function handlePreviewExample(ejemplo: Ejemplo) {
     activeEjemplo.value = ejemplo;
     showPreview.value = true;
+  }
+
+  function handleVolcarExcel(ejemplo: Ejemplo) {
+    activeEjemplo.value = ejemplo;
+    volcarTarget.value = ejemplo;
+  }
+
+  // Los valores leídos del Excel se fusionan sobre los actuales, no los reemplazan: lo que el Excel
+  // no trae (celdas vacías, y todas las tablas) conserva lo que el ejemplo ya tenía. Queda como
+  // edición pendiente igual que cualquier cambio manual — se persiste al guardar.
+  function handleConfirmarVolcado(valores: Record<string, string>) {
+    editedValores.value = { ...editedValores.value, ...valores };
+    volcarTarget.value = null;
+    const n = Object.keys(valores).length;
+    ui.toast(`${n} ${n === 1 ? 'campo volcado' : 'campos volcados'} desde el Excel — recuerda guardar`);
   }
 
   async function handleInsertExcel() {
@@ -354,7 +370,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     leftWidth, rightWidth, examplesWidth, highlightMissingCaptura, ejemplosCount, jsonPreview,
     showImportEstructura,
     secciones, safeIdx, seccionActiva, isFirst, isLast, showExamples,
-    ejemplos, activeEjemplo, editedValores, showNuevoEjemplo, deleteTarget,
+    ejemplos, activeEjemplo, editedValores, showNuevoEjemplo, deleteTarget, volcarTarget,
     archivoExcelAsignado, showExcelCatalogModal, showPreview, showInsertConfirm, isInserting, insertProgress,
     previewFileUrl, previewFileName,
     handleLeftResize, handleRightResize, handleExamplesResize, handleTabChange, handleSectionSelect,
@@ -363,6 +379,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     handleSubseccionAyudaChange, handleAddSubsection, handleDeleteSubsection, handleAddSection,
     handleExampleValueChange, handleCreateExample, handleDeleteEjemplo, handleToggleEjemploEstado,
     handleDownloadExcel, handlePreviewExample, handleInsertExcel,
+    handleVolcarExcel, handleConfirmarVolcado,
     handleImportEstructura,
     handleSave, handleViewJson,
   };

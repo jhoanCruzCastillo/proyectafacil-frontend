@@ -1,6 +1,7 @@
 import { parseDynamicRows, parseGroupedRows, parseTree, getPeriodos, esJerarquica, type FilaDinamica } from './tableRowHelpers';
 import { LibroEdits, aplicarEdicionesXlsx } from './xlsxXmlPatcher';
 import { crearResolver, esFormula, evaluarFormula, traducirFormulaAExcel, type ResolucionToken, type ResolucionCelda } from './formula';
+import { booleanoATexto, type EtiquetasBooleano } from './conversionesExcel';
 import type { Plantilla, Campo, ConfigTabla, TipoCampo } from '@/types';
 
 // --- Aritmética de columnas Excel (A, B, ..., Z, AA, AB, ...) ---
@@ -26,13 +27,16 @@ function addCols(letter: string, delta: number): string {
   return colIndexToLetter(colLetterToIndex(letter) + delta);
 }
 
-function coerceValor(tipo: TipoCampo, raw: string | undefined): string | number | boolean {
+// `etiquetasBooleano` son las palabras con que la plantilla oficial escribe un booleano en el Excel
+// ("Sí"/"No"). Sin ellas se escribe un booleano nativo (TRUE/FALSE), que es el comportamiento
+// previo — pero una plantilla que las declara debe recuperar su propio texto, no el genérico.
+function coerceValor(tipo: TipoCampo, raw: string | undefined, etiquetasBooleano?: EtiquetasBooleano): string | number | boolean {
   if (raw == null || raw === '') return '';
   if (tipo === 'numero' || tipo === 'decimal') {
     const n = Number(raw);
     return Number.isNaN(n) ? '' : n;
   }
-  if (tipo === 'booleano') return raw === 'true';
+  if (tipo === 'booleano') return booleanoATexto(raw, etiquetasBooleano);
   return raw;
 }
 
@@ -283,7 +287,7 @@ function writeCampo(
 
   writeCellSpan(
     ediciones, hoja, campo.captura.columna, campo.captura.fila + shift,
-    coerceValor(campo.tipo, valorParaEscribir),
+    coerceValor(campo.tipo, valorParaEscribir, campo.etiquetasBooleano),
     campo.captura.abarcaColumnas ?? 1, campo.captura.abarcaFilas ?? 1,
     formulaExcel,
   );

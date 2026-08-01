@@ -3,7 +3,8 @@ import { computed, ref } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import {
   faHouse, faCheck, faComments, faVideo, faCalendarWeek, faToggleOn, faToggleOff,
-  faFilter, faChevronDown, faChevronRight, faFileLines, faCalendarDays,
+  faFilter, faChevronDown, faChevronLeft, faChevronRight, faAnglesLeft, faAnglesRight,
+  faFileLines, faCalendarDays, faCircleInfo,
 } from '@/lib/icons';
 import PageShell from '@/components/PageShell.vue';
 import Avatar from '@/components/Avatar.vue';
@@ -57,26 +58,42 @@ const chatAbiertoId = ref<string | null>(null);
 const chatAbierto = computed(() => (solicitudes.value ?? []).find((s) => s.id === chatAbiertoId.value) ?? null);
 const resumenAbierto = ref<SolicitudAsesoria | null>(null);
 
-type Tab = 'todas' | 'pendientes' | 'agendadas' | 'completadas';
+// "Reprogramadas" pedido explícito del cliente — todavía no existe ese estado/bandera en el
+// modelo de datos (ver docs), así que por ahora ese tab no filtra nada real (lista vacía) hasta
+// que se defina cómo se modela una reprogramación.
+type Tab = 'por_agendar' | 'agendadas' | 'reprogramadas' | 'atendidas';
 const TABS: { value: Tab; label: string }[] = [
-  { value: 'todas', label: 'Todas' },
-  { value: 'pendientes', label: 'Pendientes' },
+  { value: 'por_agendar', label: 'Por Agendar' },
   { value: 'agendadas', label: 'Agendadas' },
-  { value: 'completadas', label: 'Completadas' },
+  { value: 'reprogramadas', label: 'Reprogramadas' },
+  { value: 'atendidas', label: 'Atendidas' },
 ];
-const tabActiva = ref<Tab>('todas');
+const tabActiva = ref<Tab>('por_agendar');
 
 const mostrarFiltros = ref(false);
 const filtroModalidad = ref<'todas' | 'chat' | 'video'>('todas');
 const mostrarOrden = ref(false);
 const orden = ref<'recientes' | 'antiguos'>('recientes');
 
+const PORCIONES = [10, 25, 50];
+const porPagina = ref(10);
+const paginaActual = ref(1);
+
+function cambiarTab(tab: Tab) {
+  tabActiva.value = tab;
+  paginaActual.value = 1;
+}
+
 const listaFiltrada = computed(() => {
   let lista = solicitudes.value ?? [];
 
-  if (tabActiva.value === 'pendientes') lista = lista.filter((s) => s.estado === 'pendiente' || s.estado === 'asignado');
-  else if (tabActiva.value === 'agendadas') lista = lista.filter((s) => s.estado === 'agendado');
-  else if (tabActiva.value === 'completadas') lista = lista.filter((s) => s.estado === 'completado');
+  // "Por Agendar" = el asesor todavía NO acepta (sin asignar) — "Agendadas" = ya aceptada
+  // (chat en curso o video con horario) pero todavía sin terminar. "asignado" es justamente eso:
+  // un chat YA aceptado, por eso va en Agendadas, no en Por Agendar.
+  if (tabActiva.value === 'por_agendar') lista = lista.filter((s) => s.estado === 'pendiente' || s.estado === 'en_espera');
+  else if (tabActiva.value === 'agendadas') lista = lista.filter((s) => s.estado === 'asignado' || s.estado === 'agendado');
+  else if (tabActiva.value === 'atendidas') lista = lista.filter((s) => s.estado === 'completado');
+  else if (tabActiva.value === 'reprogramadas') lista = [];
 
   if (filtroModalidad.value !== 'todas') lista = lista.filter((s) => s.tipo === filtroModalidad.value);
 
@@ -85,6 +102,39 @@ const listaFiltrada = computed(() => {
     return orden.value === 'recientes' ? diff : -diff;
   });
 });
+
+const totalPaginas = computed(() => Math.max(1, Math.ceil(listaFiltrada.value.length / porPagina.value)));
+
+const listaPaginada = computed(() => {
+  const inicio = (paginaActual.value - 1) * porPagina.value;
+  return listaFiltrada.value.slice(inicio, inicio + porPagina.value);
+});
+
+const rangoDesde = computed(() => (listaFiltrada.value.length === 0 ? 0 : (paginaActual.value - 1) * porPagina.value + 1));
+const rangoHasta = computed(() => Math.min(paginaActual.value * porPagina.value, listaFiltrada.value.length));
+
+// Lista de páginas a mostrar en la paginación, con "…" cuando hay más de 7 páginas.
+const paginasVisibles = computed<(number | '…')[]>(() => {
+  const total = totalPaginas.value;
+  const actual = paginaActual.value;
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+
+  const paginas: (number | '…')[] = [1];
+  if (actual > 3) paginas.push('…');
+  for (let p = Math.max(2, actual - 1); p <= Math.min(total - 1, actual + 1); p++) paginas.push(p);
+  if (actual < total - 2) paginas.push('…');
+  paginas.push(total);
+  return paginas;
+});
+
+function irAPagina(p: number) {
+  paginaActual.value = Math.min(Math.max(1, p), totalPaginas.value);
+}
+
+function cambiarPorPagina(valor: number) {
+  porPagina.value = valor;
+  paginaActual.value = 1;
+}
 </script>
 
 <template>
@@ -113,7 +163,7 @@ const listaFiltrada = computed(() => {
         <button
           v-for="tab in TABS"
           :key="tab.value"
-          @click="tabActiva = tab.value"
+          @click="cambiarTab(tab.value)"
           type="button"
           class="px-4 py-2.5 text-sm font-medium border-b-2 transition-colors duration-75"
           :class="tabActiva === tab.value ? 'border-brand-600 text-brand-700' : 'border-transparent text-gray-500 hover:text-gray-700'"
@@ -136,7 +186,7 @@ const listaFiltrada = computed(() => {
             <button
               v-for="op in [{ v: 'todas', l: 'Todas las modalidades' }, { v: 'chat', l: 'Chat' }, { v: 'video', l: 'Videollamada' }] as const"
               :key="op.v"
-              @click="filtroModalidad = op.v; mostrarFiltros = false"
+              @click="filtroModalidad = op.v; mostrarFiltros = false; paginaActual = 1"
               type="button"
               class="w-full text-left px-3 py-2 rounded-md text-sm hover:bg-gray-50 transition-colors duration-75"
               :class="filtroModalidad === op.v ? 'text-brand-700 font-medium bg-brand-50' : 'text-gray-600'"
@@ -174,94 +224,161 @@ const listaFiltrada = computed(() => {
     <p v-if="isLoading" class="text-sm text-muted px-6 sm:px-8 pb-6">Cargando…</p>
     <p v-else-if="listaFiltrada.length === 0" class="text-sm text-muted py-10 text-center">No hay consultas en esta categoría.</p>
     <template v-else>
-      <div
-        v-for="s in listaFiltrada"
-        :key="s.id"
-        class="flex items-center gap-4 px-6 sm:px-8 py-4 border-b border-gray-50 last:border-0"
-      >
-        <Avatar :nombre="s.clienteNombre ?? '?'" :fotoUrl="s.clienteFotoUrl" size="w-11 h-11" />
+      <div class="px-6 sm:px-8">
+        <div class="rounded-xl border border-gray-200 overflow-hidden">
+          <table class="w-full text-sm border-collapse">
+            <thead>
+              <tr class="text-left text-xs font-semibold text-gray-600 bg-gray-50 border-b border-gray-200">
+                <th class="py-3 px-4">Alumno</th>
+                <th class="py-3 px-4">Categoría</th>
+                <th class="py-3 px-4">Modalidad</th>
+                <th class="py-3 px-4">Fecha / Hora solicitada</th>
+                <th class="py-3 px-4">Estado</th>
+                <th class="py-3 px-4">SLA</th>
+                <th class="py-3 px-4">Acción</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="s in listaPaginada" :key="s.id" class="border-b border-gray-100 last:border-b-0">
+                <td class="py-4 px-4">
+                  <div class="flex items-center gap-3">
+                    <Avatar :nombre="s.clienteNombre ?? '?'" :fotoUrl="s.clienteFotoUrl" size="w-11 h-11" />
+                    <div class="min-w-0">
+                      <p class="font-semibold text-heading text-sm truncate">{{ s.clienteNombre }}</p>
+                      <p class="text-xs text-muted">Solicitado {{ tiempoRelativo(s.creadoEn) }}</p>
+                    </div>
+                  </div>
+                </td>
+                <td class="py-4 px-4">
+                  <span class="px-2.5 py-1 rounded-full text-xs font-medium" :class="colorCategoria(s.sectorNombre)">{{ s.sectorNombre ?? '—' }}</span>
+                </td>
+                <td class="py-4 px-4">
+                  <div class="flex items-center gap-1.5 text-sm text-gray-600">
+                    <FontAwesomeIcon :icon="s.tipo === 'video' ? faVideo : faComments" class="w-3.5 h-3.5" />
+                    {{ s.tipo === 'video' ? 'Videollamada' : 'Chat' }}
+                  </div>
+                </td>
+                <td class="py-4 px-4 text-sm text-muted">
+                  <span v-if="s.tipo === 'video' && s.horarioFecha" class="flex items-center gap-1">
+                    <FontAwesomeIcon :icon="faCalendarDays" class="w-2.5 h-2.5" />
+                    {{ formatFechaHoraVideo(s) }}
+                  </span>
+                  <span v-else>—</span>
+                </td>
+                <td class="py-4 px-4">
+                  <span class="px-2.5 py-1 rounded-full text-[11px] font-medium" :class="ESTADO_CLASE[s.estado]">{{ ESTADO_LABEL[s.estado] }}</span>
+                </td>
+                <td class="py-4 px-4 text-xs">
+                  <span v-if="s.estado === 'pendiente' && s.slaVenceEn" :class="tiempoHastaVencer(s.slaVenceEn).vencido ? 'text-red-500 font-medium' : 'text-amber-600'">
+                    {{ tiempoHastaVencer(s.slaVenceEn).texto }}
+                  </span>
+                  <span v-else class="text-muted">—</span>
+                </td>
+                <td class="py-4 px-4 whitespace-nowrap">
+                  <template v-if="s.estado === 'pendiente'">
+                    <button
+                      @click="aceptar(s)"
+                      :disabled="generandoLinkPara === s.id"
+                      type="button"
+                      class="px-4 py-2 rounded-lg bg-brand-600 text-white text-xs font-semibold hover:bg-brand-700 disabled:opacity-60 transition-colors duration-75 flex items-center gap-1.5"
+                    >
+                      <FontAwesomeIcon :icon="faCheck" class="w-3 h-3" />
+                      {{ generandoLinkPara === s.id ? 'Generando enlace…' : 'Aceptar' }}
+                    </button>
+                  </template>
 
-        <div class="w-40 shrink-0 min-w-0">
-          <p class="font-semibold text-heading text-sm truncate">{{ s.clienteNombre }}</p>
-          <p class="text-xs text-muted">Solicitado {{ tiempoRelativo(s.creadoEn) }}</p>
+                  <button
+                    v-else-if="s.estado === 'asignado'"
+                    @click="chatAbiertoId = s.id"
+                    type="button"
+                    class="px-4 py-2 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-colors duration-75 inline-flex items-center gap-1.5"
+                  >
+                    <FontAwesomeIcon :icon="faComments" class="w-3 h-3" />
+                    Responder
+                    <FontAwesomeIcon :icon="faChevronRight" class="w-2.5 h-2.5" />
+                  </button>
+
+                  <template v-else-if="s.estado === 'agendado'">
+                    <button
+                      @click="unirseALlamada(s)"
+                      :disabled="!ventanaDeLlamada(s).disponible"
+                      type="button"
+                      class="px-4 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors duration-75"
+                      :class="ventanaDeLlamada(s).disponible ? 'bg-brand-600 text-white hover:bg-brand-700' : 'bg-gray-100 text-gray-400 cursor-not-allowed'"
+                    >
+                      <FontAwesomeIcon :icon="faVideo" class="w-3 h-3" />
+                      Unirse
+                    </button>
+                    <p class="text-[11px] text-muted mt-1">{{ ventanaDeLlamada(s).texto }}</p>
+                  </template>
+
+                  <button
+                    v-else-if="s.estado === 'completado'"
+                    @click="resumenAbierto = s"
+                    type="button"
+                    class="px-4 py-2 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-colors duration-75 inline-flex items-center gap-1.5"
+                  >
+                    <FontAwesomeIcon :icon="faFileLines" class="w-3 h-3" />
+                    Ver resumen
+                    <FontAwesomeIcon :icon="faChevronRight" class="w-2.5 h-2.5" />
+                  </button>
+
+                  <span v-else class="text-xs text-muted">{{ s.estado === 'cancelado' ? 'Cancelada por el alumno' : 'En espera de cobertura' }}</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
 
-        <div class="w-40 shrink-0">
-          <span class="px-2.5 py-1 rounded-full text-xs font-medium" :class="colorCategoria(s.sectorNombre)">{{ s.sectorNombre ?? '—' }}</span>
-        </div>
+        <div class="flex flex-wrap items-center justify-between gap-4 mt-10">
+          <p class="text-xs text-muted">Mostrando {{ rangoDesde }} a {{ rangoHasta }} de {{ listaFiltrada.length }} consulta{{ listaFiltrada.length === 1 ? '' : 's' }}</p>
 
-        <div class="w-44 shrink-0">
-          <div class="flex items-center gap-1.5 text-sm text-gray-600">
-            <FontAwesomeIcon :icon="s.tipo === 'video' ? faVideo : faComments" class="w-3.5 h-3.5" />
-            {{ s.tipo === 'video' ? 'Videollamada' : 'Chat' }}
+          <div class="flex items-center gap-1">
+            <button type="button" :disabled="paginaActual === 1" @click="irAPagina(1)" class="w-8 h-8 rounded-lg border border-gray-200 text-gray-500 flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors duration-75">
+              <FontAwesomeIcon :icon="faAnglesLeft" class="w-3 h-3" />
+            </button>
+            <button type="button" :disabled="paginaActual === 1" @click="irAPagina(paginaActual - 1)" class="w-8 h-8 rounded-lg border border-gray-200 text-gray-500 flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors duration-75">
+              <FontAwesomeIcon :icon="faChevronLeft" class="w-3 h-3" />
+            </button>
+
+            <template v-for="(p, i) in paginasVisibles" :key="i">
+              <span v-if="p === '…'" class="w-8 h-8 flex items-center justify-center text-gray-400 text-sm">…</span>
+              <button
+                v-else
+                type="button"
+                @click="irAPagina(p)"
+                class="w-8 h-8 rounded-lg text-sm font-medium flex items-center justify-center transition-colors duration-75"
+                :class="p === paginaActual ? 'border-2 border-brand-600 text-brand-700' : 'border border-gray-200 text-gray-600 hover:bg-gray-50'"
+              >
+                {{ p }}
+              </button>
+            </template>
+
+            <button type="button" :disabled="paginaActual === totalPaginas" @click="irAPagina(paginaActual + 1)" class="w-8 h-8 rounded-lg border border-gray-200 text-gray-500 flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors duration-75">
+              <FontAwesomeIcon :icon="faChevronRight" class="w-3 h-3" />
+            </button>
+            <button type="button" :disabled="paginaActual === totalPaginas" @click="irAPagina(totalPaginas)" class="w-8 h-8 rounded-lg border border-gray-200 text-gray-500 flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors duration-75">
+              <FontAwesomeIcon :icon="faAnglesRight" class="w-3 h-3" />
+            </button>
           </div>
-          <p v-if="s.tipo === 'video' && s.horarioFecha" class="text-xs text-muted mt-0.5 flex items-center gap-1">
-            <FontAwesomeIcon :icon="faCalendarDays" class="w-2.5 h-2.5" />
-            {{ formatFechaHoraVideo(s) }}
-          </p>
-        </div>
 
-        <div class="w-28 shrink-0">
-          <span class="px-2.5 py-1 rounded-full text-[11px] font-medium" :class="ESTADO_CLASE[s.estado]">{{ ESTADO_LABEL[s.estado] }}</span>
-        </div>
-
-        <div class="ml-auto text-right shrink-0">
-          <template v-if="s.estado === 'pendiente'">
-            <button
-              @click="aceptar(s)"
-              :disabled="generandoLinkPara === s.id"
-              type="button"
-              class="px-4 py-2 rounded-lg bg-brand-600 text-white text-xs font-semibold hover:bg-brand-700 disabled:opacity-60 transition-colors duration-75 flex items-center gap-1.5 ml-auto"
+          <label class="flex items-center gap-2 text-xs text-muted">
+            Mostrar:
+            <select
+              :value="porPagina"
+              @change="cambiarPorPagina(Number(($event.target as HTMLSelectElement).value))"
+              class="rounded-lg border border-gray-200 text-sm text-heading px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500"
             >
-              <FontAwesomeIcon :icon="faCheck" class="w-3 h-3" />
-              {{ generandoLinkPara === s.id ? 'Generando enlace…' : 'Aceptar' }}
-            </button>
-            <p v-if="s.slaVenceEn" class="text-[11px] mt-1.5" :class="tiempoHastaVencer(s.slaVenceEn).vencido ? 'text-red-500 font-medium' : 'text-amber-600'">
-              {{ tiempoHastaVencer(s.slaVenceEn).texto }}
-            </p>
-          </template>
-
-          <button
-            v-else-if="s.estado === 'asignado'"
-            @click="chatAbiertoId = s.id"
-            type="button"
-            class="px-4 py-2 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-colors duration-75 inline-flex items-center gap-1.5 ml-auto"
-          >
-            <FontAwesomeIcon :icon="faComments" class="w-3 h-3" />
-            Responder
-            <FontAwesomeIcon :icon="faChevronRight" class="w-2.5 h-2.5" />
-          </button>
-
-          <template v-else-if="s.estado === 'agendado'">
-            <button
-              @click="unirseALlamada(s)"
-              :disabled="!ventanaDeLlamada(s).disponible"
-              type="button"
-              class="px-4 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 ml-auto transition-colors duration-75"
-              :class="ventanaDeLlamada(s).disponible ? 'bg-brand-600 text-white hover:bg-brand-700' : 'bg-gray-100 text-gray-400 cursor-not-allowed'"
-            >
-              <FontAwesomeIcon :icon="faVideo" class="w-3 h-3" />
-              Unirse a la llamada
-            </button>
-            <p class="text-[11px] text-muted mt-1.5">{{ ventanaDeLlamada(s).texto }}</p>
-          </template>
-
-          <button
-            v-else-if="s.estado === 'completado'"
-            @click="resumenAbierto = s"
-            type="button"
-            class="px-4 py-2 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-colors duration-75 inline-flex items-center gap-1.5 ml-auto"
-          >
-            <FontAwesomeIcon :icon="faFileLines" class="w-3 h-3" />
-            Ver resumen
-            <FontAwesomeIcon :icon="faChevronRight" class="w-2.5 h-2.5" />
-          </button>
-
-          <span v-else class="text-xs text-muted">{{ s.estado === 'cancelado' ? 'Cancelada por el alumno' : 'En espera de cobertura' }}</span>
+              <option v-for="n in PORCIONES" :key="n" :value="n">{{ n }} por página</option>
+            </select>
+          </label>
         </div>
+
+        <p class="flex items-center justify-center gap-1.5 text-xs text-muted text-center py-6">
+          <FontAwesomeIcon :icon="faCircleInfo" class="w-3 h-3" />
+          Los tiempos de atención se calculan según tu configuración de SLA.
+        </p>
       </div>
-
-      <p class="text-xs text-muted text-center py-4">Mostrando 1–{{ listaFiltrada.length }} de {{ listaFiltrada.length }} consulta{{ listaFiltrada.length === 1 ? '' : 's' }}</p>
     </template>
 
     <AsesoriaChatPanel

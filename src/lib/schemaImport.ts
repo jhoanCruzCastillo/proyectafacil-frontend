@@ -214,7 +214,29 @@ function campoFromDoc(rawCampo: unknown): Campo {
 
   campo.captura = parseCapturaCampo(raw.captura);
   campo.valorEjemplo = valorToString(tipo, raw.valor);
+
+  // `etiquetas` cubre dos casos según el tipo del campo, por eso se desdobla en dos propiedades:
+  // un array es la lista fija de opciones de un campo de texto; un objeto {true,false} es cómo
+  // se escriben Sí/No en el Excel de un campo booleano.
+  const { opciones, etiquetasBooleano } = parseEtiquetas(raw.etiquetas);
+  if (opciones) campo.opciones = opciones;
+  if (etiquetasBooleano) campo.etiquetasBooleano = etiquetasBooleano;
+
   return campo;
+}
+
+function parseEtiquetas(raw: unknown): { opciones?: string[]; etiquetasBooleano?: { true: string; false: string } } {
+  if (Array.isArray(raw)) {
+    const opciones = raw.map(String).filter((o) => o !== '');
+    return opciones.length > 0 ? { opciones } : {};
+  }
+  if (typeof raw === 'object' && raw !== null) {
+    const r = raw as Record<string, unknown>;
+    if (typeof r.true === 'string' && typeof r.false === 'string') {
+      return { etiquetasBooleano: { true: r.true, false: r.false } };
+    }
+  }
+  return {};
 }
 
 // --- Sección / grupo ---

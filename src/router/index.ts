@@ -119,6 +119,24 @@ const router = createRouter({
           meta: { soloAsesor: true },
         },
         {
+          path: 'docente/cronograma',
+          name: 'docente-cronograma',
+          component: () => import('@/features/docente/CronogramaPage.vue'),
+          meta: { soloAsesor: true },
+        },
+        {
+          path: 'docente/no-atendidas',
+          name: 'docente-no-atendidas',
+          component: () => import('@/features/docente/NoAtendidasPage.vue'),
+          meta: { soloAsesor: true },
+        },
+        {
+          path: 'docente/liquidacion',
+          name: 'docente-liquidacion',
+          component: () => import('@/features/docente/MiLiquidacionPage.vue'),
+          meta: { soloAsesor: true },
+        },
+        {
           path: 'asesoria/tickets',
           name: 'tickets-asesoria',
           component: () => import('@/features/administrativo/TicketsAsesoriaPage.vue'),
@@ -169,6 +187,11 @@ router.beforeEach((to) => {
   // ver Sidebar.vue), para que la URL activa coincida con el ítem resaltado en la navegación.
   if (to.name === 'home' && session.sesion?.rol === 'cliente') {
     return { name: 'formatos' };
+  }
+  // Ídem para asesor — pedido explícito del usuario: "Mis consultas" debe abrir directo la
+  // pantalla con tabs (Por Agendar/Agendadas/Reprogramadas/Atendidas), no el dashboard resumen.
+  if (to.name === 'home' && session.sesion?.rol === 'asesor') {
+    return { name: 'docente-consultas' };
   }
   if (to.meta.noCliente && (session.sesion?.rol === 'cliente' || session.sesion?.rol === 'asesor')) {
     return { name: 'home' };

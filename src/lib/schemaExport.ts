@@ -175,12 +175,17 @@ function buildCampo(seccion: Seccion, campo: Campo, valorRaw: string | undefined
     };
   }
 
+  // `etiquetas` vuelve al documento en la misma forma en que se leyó (ver parseEtiquetas en
+  // schemaImport.ts): array para la lista de opciones, objeto {true,false} para un booleano.
+  const etiquetas = campo.etiquetasBooleano ?? (campo.opciones?.length ? campo.opciones : undefined);
+
   return {
     id: campo.identificador,
     nombre: campo.etiqueta,
     tipo_nodo: 'campo',
     tipo: mapTipoCampo(campo.tipo),
     editable: campo.editable,
+    ...(etiquetas ? { etiquetas } : {}),
     captura: capturaCampo(seccion, campo),
     valor: coerceValor(campo.tipo, valorRaw),
   };
