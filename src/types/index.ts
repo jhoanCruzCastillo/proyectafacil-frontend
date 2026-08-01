@@ -185,6 +185,13 @@ export interface Campo {
   config?: Record<string, unknown>;
   /** Ubicación de este campo en el Excel (captura) — no aplica a campos tipo tabla */
   captura?: CapturaCampo;
+  /** Lista fija de opciones (equivalente a `opciones` de ColumnaTabla, pero para un campo suelto):
+   * la celda del Excel se llena eligiendo de esta lista, no con texto libre. */
+  opciones?: string[];
+  /** Cómo se ve un valor booleano en el Excel oficial: `{ "true": "Sí", "false": "No" }`.
+   * Lo declara la plantilla porque cada formato usa sus propias palabras ("Sí"/"No", "X"/""), y
+   * tanto el volcado desde Excel como la inserción hacia Excel deben respetarlas. */
+  etiquetasBooleano?: { true: string; false: string };
 }
 
 export interface Ejemplo {

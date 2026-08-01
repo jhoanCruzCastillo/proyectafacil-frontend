@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faSearch, faPlus, faCheck, faCircle, faInfoCircle, faTrash, faEye, faDownload, faBoxArchive, faCloudArrowUp } from '@/lib/icons';
+import { faSearch, faPlus, faCheck, faCircle, faInfoCircle, faTrash, faEye, faDownload, faBoxArchive, faCloudArrowUp, faFileImport } from '@/lib/icons';
 import type { Ejemplo } from '@/types';
 
 const props = defineProps<{
@@ -16,6 +16,7 @@ const emit = defineEmits<{
   download: [ejemplo: Ejemplo];
   delete: [ejemplo: Ejemplo];
   'toggle-estado': [ejemplo: Ejemplo];
+  'volcar-excel': [ejemplo: Ejemplo];
 }>();
 
 const search = ref('');
@@ -78,6 +79,14 @@ const filtered = computed(() =>
           >
             <FontAwesomeIcon :icon="ej.estado === 'publicado' ? faCloudArrowUp : faBoxArchive" class="w-2.5 h-2.5" />
             {{ ej.estado === 'publicado' ? 'Publicado' : 'Borrador' }}
+          </button>
+          <button
+            @click.stop="emit('volcar-excel', ej)"
+            type="button"
+            class="flex w-7 h-7 rounded-md items-center justify-center text-gray-400 hover:bg-emerald-100 hover:text-emerald-600 transition-colors duration-75"
+            title="Volcar datos desde un Excel llenado"
+          >
+            <FontAwesomeIcon :icon="faFileImport" class="w-3.5 h-3.5" />
           </button>
           <button
             @click.stop="emit('preview', ej)"

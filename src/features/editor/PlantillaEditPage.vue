@@ -15,6 +15,7 @@ import ExamplesPanel from './ExamplesPanel.vue';
 import NuevoEjemploModal from './NuevoEjemploModal.vue';
 import JsonPreviewModal from './JsonPreviewModal.vue';
 import ExcelPreviewModal from './ExcelPreviewModal.vue';
+import VolcarExcelModal from './VolcarExcelModal.vue';
 import ExcelCatalogModal from '@/features/plantillas/ExcelCatalogModal.vue';
 import { usePlantillaEditor } from '@/composables/usePlantillaEditor';
 
@@ -27,7 +28,7 @@ const {
   leftWidth, rightWidth, examplesWidth, highlightMissingCaptura, ejemplosCount, jsonPreview,
   showImportEstructura,
   secciones, safeIdx, seccionActiva, isFirst, isLast, showExamples,
-  ejemplos, activeEjemplo, editedValores, showNuevoEjemplo, deleteTarget,
+  ejemplos, activeEjemplo, editedValores, showNuevoEjemplo, deleteTarget, volcarTarget,
   archivoExcelAsignado, showExcelCatalogModal, showPreview, showInsertConfirm, isInserting, insertProgress,
   previewFileUrl, previewFileName,
   handleLeftResize, handleRightResize, handleExamplesResize, handleTabChange, handleSectionSelect,
@@ -36,6 +37,7 @@ const {
   handleSubseccionAyudaChange, handleAddSubsection, handleDeleteSubsection, handleAddSection,
   handleExampleValueChange, handleCreateExample, handleDeleteEjemplo, handleToggleEjemploEstado,
   handleDownloadExcel, handlePreviewExample, handleInsertExcel,
+  handleVolcarExcel, handleConfirmarVolcado,
   handleImportEstructura,
   handleSave, handleViewJson,
 } = usePlantillaEditor(plantillaId);
@@ -70,6 +72,7 @@ const mostrarTipologiasIoarr = computed(() => editData.value?.instrumento === 'i
             @download="handleDownloadExcel"
             @delete="deleteTarget = $event"
             @toggle-estado="handleToggleEjemploEstado"
+            @volcar-excel="handleVolcarExcel"
           />
         </div>
         <ResizeHandle @resize="handleExamplesResize" />
@@ -211,6 +214,14 @@ const mostrarTipologiasIoarr = computed(() => editData.value?.instrumento === 'i
       :title="jsonPreview?.title ?? ''"
       :json="jsonPreview?.json ?? ''"
       @close="jsonPreview = null"
+    />
+
+    <VolcarExcelModal
+      :is-open="!!volcarTarget"
+      :ejemplo="volcarTarget"
+      :plantilla="editData"
+      @close="volcarTarget = null"
+      @confirmar="handleConfirmarVolcado"
     />
   </div>
 </template>
