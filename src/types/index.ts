@@ -431,6 +431,21 @@ export interface Docente {
   horario: HorarioDocente[];
 }
 
+// Por qué una solicitud que le llegó al asesor terminó sin ser suya.
+export type MotivoNoAceptada = 'tomada_por_otro' | 'vencida_sin_respuesta' | 'cancelada_por_alumno';
+
+export interface SolicitudNoAceptada extends SolicitudAsesoria {
+  motivo: MotivoNoAceptada;
+}
+
+// Las dos listas de la pantalla "No atendidas / reasignadas" del asesor.
+export interface NoAtendidasAsesor {
+  /** Le llegaron por broadcast pero nunca fueron suyas. */
+  noAceptadas: SolicitudNoAceptada[];
+  /** Eran suyas y con hora fijada, pero la hora pasó sin cerrarse. */
+  agendadasNoAtendidas: SolicitudAsesoria[];
+}
+
 // Segundo nivel de las especialidades del asesor: dentro de un sector MEF ("tema"), un subtema
 // específico — ej. dentro de Formatos Generales, "Liquidación por contrata".
 export interface SubtemaEspecialidad {

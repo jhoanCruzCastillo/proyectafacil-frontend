@@ -18,6 +18,14 @@ export function useMisSolicitudesQuery(usuarioId: MaybeRefOrGetter<string>, rol:
   });
 }
 
+export function useNoAtendidasQuery(usuarioId: MaybeRefOrGetter<string>) {
+  return useQuery({
+    queryKey: ['asesoria', 'no-atendidas', usuarioId],
+    queryFn: () => asesoriaHttp.noAtendidas(toValue(usuarioId)),
+    enabled: () => !!toValue(usuarioId),
+  });
+}
+
 export function useCrearSolicitudAsesoria() {
   const queryClient = useQueryClient();
   return useMutation({

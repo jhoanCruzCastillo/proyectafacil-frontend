@@ -1,10 +1,14 @@
 import { apiFetch } from './_shared';
 import type { AsesoriaApi } from '../contracts/asesoria';
-import type { SolicitudAsesoria, MensajeAsesoria } from '@/types';
+import type { SolicitudAsesoria, MensajeAsesoria, NoAtendidasAsesor } from '@/types';
 
 export const asesoriaHttp: AsesoriaApi = {
   misSolicitudes(usuarioId, rol) {
     return apiFetch<SolicitudAsesoria[]>(`asesoria/solicitudes?usuarioId=${usuarioId}&rol=${rol}`);
+  },
+
+  noAtendidas(usuarioId) {
+    return apiFetch<NoAtendidasAsesor>(`asesoria/no-atendidas?usuarioId=${usuarioId}`);
   },
 
   crear(data) {
