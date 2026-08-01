@@ -431,6 +431,76 @@ export interface Docente {
   horario: HorarioDocente[];
 }
 
+// --- Mi Liquidación (asesor) ---
+
+/** Una consulta completada, como la ve el asesor en su liquidación. */
+export interface LiquidacionDetalle {
+  id: string;
+  clienteNombre: string;
+  clienteFotoUrl?: string | null;
+  sectorNombre?: string | null;
+  /** Puede venir vacío: el flujo que crea solicitudes todavía no pide subtema. */
+  subtemaNombre?: string | null;
+  tipo: TipoAsesoria;
+  /** ISO — fecha real de cierre de la asesoría. */
+  atendidoEn: string;
+  pagado: boolean;
+  monto: number;
+}
+
+export type GranularidadLiquidacion = 'dia' | 'semana' | 'mes' | 'anio';
+
+export interface PuntoSerieLiquidacion {
+  clave: string;
+  etiqueta: string;
+  consultas: number;
+  monto: number;
+}
+
+export interface LiquidacionHistorico {
+  granularidad: GranularidadLiquidacion;
+  periodo: string;
+  periodoClave: string;
+  periodoLabel: string;
+  honorario: number;
+  kpis: {
+    consultasAtendidas: number;
+    ingresoHistorico: number;
+    promedioMensual: number;
+    pagadoALaFecha: number;
+  };
+  serie: PuntoSerieLiquidacion[];
+  detalle: LiquidacionDetalle[];
+  totalPeriodo: number;
+}
+
+export interface LiquidacionPendiente {
+  honorario: number;
+  kpis: {
+    consultasPorCobrar: number;
+    montoPendiente: number;
+    diasMasAntigua: number;
+    tarifaPorConsulta: number;
+  };
+  detalle: LiquidacionDetalle[];
+  totalPendiente: number;
+}
+
+export interface LiquidacionMes {
+  periodo: string;
+  periodoLabel: string;
+  honorario: number;
+  kpis: {
+    consultasDelMes: number;
+    ingresoDelMes: number;
+    videollamadas: number;
+    chats: number;
+  };
+  porSemana: { etiqueta: string; consultas: number }[];
+  detalle: LiquidacionDetalle[];
+  totalMes: number;
+}
+
 // Por qué una solicitud que le llegó al asesor terminó sin ser suya.
 export type MotivoNoAceptada = 'tomada_por_otro' | 'vencida_sin_respuesta' | 'cancelada_por_alumno';
 

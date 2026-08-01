@@ -131,6 +131,12 @@ const router = createRouter({
           meta: { soloAsesor: true },
         },
         {
+          path: 'docente/liquidacion',
+          name: 'docente-liquidacion',
+          component: () => import('@/features/docente/MiLiquidacionPage.vue'),
+          meta: { soloAsesor: true },
+        },
+        {
           path: 'asesoria/tickets',
           name: 'tickets-asesoria',
           component: () => import('@/features/administrativo/TicketsAsesoriaPage.vue'),

@@ -29,6 +29,7 @@ const navItems = computed(() => {
       { to: '/docente/horario', label: 'Mi disponibilidad', icon: faCalendarWeek },
       { to: '/docente/cronograma', label: 'Cronograma', icon: faCalendarCheck },
       { to: '/docente/no-atendidas', label: 'No atendidas / reasignadas', icon: faCircleExclamation },
+      { to: '/docente/liquidacion', label: 'Mi Liquidación', icon: faMoneyBillTransfer },
     ];
   } else {
     items = [

@@ -374,6 +374,7 @@ export {
   faBolt,
   faSearch,
   faCircle,
+  faCircleDot,
   faInfoCircle,
   faAlignLeft,
   faTable,
