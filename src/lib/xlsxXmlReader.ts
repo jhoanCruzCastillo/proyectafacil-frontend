@@ -26,6 +26,10 @@ export interface LibroLeido {
   hojas: string[];
   /** Valor de una celda ("H8"), o undefined si está vacía o la hoja no existe */
   celda(hoja: string, ref: string): CeldaLeida | undefined;
+  /** Índice de estilo (atributo s=) de una celda, incluso si está vacía — undefined si la celda no
+   * existe físicamente en el XML. Lo usa la detección de límites de tabla por formato: dos celdas
+   * con el mismo índice comparten bordes/relleno/fuente exactos. */
+  estilo(hoja: string, ref: string): number | undefined;
 }
 
 function textoDe(el: Element): string {
@@ -110,19 +114,29 @@ async function leerMapaHojas(zip: JSZip): Promise<Map<string, string>> {
   return nombreToPath;
 }
 
+interface HojaParseada {
+  celdas: Map<string, CeldaLeida>;
+  /** Estilo de TODA celda presente en el XML, tenga valor o no — base de la detección por formato */
+  estilos: Map<string, number>;
+}
+
 function parseHoja(
   xml: string,
   shared: string[],
   numFmtPorEstilo: number[],
   codigoPorNumFmt: Map<number, string>,
-): Map<string, CeldaLeida> {
+): HojaParseada {
   const celdas = new Map<string, CeldaLeida>();
+  const estilos = new Map<string, number>();
   const doc = new DOMParser().parseFromString(xml, 'application/xml');
 
   for (const c of Array.from(doc.getElementsByTagName('c'))) {
     const ref = c.getAttribute('r');
     if (!ref) continue;
     const tipo = c.getAttribute('t');
+
+    const estiloAttr = c.getAttribute('s');
+    if (estiloAttr !== null) estilos.set(ref, Number(estiloAttr));
 
     let valor: string | null = null;
     if (tipo === 'inlineStr') {
@@ -139,8 +153,7 @@ function parseHoja(
 
     if (valor === null || valor === '') continue;
 
-    const estilo = Number(c.getAttribute('s') ?? -1);
-    const numFmtId = estilo >= 0 ? (numFmtPorEstilo[estilo] ?? 0) : 0;
+    const numFmtId = estiloAttr !== null ? (numFmtPorEstilo[Number(estiloAttr)] ?? 0) : 0;
     // Solo tiene sentido interpretar el formato de fecha sobre un número: una celda de texto con
     // formato de fecha heredado seguiría siendo texto.
     const esNumero = tipo == null || tipo === 'n';
@@ -150,7 +163,7 @@ function parseHoja(
 
     celdas.set(ref, { valor, esFecha, soloAnio });
   }
-  return celdas;
+  return { celdas, estilos };
 }
 
 export async function leerLibroXlsx(dataUrl: string): Promise<LibroLeido> {
@@ -163,24 +176,31 @@ export async function leerLibroXlsx(dataUrl: string): Promise<LibroLeido> {
 
   // Las hojas se parsean bajo demanda (y se memorizan): un libro real trae ~24 hojas y la plantilla
   // solo consulta las que tiene mapeadas.
-  const cache = new Map<string, Map<string, CeldaLeida>>();
+  const cache = new Map<string, HojaParseada>();
   const pendientes = new Map<string, string>(); // hoja -> xml sin parsear
   for (const [nombre, ruta] of rutaPorHoja) {
     const file = zip.file(ruta);
     if (file) pendientes.set(nombre, await file.async('string'));
   }
 
+  function hojaParseada(hoja: string): HojaParseada | undefined {
+    let parseada = cache.get(hoja);
+    if (!parseada) {
+      const xml = pendientes.get(hoja);
+      if (xml === undefined) return undefined;
+      parseada = parseHoja(xml, shared, numFmtPorEstilo, codigoPorNumFmt);
+      cache.set(hoja, parseada);
+    }
+    return parseada;
+  }
+
   return {
     hojas: Array.from(rutaPorHoja.keys()),
     celda(hoja: string, ref: string): CeldaLeida | undefined {
-      let celdas = cache.get(hoja);
-      if (!celdas) {
-        const xml = pendientes.get(hoja);
-        if (xml === undefined) return undefined;
-        celdas = parseHoja(xml, shared, numFmtPorEstilo, codigoPorNumFmt);
-        cache.set(hoja, celdas);
-      }
-      return celdas.get(ref);
+      return hojaParseada(hoja)?.celdas.get(ref);
+    },
+    estilo(hoja: string, ref: string): number | undefined {
+      return hojaParseada(hoja)?.estilos.get(ref);
     },
   };
 }
