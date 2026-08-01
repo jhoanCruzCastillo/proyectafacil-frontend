@@ -220,6 +220,7 @@ const mostrarTipologiasIoarr = computed(() => editData.value?.instrumento === 'i
       :is-open="!!volcarTarget"
       :ejemplo="volcarTarget"
       :plantilla="editData"
+      :valores-actuales="editedValores"
       @close="volcarTarget = null"
       @confirmar="handleConfirmarVolcado"
     />
