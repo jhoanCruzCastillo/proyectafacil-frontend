@@ -298,11 +298,25 @@ function writeCampoTabla(ediciones: LibroEdits, hoja: string | undefined, config
 
     let row = filaInicial + shift;
     for (const grupo of grupos) {
-      if (columnaInicial && grupo.grupo !== '') {
+      // Un bloque sin título ni valores propios NO son "un grupo con el nombre en blanco": son
+      // filas sueltas antes del primer grupo real, y no ocupan ninguna fila del Excel. Reservarles
+      // una desalineaba toda la tabla y, peor, rompía la simetría con el lector — que nunca produce
+      // una fila de título vacía, porque las reconoce por su fusión horizontal.
+      const tieneTitulo = grupo.grupo !== '';
+      const ocupaFila = tieneTitulo || Boolean(grupo.valoresGrupo);
+
+      if (columnaInicial && tieneTitulo) {
         ediciones.escribirCelda(hoja, columnaInicial, row, grupo.grupo);
         if (abarcaFisico > 1) ediciones.fusionar(hoja, `${columnaInicial}${row}:${addCols(columnaInicial, abarcaFisico - 1)}${row}`);
       }
-      row++;
+      // Valores propios de la fila de título (`agrupador.valores`, punto 4.2): las columnas a la
+      // derecha del título son celdas de datos como cualquier otra — ej. la fila "Nivel de
+      // cobertura…" de 7.03, con un porcentaje por año. El lector ya las leía; sin esto, el viaje
+      // de vuelta a Excel las perdía.
+      if (grupo.valoresGrupo) {
+        writeFilaColumnas(ediciones, hoja, config, grupo.valoresGrupo, row, periodos);
+      }
+      if (ocupaFila) row++;
       for (const fila of grupo.filas) {
         writeFilaColumnas(ediciones, hoja, config, fila, row, periodos);
         row++;

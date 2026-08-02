@@ -122,6 +122,13 @@ function columnasResto(cols: ColumnaTabla[], abarcaN: number, dinamicaId: string
   return cols.slice(i);
 }
 const restColumnas = computed(() => columnasResto(props.config.columnas, abarca.value, props.config.columnaDinamicaId, periodos.value.length));
+
+// ¿Este bloque dibuja fila de título? Mismo criterio que el escritor de Excel: un bloque sin nombre
+// y sin valores propios no es un grupo, son filas sueltas antes del primer grupo real — y no ocupa
+// ninguna fila en el Excel. Dibujarle un título aquí mostraba una fila que no existe en el archivo.
+function tieneFilaTitulo(g: GrupoFilas): boolean {
+  return g.grupo !== '' || Boolean(g.valoresGrupo && Object.values(g.valoresGrupo).some((v) => v !== '' && v != null));
+}
 </script>
 
 <template>
@@ -142,7 +149,7 @@ const restColumnas = computed(() => columnasResto(props.config.columnas, abarca.
         </thead>
         <tbody>
           <template v-for="(grupo, gi) in grupos" :key="gi">
-            <tr class="bg-brand-50/60 border-t-2 border-brand-200">
+            <tr v-if="tieneFilaTitulo(grupo)" class="bg-brand-50/60 border-t-2 border-brand-200">
               <td :colspan="abarca" class="px-2 py-1.5">
                 <div class="flex items-center gap-2">
                   <input

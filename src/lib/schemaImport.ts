@@ -173,7 +173,11 @@ function gruposFromDoc(rawGrupos: unknown[], columnaDinamicaId?: string): GrupoF
     const agrupador = raw.agrupador as Record<string, unknown> | undefined;
     const valores = Array.isArray(raw.valores) ? raw.valores : [];
     const valoresGrupoRaw = agrupador?.valores as Record<string, unknown> | undefined;
-    const tieneValoresPropios = valoresGrupoRaw && Object.keys(valoresGrupoRaw).length > 0;
+    // Un objeto de celdas todas vacías NO son "valores propios del grupo": es el molde de la
+    // estructura. Distinguirlo importa porque un bloque sin título ni valores propios no ocupa
+    // ninguna fila del Excel (ver writeCampoTabla).
+    const tieneValoresPropios = valoresGrupoRaw
+      && Object.values(valoresGrupoRaw).some((v) => v !== '' && v != null && !(Array.isArray(v) && v.every((x) => x === '')));
     return {
       grupo: typeof agrupador?.nombre === 'string' ? agrupador.nombre : '',
       filas: valores.map((r) => rowFromDoc(r as Record<string, unknown>, columnaDinamicaId)),
