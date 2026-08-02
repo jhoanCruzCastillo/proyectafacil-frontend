@@ -437,7 +437,15 @@ export async function insertarValoresEnExcel(
     }
   }
 
-  const resultado = await aplicarEdicionesXlsx(dataUrl, ediciones);
+  const { dataUrl: salida, omitidasPorFormula } = await aplicarEdicionesXlsx(dataUrl, ediciones);
   onProgress?.(1);
-  return resultado;
+  // Se informa por consola en vez de fallar: omitir una celda con fórmula es el comportamiento
+  // correcto, no un error — pero conviene poder ver cuáles al depurar una plantilla nueva.
+  if (omitidasPorFormula.length > 0) {
+    console.info(
+      `[excelWriter] ${omitidasPorFormula.length} celda(s) no se escribieron por tener fórmula propia en el Excel:`,
+      omitidasPorFormula,
+    );
+  }
+  return salida;
 }

@@ -326,6 +326,13 @@ function quitarMerge(worksheet: Element, rango: string) {
   mergeCells.setAttribute('count', String(mergeCells.children.length));
 }
 
+// ¿La celda ya trae una fórmula del libro original? Cubre los dos casos de OOXML: la fórmula
+// normal (`<f>texto</f>`) y las compartidas, donde solo la celda maestra lleva el texto y las demás
+// del grupo traen `<f t="shared" si="N"/>` vacío — ambas se detectan por la presencia del hijo <f>.
+function tieneFormula(celda: Element): boolean {
+  return Array.from(celda.children).some((el) => el.localName === 'f');
+}
+
 function agregarMerge(doc: Document, worksheet: Element, sheetData: Element, rango: string) {
   const mergeCells = ensureMergeCells(doc, worksheet, sheetData);
   const nuevoRango = parseRango(rango);
@@ -348,9 +355,17 @@ async function extraerMimeYBuffer(dataUrl: string): Promise<{ mime: string; buff
   return { mime, buffer };
 }
 
+export interface ResultadoEdicion {
+  /** El libro modificado, como data URL, en el mismo formato del original */
+  dataUrl: string;
+  /** Celdas que NO se escribieron por traer ya una fórmula del libro (referencias "Hoja!A1") */
+  omitidasPorFormula: string[];
+}
+
 // Aplica todas las ediciones acumuladas (celdas + fusiones nuevas) directamente sobre el XML de
 // cada hoja del ZIP, preservando estilos.xml, tema, macros y cualquier otra celda intacta.
-export async function aplicarEdicionesXlsx(dataUrl: string, ediciones: LibroEdits): Promise<string> {
+export async function aplicarEdicionesXlsx(dataUrl: string, ediciones: LibroEdits): Promise<ResultadoEdicion> {
+  const omitidasPorFormula: string[] = [];
   const { mime, buffer } = await extraerMimeYBuffer(dataUrl);
   const zip = await JSZip.loadAsync(buffer);
   const mapaHojas = await leerMapaHojas(zip);
@@ -384,6 +399,13 @@ export async function aplicarEdicionesXlsx(dataUrl: string, ediciones: LibroEdit
     for (const { columna, fila, valor, formula } of edits.celdas) {
       const filaEl = ensureRow(doc, sheetData, fila);
       const celda = ensureCell(doc, filaEl, columna, fila);
+      // Una celda que YA trae fórmula en el libro oficial es intocable: su valor lo calcula el
+      // propio Excel a partir de otras hojas, y sobrescribirla no solo pierde ese cálculo — rompe
+      // la cadena que alimenta a todo lo que dependa de ella. La plantilla del CIAI tiene ~2300.
+      if (tieneFormula(celda)) {
+        omitidasPorFormula.push(`${nombreHoja}!${columna}${fila}`);
+        continue;
+      }
       aplicarValorCelda(doc, celda, valor, formula);
     }
     for (const rango of edits.merges) {
@@ -394,7 +416,7 @@ export async function aplicarEdicionesXlsx(dataUrl: string, ediciones: LibroEdit
   }
 
   const outBuffer = await zip.generateAsync({ type: 'base64', compression: 'DEFLATE', compressionOptions: { level: 6 } });
-  return `data:${mime};base64,${outBuffer}`;
+  return { dataUrl: `data:${mime};base64,${outBuffer}`, omitidasPorFormula };
 }
 
 export { parseDireccion };
