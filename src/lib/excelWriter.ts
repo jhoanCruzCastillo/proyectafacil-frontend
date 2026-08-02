@@ -1,4 +1,4 @@
-import { parseDynamicRows, parseGroupedRows, parseTree, getPeriodos, esJerarquica, esCeldaPartida, type FilaDinamica, type ValorCelda } from './tableRowHelpers';
+import { parseDynamicRows, parseGroupedRows, parseTree, getPeriodos, esJerarquica, esCeldaPartida, agrupadorProfundidad, type FilaDinamica, type ValorCelda } from './tableRowHelpers';
 import { LibroEdits, aplicarEdicionesXlsx } from './xlsxXmlPatcher';
 import { crearResolver, esFormula, evaluarFormula, traducirFormulaAExcel, type ResolucionToken, type ResolucionCelda } from './formula';
 import { booleanoATexto, type EtiquetasBooleano } from './conversionesExcel';
@@ -76,9 +76,9 @@ function writeCellSpan(
 // dinámica cuenta una vez por período. Así, "abarca 2 columnas" en el agrupador significa "las
 // primeras 2 cabeceras", no "2 columnas físicas": si la primera cabecera ya abarca 2 columnas y la
 // segunda 1, el resultado físico real es 3.
-function anchoFisicoPrimerasColumnas(config: ConfigTabla, n: number, periodos: string[]): number {
+function anchoFisicoPrimerasColumnas(config: ConfigTabla, n: number, periodos: string[], desde = 0): number {
   let total = 0;
-  for (let i = 0; i < n && i < config.columnas.length; i++) {
+  for (let i = desde; i < desde + n && i < config.columnas.length; i++) {
     const col = config.columnas[i];
     if (col.id === config.columnaDinamicaId && periodos.length > 0) {
       total += periodos.length * (col.abarcaColumnasExcel ?? 1);
@@ -198,19 +198,59 @@ function writeArbol(
   node: { value: string | string[]; children: unknown[] },
   profundidad: number,
   filaInicio: number,
+  colIdx = profundidad,
+  agrupadorDepth = -1,
 ): number {
-  const col = config.columnas[profundidad];
+  const col = config.columnas[colIdx];
+  // Nivel de agrupador: el nodo ocupa una FILA propia (fila de título) y sus hijos siguen en la
+  // MISMA columna, debajo — igual que en el Excel oficial, donde "Actores comunales:" y
+  // "o Madre cuidadora" comparten la columna B en filas consecutivas.
+  const esNivelAgrupador = profundidad === agrupadorDepth && node.children.length > 0;
+  const colDeHijos = esNivelAgrupador ? colIdx : colIdx + 1;
+
   let filasConsumidas: number;
   if (node.children.length === 0) {
     filasConsumidas = 1;
   } else {
-    let fila = filaInicio;
-    filasConsumidas = 0;
+    let fila = filaInicio + (esNivelAgrupador ? 1 : 0);
+    filasConsumidas = esNivelAgrupador ? 1 : 0;
     for (const hijo of node.children as typeof node[]) {
-      const consumidas = writeArbol(ediciones, hoja, config, periodos, hijo, profundidad + 1, fila);
+      const consumidas = writeArbol(ediciones, hoja, config, periodos, hijo, profundidad + 1, fila, colDeHijos, agrupadorDepth);
       fila += consumidas;
       filasConsumidas += consumidas;
     }
+  }
+
+  // El título de grupo no se fusiona verticalmente: vive en su propia fila, y se extiende a lo ancho
+  // de las cabeceras configuradas en el engranaje del agrupador (por defecto, hasta la última).
+  if (esNivelAgrupador) {
+    const disponibles = config.columnas.length - colIdx;
+    const cabeceras = Math.min(Math.max(config.agrupadorAbarcaColumnas ?? disponibles, 1), disponibles);
+    if (col?.columnaExcel && typeof node.value === 'string' && node.value !== '') {
+      const ancho = anchoFisicoPrimerasColumnas(config, cabeceras, periodos, colIdx);
+      writeCellSpan(ediciones, hoja, col.columnaExcel, filaInicio, node.value, Math.max(ancho, 1));
+    }
+    // Valores propios del grupo en las columnas libres a la derecha del título (fila-resumen).
+    const valores = (node as { valores?: FilaDinamica }).valores;
+    if (valores) {
+      for (let i = colIdx + cabeceras; i < config.columnas.length; i++) {
+        const libre = config.columnas[i];
+        if (!libre?.columnaExcel) continue;
+        const v = valores[libre.id];
+        if (libre.id === config.columnaDinamicaId && Array.isArray(v)) {
+          const ancho = libre.abarcaColumnasExcel ?? 1;
+          periodos.forEach((_, pi) => {
+            const celda = v[pi];
+            if (celda == null || celda === '') return;
+            writeCellSpan(ediciones, hoja, addCols(libre.columnaExcel!, pi * ancho), filaInicio, celda, ancho);
+          });
+          continue;
+        }
+        if (typeof v !== 'string' || v === '') continue;
+        writeCellSpan(ediciones, hoja, libre.columnaExcel, filaInicio, v, libre.abarcaColumnasExcel ?? 1);
+      }
+    }
+    return filasConsumidas;
   }
   if (col?.columnaExcel) {
     if (col.id === config.columnaDinamicaId) {
@@ -242,9 +282,10 @@ function writeCampoTabla(ediciones: LibroEdits, hoja: string | undefined, config
 
   if (esJerarquica(config.subtipo)) {
     const roots = parseTree(raw, config.columnas, config);
+    const agrupadorDepth = config.agrupador ? agrupadorProfundidad(config.columnas, config) : -1;
     let row = filaInicial + shift;
     for (const r of roots) {
-      row += writeArbol(ediciones, hoja, config, periodos, r, 0, row);
+      row += writeArbol(ediciones, hoja, config, periodos, r, 0, row, 0, agrupadorDepth);
     }
     return;
   }

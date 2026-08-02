@@ -45,6 +45,10 @@ export interface TreeNode {
   /** Array cuando este nivel de profundidad es `config.columnaDinamicaId` (un valor por período), string en cualquier otro nivel */
   value: string | string[];
   children: TreeNode[];
+  /** Solo nodos del nivel de agrupador (4.5c): valores propios de la fila de título en las columnas
+   * que quedan LIBRES a su derecha cuando el título no abarca toda la tabla — el equivalente de
+   * `agrupador.valores` de las tablas planas. Ej. el total del grupo en la columna "Total". */
+  valores?: FilaDinamica;
 }
 
 /** Lista editable de nombres de las columnas dinámicas generadas (ej. años, tareas, alternativas...) */
@@ -88,13 +92,28 @@ export function createNodeChain(columns: ColumnaTabla[], config: ConfigTabla, de
   return { value, children: [createNodeChain(columns, config, depth + 1)] };
 }
 
-/** Profundidad (índice en columns) del primer nivel "hijo" después de la cadena de niveles "padre"
- * — es el nivel que, con config.agrupador activo en una tabla jerárquica, se renderiza como fila de
- * título de grupo de ancho completo en vez de celda fusionada a la izquierda (igual patrón visual
- * que GroupedRowsEditor usa para tablas planas). */
-export function agrupadorProfundidad(columns: ColumnaTabla[]): number {
+/** Profundidad (índice en columns) del nivel que, con config.agrupador activo en una tabla
+ * jerárquica, se renderiza como fila de título de grupo de ancho completo en vez de celda fusionada
+ * a la izquierda (igual patrón visual que GroupedRowsEditor usa para tablas planas).
+ *
+ * La fuente de verdad es `config.agrupadorNivel`, que se elige con el botón "Agregar grupo" del
+ * panel central. Cuando no está definido se deduce de los flags Padre/Hijo — el mecanismo anterior,
+ * que obligaba a gastar una columna entera en el agrupador y se conserva solo para no romper las
+ * plantillas que ya existían. */
+export function agrupadorProfundidad(columns: ColumnaTabla[], config?: ConfigTabla): number {
+  const explicito = config?.agrupadorNivel;
+  if (typeof explicito === 'number' && explicito >= 0 && explicito < columns.length) return explicito;
   const idx = columns.findIndex((c) => c.nivel !== 'padre');
   return idx === -1 ? 0 : idx;
+}
+
+/** Índice de columna que le corresponde a una profundidad del árbol. Normalmente coinciden, pero un
+ * nivel de agrupador NO consume columna (su fila de título es de ancho completo y sus hijos siguen
+ * en la misma columna), así que a partir de él la profundidad va una por delante del índice. */
+export function columnaParaProfundidad(config: ConfigTabla, profundidad: number): number {
+  if (!config.agrupador || !esJerarquica(config.subtipo)) return profundidad;
+  const nivel = agrupadorProfundidad(config.columnas, config);
+  return profundidad <= nivel ? profundidad : profundidad - 1;
 }
 
 export function parseTree(value: string, columns: ColumnaTabla[], config: ConfigTabla): TreeNode[] {

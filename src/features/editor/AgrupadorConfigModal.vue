@@ -6,6 +6,9 @@ defineProps<{
   isOpen: boolean;
   abarcaColumnas: number;
   totalColumnas: number;
+  /** Solo jerárquicas: nombre de la columna donde arranca el título (la del agrupador). En tablas
+   * planas el título siempre arranca en la primera, así que no hace falta nombrarla. */
+  desdeColumna?: string;
 }>();
 
 const emit = defineEmits<{ close: []; change: [value: number] }>();
@@ -32,7 +35,10 @@ function handleInput(e: Event, totalColumnas: number) {
           </div>
           <div class="p-5 space-y-3">
             <p class="text-xs text-muted">
-              Cantidad de <strong>cabeceras/columnas</strong> (no de columnas físicas de Excel) que fusiona el título de cada grupo, contando desde la primera cabecera de la tabla. Las cabeceras restantes quedan vacías en esa fila.
+              Cantidad de <strong>cabeceras/columnas</strong> (no de columnas físicas de Excel) que fusiona el título de cada grupo, contando desde
+              <template v-if="desdeColumna">la columna <strong class="text-heading">«{{ desdeColumna }}»</strong>, donde vive el agrupador</template>
+              <template v-else>la primera cabecera de la tabla</template>.
+              Las cabeceras restantes quedan vacías en esa fila.
             </p>
             <p class="text-xs text-muted">
               Si alguna de esas cabeceras ya abarca varias columnas de Excel (configurado en la columna misma), el ancho real fusionado es la suma de todas ellas — ej. si la 1ª cabecera abarca 2 columnas y eliges "2", el título fusiona esa cabecera + la siguiente completa (3 columnas físicas en total).

@@ -22,7 +22,7 @@ const emit = defineEmits<{ close: []; confirmar: [valores: Record<string, string
 
 // --- Opciones de volcado ---
 const incluirCamposSimples = ref(true);
-const incluirTablasSimples = ref(true);
+const incluirTablas = ref(true);
 const seccionesElegidas = ref<Set<string>>(new Set());
 
 watch(
@@ -47,7 +47,7 @@ function toggleTodas() {
 }
 
 const nadaQueLeer = computed(
-  () => (!incluirCamposSimples.value && !incluirTablasSimples.value) || seccionesElegidas.value.size === 0,
+  () => (!incluirCamposSimples.value && !incluirTablas.value) || seccionesElegidas.value.size === 0,
 );
 
 // --- Análisis del archivo ---
@@ -103,7 +103,7 @@ async function analizar(file: File) {
     const dataUrl = await leerComoDataUrl(file);
     resultado.value = await leerValoresDeExcel(dataUrl, props.plantilla, {
       camposSimples: incluirCamposSimples.value,
-      tablasSimples: incluirTablasSimples.value,
+      tablas: incluirTablas.value,
       seccionesIds: seccionesElegidas.value,
       valoresActuales: props.valoresActuales ?? props.ejemplo?.valores ?? {},
     });
@@ -179,15 +179,15 @@ function confirmar() {
                   </span>
                 </label>
                 <label class="flex items-start gap-2.5 cursor-pointer">
-                  <input v-model="incluirTablasSimples" type="checkbox" class="mt-0.5 w-4 h-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500/30" />
+                  <input v-model="incluirTablas" type="checkbox" class="mt-0.5 w-4 h-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500/30" />
                   <span class="flex-1">
                     <span class="text-sm font-medium text-heading flex items-center gap-1.5">
                       <FontAwesomeIcon :icon="faTable" class="w-3 h-3 text-gray-400" />
-                      Tablas simples
+                      Tablas
                     </span>
                     <span class="block text-xs text-muted">
-                      Filas planas con columnas fijas. Jerárquicas, agrupadas y por períodos —
-                      <span class="italic">próximamente</span>.
+                      Planas, agrupadas, jerárquicas y por períodos. Se leen las filas que la
+                      estructura reserva; si la tabla creció en el Excel, esas filas de más no entran.
                     </span>
                   </span>
                 </label>
@@ -263,14 +263,14 @@ function confirmar() {
                     <span class="text-muted">Campos vacíos <span class="text-gray-400">(no se tocan)</span></span>
                     <span class="font-medium text-gray-500">{{ resultado.camposVacios }}</span>
                   </div>
-                  <div v-if="incluirTablasSimples" class="px-4 py-2.5 flex items-center justify-between">
-                    <span class="text-muted">Tablas simples con datos</span>
+                  <div v-if="incluirTablas" class="px-4 py-2.5 flex items-center justify-between">
+                    <span class="text-muted">Tablas con datos</span>
                     <span class="font-bold text-emerald-700">
                       {{ resultado.tablasLeidas }}
                       <span class="font-normal text-muted">· {{ resultado.filasTablaLeidas }} filas</span>
                     </span>
                   </div>
-                  <div v-if="incluirTablasSimples && resultado.filasExtraDetectadas > 0" class="px-4 py-2.5 flex items-center justify-between">
+                  <div v-if="incluirTablas && resultado.filasExtraDetectadas > 0" class="px-4 py-2.5 flex items-center justify-between">
                     <span class="text-muted">Filas insertadas detectadas</span>
                     <span class="font-medium text-amber-600">+{{ resultado.filasExtraDetectadas }}</span>
                   </div>

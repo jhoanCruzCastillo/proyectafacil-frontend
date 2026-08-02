@@ -1,4 +1,5 @@
 import { generateId } from '@/api/mock/_shared';
+import { columnaParaProfundidad } from './tableRowHelpers';
 import type { FilaDinamica, GrupoFilas, TreeNode } from './tableRowHelpers';
 import type { CabeceraGrupo, Campo, CapturaCampo, ColumnaTabla, ConfigTabla, Seccion, Subseccion, SubcolumnaTabla, SubtipoTabla, TipoCampo, TipoColumna } from '../types';
 
@@ -102,6 +103,14 @@ function buildColumnas(rawCols: unknown, rawCapturaCols: unknown, esJerarquica: 
     };
     if (esJerarquica) col.nivel = raw.combina_vertical ? 'padre' : 'hijo';
     if (Array.isArray(raw.opciones) && raw.opciones.length > 0) col.opciones = raw.opciones.map(String);
+    if (typeof raw.formula === 'string' && raw.formula) col.formula = raw.formula;
+    if (typeof raw.decimales === 'number') col.decimales = raw.decimales;
+
+    // `etiquetas` a nivel de columna/nivel: mismo desdoblamiento que en los campos sueltos — array
+    // = lista fija de opciones, objeto {true,false} = cómo se escribe un booleano en el Excel.
+    const et = parseEtiquetas(raw.etiquetas);
+    if (et.opciones) col.opciones = et.opciones;
+    if (et.etiquetasBooleano) col.etiquetasBooleano = et.etiquetasBooleano;
 
     // Celdas partidas (convención 4.8): la definición lógica vive en `columnas[].subcolumnas` y la
     // posición física en `captura.columnas[].subcolumnas` — se cruzan por id, igual que las columnas.
@@ -175,7 +184,7 @@ function gruposFromDoc(rawGrupos: unknown[], columnaDinamicaId?: string): GrupoF
 
 function nodeFromDoc(rawNode: unknown, depth: number, config: ConfigTabla): TreeNode {
   const raw = rawNode as Record<string, unknown>;
-  const col = config.columnas[depth];
+  const col = config.columnas[columnaParaProfundidad(config, depth)];
   const esDinamico = Boolean(col && col.id === config.columnaDinamicaId);
   const rawKey = esDinamico ? ID_COLUMNA_DINAMICA : col?.id;
   const rawValue = rawKey ? raw[rawKey] : undefined;
@@ -183,7 +192,20 @@ function nodeFromDoc(rawNode: unknown, depth: number, config: ConfigTabla): Tree
   const value: string | string[] = esDinamico
     ? (Array.isArray(rawValue) ? rawValue.map((v) => String(v)) : [])
     : (rawValue == null ? '' : String(rawValue));
-  return { value, children: hijos };
+
+  // Claves hermanas que corresponden a OTRAS columnas: son los valores propios de una fila de título
+  // de grupo (4.5c) en las columnas libres a su derecha. Cualquier otra clave (`hijos`, o basura) se
+  // ignora.
+  const valores: FilaDinamica = {};
+  for (const otra of config.columnas) {
+    if (otra.id === col?.id) continue;
+    const clave = otra.id === config.columnaDinamicaId ? ID_COLUMNA_DINAMICA : otra.id;
+    const bruto = raw[clave];
+    if (bruto == null) continue;
+    valores[otra.id] = Array.isArray(bruto) ? bruto.map((v) => String(v)) : String(bruto);
+  }
+
+  return { value, children: hijos, ...(Object.keys(valores).length > 0 ? { valores } : {}) };
 }
 
 function valorEjemploTabla(config: ConfigTabla, rawValor: unknown): string {
@@ -230,6 +252,7 @@ function campoFromDoc(rawCampo: unknown): Campo {
       columnas,
       agrupador: Boolean(rawConfig.agrupador),
       agrupadorAbarcaColumnas: typeof rawConfig.agrupador_abarca_columnas === 'number' ? rawConfig.agrupador_abarca_columnas : undefined,
+      agrupadorNivel: typeof rawConfig.agrupador_nivel === 'number' ? rawConfig.agrupador_nivel : undefined,
       columnaDinamicaId,
       periodos,
       cabeceras: cabecerasFromDoc(raw.cabecera, columnaDinamicaId),
@@ -255,6 +278,7 @@ function campoFromDoc(rawCampo: unknown): Campo {
   const { opciones, etiquetasBooleano } = parseEtiquetas(raw.etiquetas);
   if (opciones) campo.opciones = opciones;
   if (etiquetasBooleano) campo.etiquetasBooleano = etiquetasBooleano;
+  if (typeof raw.decimales === 'number') campo.decimales = raw.decimales;
 
   return campo;
 }

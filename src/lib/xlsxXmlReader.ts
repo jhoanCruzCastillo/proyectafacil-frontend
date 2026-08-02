@@ -21,6 +21,13 @@ export interface CeldaLeida {
   soloAnio: boolean;
 }
 
+export interface FusionLeida {
+  /** Filas que abarca la fusión (1 = no fusionada verticalmente) */
+  filas: number;
+  /** Columnas que abarca la fusión (1 = no fusionada horizontalmente) */
+  columnas: number;
+}
+
 export interface LibroLeido {
   /** Nombres de hoja presentes en el archivo, en el orden del libro */
   hojas: string[];
@@ -30,6 +37,11 @@ export interface LibroLeido {
    * existe físicamente en el XML. Lo usa la detección de límites de tabla por formato: dos celdas
    * con el mismo índice comparten bordes/relleno/fuente exactos. */
   estilo(hoja: string, ref: string): number | undefined;
+  /** Fusión ANCLADA en esa celda (la esquina superior-izquierda del rango), o undefined si ahí no
+   * empieza ninguna. Es lo que permite reconstruir la forma de una tabla: en una jerárquica, la
+   * celda de un padre se fusiona verticalmente sobre todas las filas de sus hijos; la fila de
+   * título de un grupo se fusiona horizontalmente sobre las primeras columnas. */
+  fusion(hoja: string, ref: string): FusionLeida | undefined;
 }
 
 function textoDe(el: Element): string {
@@ -118,6 +130,28 @@ interface HojaParseada {
   celdas: Map<string, CeldaLeida>;
   /** Estilo de TODA celda presente en el XML, tenga valor o no — base de la detección por formato */
   estilos: Map<string, number>;
+  /** Fusiones indexadas por su celda ancla (esquina superior-izquierda del rango) */
+  fusiones: Map<string, FusionLeida>;
+}
+
+function indiceColumna(letra: string): number {
+  let n = 0;
+  for (const ch of letra.toUpperCase()) n = n * 26 + (ch.charCodeAt(0) - 64);
+  return n;
+}
+
+function parseFusiones(doc: Document): Map<string, FusionLeida> {
+  const out = new Map<string, FusionLeida>();
+  for (const mc of Array.from(doc.getElementsByTagName('mergeCell'))) {
+    const ref = mc.getAttribute('ref');
+    const m = ref?.match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/i);
+    if (!m) continue;
+    out.set(`${m[1].toUpperCase()}${m[2]}`, {
+      filas: Number(m[4]) - Number(m[2]) + 1,
+      columnas: indiceColumna(m[3]) - indiceColumna(m[1]) + 1,
+    });
+  }
+  return out;
 }
 
 function parseHoja(
@@ -163,7 +197,7 @@ function parseHoja(
 
     celdas.set(ref, { valor, esFecha, soloAnio });
   }
-  return { celdas, estilos };
+  return { celdas, estilos, fusiones: parseFusiones(doc) };
 }
 
 export async function leerLibroXlsx(dataUrl: string): Promise<LibroLeido> {
@@ -201,6 +235,9 @@ export async function leerLibroXlsx(dataUrl: string): Promise<LibroLeido> {
     },
     estilo(hoja: string, ref: string): number | undefined {
       return hojaParseada(hoja)?.estilos.get(ref);
+    },
+    fusion(hoja: string, ref: string): FusionLeida | undefined {
+      return hojaParseada(hoja)?.fusiones.get(ref);
     },
   };
 }

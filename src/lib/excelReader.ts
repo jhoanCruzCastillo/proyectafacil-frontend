@@ -1,6 +1,6 @@
 import { leerLibroXlsx, type CeldaLeida, type LibroLeido } from './xlsxXmlReader';
 import { aFechaISO, aAnio, textoABooleano } from './conversionesExcel';
-import { esCeldaPartida, type FilaDinamica } from './tableRowHelpers';
+import { esCeldaPartida, esJerarquica, getPeriodos, type FilaDinamica, type GrupoFilas, type TreeNode } from './tableRowHelpers';
 import type { Plantilla, Campo, Seccion, ConfigTabla, ColumnaTabla, TipoCampo, TipoColumna } from '@/types';
 
 // Volcado de datos Excel -> valores de un ejemplo: el inverso de excelWriter.ts. Recorre la
@@ -74,22 +74,30 @@ function valorParaColumna(tipo: TipoColumna, celda: CeldaLeida): string {
   }
 }
 
-// --- Tablas simples ---
+// --- Tablas ---
 
-// "Simple" = el único subtipo soportado por ahora: filas planas, columnas fijas, sin agrupador y
-// sin columna dinámica, con captura completa (fila inicial + filas base + columnas mapeadas).
-export function esTablaSimpleLegible(campo: Campo): boolean {
-  if (campo.tipo !== 'tabla' || !campo.configTabla) return false;
+// Una tabla es legible si la estructura declara DÓNDE está en el Excel: fila inicial, cuántas filas
+// reservó la plantilla oficial (`filasBase`) y al menos una columna mapeada. Eso alcanza para todos
+// los subtipos —planas, agrupadas, jerárquicas, con columnas dinámicas—: la estructura ya es el
+// mapa. La contrapartida deliberada es que solo se leen las `filasBase` declaradas; si el Excel
+// tiene la tabla crecida, las filas de más no se leen (decisión del usuario: una cantidad fija de
+// datos ya es ayuda suficiente). La excepción es la tabla plana simple, donde la detección de
+// crecimiento por formato ya estaba hecha y probada, así que se conserva.
+export function esTablaLegible(campo: Campo): boolean {
+  if (campo.tipo !== 'tabla' && campo.tipo !== 'tabla_jerarquica') return false;
   const c = campo.configTabla;
+  if (!c) return false;
   return (
-    c.subtipo === 'filas_dinamicas' &&
-    !c.agrupador &&
-    !c.columnaDinamicaId &&
     typeof c.captura?.filaInicial === 'number' &&
     typeof c.captura?.filasBase === 'number' &&
     c.captura.filasBase > 0 &&
     c.columnas.some((col) => columnasExcelDe(col).length > 0)
   );
+}
+
+// Tabla plana sin agrupador ni columnas dinámicas: la única que además detecta filas insertadas.
+function esTablaPlanaSimple(config: ConfigTabla): boolean {
+  return config.subtipo === 'filas_dinamicas' && !config.agrupador && !config.columnaDinamicaId;
 }
 
 // Tope de seguridad para la detección de filas insertadas: si el formato "no termina nunca"
@@ -99,6 +107,20 @@ const MAX_FILAS_EXTRA = 300;
 interface FilaLeida {
   valores: FilaDinamica;
   tieneDatos: boolean;
+}
+
+// Aritmética de letras de columna (A, B, ..., Z, AA...) — misma que en excelWriter.addCols.
+function sumarColumnas(letra: string, delta: number): string {
+  let n = 0;
+  for (const ch of letra.toUpperCase()) n = n * 26 + (ch.charCodeAt(0) - 64);
+  n += delta;
+  let out = '';
+  while (n > 0) {
+    const r = (n - 1) % 26;
+    out = String.fromCharCode(65 + r) + out;
+    n = Math.floor((n - 1) / 26);
+  }
+  return out || letra;
 }
 
 // Letras de columna Excel que ocupa una columna lógica. Con subcolumnas (4.8) son varias — leer
@@ -126,10 +148,39 @@ function leerCeldaPartida(libro: LibroLeido, hoja: string, col: ColumnaTabla, fi
   return partes[col.subcolumnas![0].id] ?? '';
 }
 
-function leerFilaTabla(libro: LibroLeido, hoja: string, config: ConfigTabla, filaFisica: number): FilaLeida {
+// Columna que se repite por período: N celdas horizontales desde `columnaExcel`, cada una del ancho
+// declarado — espejo exacto del bucle de writeFilaColumnas.
+function leerCeldasPeriodos(
+  libro: LibroLeido,
+  hoja: string,
+  col: ColumnaTabla,
+  filaFisica: number,
+  periodos: string[],
+): string[] {
+  const ancho = col.abarcaColumnasExcel ?? 1;
+  return periodos.map((_, i) => {
+    const letra = sumarColumnas(col.columnaExcel!, i * ancho);
+    const celda = libro.celda(hoja, `${letra}${filaFisica}`);
+    return celda ? valorParaColumna(col.tipo, celda) : '';
+  });
+}
+
+function leerFilaTabla(
+  libro: LibroLeido,
+  hoja: string,
+  config: ConfigTabla,
+  filaFisica: number,
+  periodos: string[] = [],
+): FilaLeida {
   const valores: FilaDinamica = {};
   let tieneDatos = false;
   for (const col of config.columnas) {
+    if (col.id === config.columnaDinamicaId && col.columnaExcel && periodos.length > 0) {
+      const arr = leerCeldasPeriodos(libro, hoja, col, filaFisica, periodos);
+      valores[col.id] = arr;
+      if (arr.some((v) => v !== '')) tieneDatos = true;
+      continue;
+    }
     if (col.subcolumnas?.length) {
       const v = leerCeldaPartida(libro, hoja, col, filaFisica);
       valores[col.id] = v;
@@ -178,7 +229,14 @@ interface TablaLeida {
   filasExtra: number;
 }
 
-function leerTablaSimple(libro: LibroLeido, hoja: string, config: ConfigTabla, filaFisicaInicial: number): TablaLeida {
+function leerTablaSimple(
+  libro: LibroLeido,
+  hoja: string,
+  config: ConfigTabla,
+  filaFisicaInicial: number,
+  periodos: string[] = [],
+  detectarCrecimiento = true,
+): TablaLeida {
   const filasBase = config.captura!.filasBase!;
   const filas: FilaDinamica[] = [];
   let filasConDatos = 0;
@@ -198,7 +256,7 @@ function leerTablaSimple(libro: LibroLeido, hoja: string, config: ConfigTabla, f
   }
 
   for (let i = 0; i < filasBase; i++) {
-    const fila = leerFilaTabla(libro, hoja, config, filaFisicaInicial + i);
+    const fila = leerFilaTabla(libro, hoja, config, filaFisicaInicial + i, periodos);
     filas.push(fila.valores);
     if (fila.tieneDatos) filasConDatos++;
   }
@@ -207,10 +265,10 @@ function leerTablaSimple(libro: LibroLeido, hoja: string, config: ConfigTabla, f
   // vacía con el formato correcto también corta — no hay forma de distinguirla del relleno
   // pre-formateado de la plantilla, y una tabla real llenada no deja huecos intermedios.
   let filasExtra = 0;
-  while (filasExtra < MAX_FILAS_EXTRA) {
+  while (detectarCrecimiento && filasExtra < MAX_FILAS_EXTRA) {
     const filaFisica = filaFisicaInicial + filasBase + filasExtra;
     if (!esDeLaMismaTabla(libro, hoja, config.columnas, filaFisica, estilosBase)) break;
-    const fila = leerFilaTabla(libro, hoja, config, filaFisica);
+    const fila = leerFilaTabla(libro, hoja, config, filaFisica, periodos);
     if (!fila.tieneDatos) break;
     filas.push(fila.valores);
     filasConDatos++;
@@ -218,6 +276,131 @@ function leerTablaSimple(libro: LibroLeido, hoja: string, config: ConfigTabla, f
   }
 
   return { filas, filasConDatos, filasExtra };
+}
+
+// --- Tablas agrupadas (config.agrupador) ---
+
+// Ancho físico en columnas de Excel que ocupan las primeras `n` columnas lógicas — espejo de
+// anchoFisicoPrimerasColumnas en excelWriter, y con eso sabemos cuánto abarca la fila de título.
+function anchoFisico(config: ConfigTabla, n: number, periodos: string[]): number {
+  let total = 0;
+  for (let i = 0; i < n && i < config.columnas.length; i++) {
+    const col = config.columnas[i];
+    const ancho = col.abarcaColumnasExcel ?? 1;
+    total += col.id === config.columnaDinamicaId && periodos.length > 0 ? periodos.length * ancho : ancho;
+  }
+  return total;
+}
+
+interface TablaAgrupadaLeida {
+  grupos: GrupoFilas[];
+  filasConDatos: number;
+}
+
+// La fila de TÍTULO de un grupo se reconoce por su fusión horizontal: el escritor la fusiona sobre
+// las primeras `agrupadorAbarcaColumnas` columnas, así que en el Excel esa celda arranca un rango
+// de varias columnas. Una fila de datos normal no lo hace. Leer la fusión real (y no adivinar por
+// "las demás celdas están vacías") es lo que hace determinista la separación grupo/dato.
+function leerTablaAgrupada(
+  libro: LibroLeido,
+  hoja: string,
+  config: ConfigTabla,
+  filaFisicaInicial: number,
+  periodos: string[],
+): TablaAgrupadaLeida {
+  const filasBase = config.captura!.filasBase!;
+  const columnaInicial = config.captura?.columnaInicial ?? config.columnas[0]?.columnaExcel;
+  const abarcaCabeceras = Math.min(config.agrupadorAbarcaColumnas ?? config.columnas.length, config.columnas.length);
+  const minAncho = Math.max(anchoFisico(config, abarcaCabeceras, periodos), 2);
+
+  const grupos: GrupoFilas[] = [];
+  let filasConDatos = 0;
+
+  for (let i = 0; i < filasBase; i++) {
+    const row = filaFisicaInicial + i;
+    const fusion = columnaInicial ? libro.fusion(hoja, `${columnaInicial}${row}`) : undefined;
+    const esTitulo = Boolean(fusion && fusion.columnas >= minAncho);
+
+    if (esTitulo) {
+      const celda = libro.celda(hoja, `${columnaInicial}${row}`);
+      const titulo = celda ? celda.valor : '';
+      // La fila de título también puede traer valores propios a la derecha de la fusión (grupos
+      // "resumen" sin filas hijas) — se leen igual que una fila de datos y se guardan aparte.
+      const propios = leerFilaTabla(libro, hoja, config, row, periodos);
+      grupos.push({ grupo: titulo, filas: [], ...(propios.tieneDatos ? { valoresGrupo: propios.valores } : {}) });
+      if (titulo !== '' || propios.tieneDatos) filasConDatos++;
+      continue;
+    }
+
+    const fila = leerFilaTabla(libro, hoja, config, row, periodos);
+    // Filas de datos antes de cualquier título: van a un grupo sin nombre, para no perderlas.
+    if (grupos.length === 0) grupos.push({ grupo: '', filas: [] });
+    grupos[grupos.length - 1].filas.push(fila.valores);
+    if (fila.tieneDatos) filasConDatos++;
+  }
+
+  return { grupos, filasConDatos };
+}
+
+// --- Tablas jerárquicas ---
+
+interface ArbolLeido {
+  nodos: TreeNode[];
+  filasConDatos: number;
+}
+
+// Reconstruye el árbol desde las fusiones VERTICALES: el escritor pone el valor de un padre una
+// sola vez, en la primera fila de su subárbol, y fusiona esa celda sobre todas las filas que ocupa.
+// Así, la altura de la fusión ES la cantidad de hijos que cuelgan de él. Sin fusión, el nodo ocupa
+// una sola fila (el escritor solo fusiona cuando abarca más de una).
+function leerArbol(
+  libro: LibroLeido,
+  hoja: string,
+  config: ConfigTabla,
+  profundidad: number,
+  filaInicio: number,
+  filasDisponibles: number,
+  periodos: string[],
+  colIdx = profundidad,
+): ArbolLeido {
+  // Un nivel de agrupador no consume columna (ver writeArbol): el índice de columna avanza solo en
+  // los niveles normales, así que no coincide con la profundidad del árbol cuando hay agrupador.
+  const col = config.columnas[colIdx];
+  const nodos: TreeNode[] = [];
+  let filasConDatos = 0;
+  const fin = filaInicio + filasDisponibles;
+
+  let row = filaInicio;
+  while (row < fin) {
+    const letra = columnasExcelDe(col)[0];
+    const fusion = letra ? libro.fusion(hoja, `${letra}${row}`) : undefined;
+    // La fusión nunca puede exceder el espacio que le cedió el padre: si la plantilla trae un rango
+    // más alto de lo que queda (tabla mal formada, o el padre acortado), se recorta.
+    const span = Math.min(Math.max(fusion?.filas ?? 1, 1), fin - row);
+
+    let value: string | string[];
+    if (col?.id === config.columnaDinamicaId && col.columnaExcel && periodos.length > 0) {
+      const arr = leerCeldasPeriodos(libro, hoja, col, row, periodos);
+      value = arr;
+      if (arr.some((v) => v !== '')) filasConDatos++;
+    } else {
+      const celda = letra ? libro.celda(hoja, `${letra}${row}`) : undefined;
+      value = celda ? valorParaColumna(col?.tipo ?? 'texto_corto', celda) : '';
+      if (value !== '') filasConDatos++;
+    }
+
+    let children: TreeNode[] = [];
+    if (colIdx + 1 < config.columnas.length) {
+      const sub = leerArbol(libro, hoja, config, profundidad + 1, row, span, periodos, colIdx + 1);
+      children = sub.nodos;
+      filasConDatos += sub.filasConDatos;
+    }
+
+    nodos.push({ value, children });
+    row += span;
+  }
+
+  return { nodos, filasConDatos };
 }
 
 // Fusión celda por celda con las filas que el ejemplo ya tenía: el dato del Excel gana solo donde
@@ -243,11 +426,54 @@ function fusionarFilas(actuales: FilaDinamica[], leidas: FilaDinamica[], config:
         fila[col.id] = partes;
         continue;
       }
+      // Columna dinámica: array de un valor por período — se fusiona período a período.
+      if (Array.isArray(nuevo)) {
+        const previo = Array.isArray(actual[col.id]) ? (actual[col.id] as string[]) : [];
+        fila[col.id] = nuevo.map((v, k) => (v !== '' ? v : (previo[k] ?? '')));
+        continue;
+      }
       fila[col.id] = typeof nuevo === 'string' && nuevo !== '' ? nuevo : (actual[col.id] ?? '');
     }
     out.push(fila);
   }
   return out;
+}
+
+// Misma regla, grupo a grupo: el nombre del grupo y cada fila hija se fusionan por separado.
+function fusionarGrupos(actuales: GrupoFilas[], leidos: GrupoFilas[], config: ConfigTabla): GrupoFilas[] {
+  const total = Math.max(actuales.length, leidos.length);
+  const out: GrupoFilas[] = [];
+  for (let i = 0; i < total; i++) {
+    const actual = actuales[i];
+    const leido = leidos[i];
+    if (!leido) { if (actual) out.push(actual); continue; }
+    const propiosLeidos = leido.valoresGrupo;
+    const propiosActuales = actual?.valoresGrupo;
+    out.push({
+      grupo: leido.grupo !== '' ? leido.grupo : (actual?.grupo ?? ''),
+      filas: fusionarFilas(actual?.filas ?? [], leido.filas, config),
+      ...(propiosLeidos || propiosActuales
+        ? { valoresGrupo: fusionarFilas(propiosActuales ? [propiosActuales] : [], propiosLeidos ? [propiosLeidos] : [], config)[0] ?? {} }
+        : {}),
+    });
+  }
+  return out;
+}
+
+// Misma regla, nodo a nodo: el árbol leído manda en su forma (la que dicta el Excel), y cada valor
+// vacío conserva el que tuviera el nodo equivalente del ejemplo.
+function fusionarArbol(actuales: TreeNode[], leidos: TreeNode[]): TreeNode[] {
+  return leidos.map((leido, i) => {
+    const actual = actuales[i];
+    let value: string | string[];
+    if (Array.isArray(leido.value)) {
+      const previo = Array.isArray(actual?.value) ? actual.value : [];
+      value = leido.value.map((v, k) => (v !== '' ? v : (previo[k] ?? '')));
+    } else {
+      value = leido.value !== '' ? leido.value : (typeof actual?.value === 'string' ? actual.value : '');
+    }
+    return { value, children: fusionarArbol(actual?.children ?? [], leido.children) };
+  });
 }
 
 function parseFilasActuales(raw: string | undefined): FilaDinamica[] {
@@ -259,13 +485,31 @@ function parseFilasActuales(raw: string | undefined): FilaDinamica[] {
   return [];
 }
 
+function parseGruposActuales(raw: string | undefined): GrupoFilas[] {
+  if (!raw) return [];
+  try {
+    const p = JSON.parse(raw);
+    if (Array.isArray(p) && p.length > 0 && 'filas' in p[0]) return p as GrupoFilas[];
+  } catch { /* no era JSON de grupos */ }
+  return [];
+}
+
+function parseArbolActual(raw: string | undefined): TreeNode[] {
+  if (!raw) return [];
+  try {
+    const p = JSON.parse(raw);
+    if (Array.isArray(p) && p.length > 0 && 'value' in p[0]) return p as TreeNode[];
+  } catch { /* no era JSON de árbol */ }
+  return [];
+}
+
 // --- Recorrido del documento ---
 
 export interface OpcionesVolcado {
   /** Leer campos simples (texto, número, fecha, booleano…) */
   camposSimples: boolean;
-  /** Leer tablas simples (filas planas / columnas fijas / sin agrupador) */
-  tablasSimples: boolean;
+  /** Leer tablas — todos los subtipos, siempre acotado a las `filasBase` declaradas */
+  tablas: boolean;
   /** Ids de las secciones a incluir — las demás no se tocan */
   seccionesIds: Set<string>;
   /** Valores actuales del ejemplo — base de la fusión celda a celda en tablas */
@@ -279,13 +523,13 @@ export interface ResultadoVolcado {
   camposLeidos: number;
   /** Campos simples cuya celda estaba vacía — no se tocan */
   camposVacios: number;
-  /** Tablas simples leídas (con al menos una celda con dato) */
+  /** Tablas leídas (con al menos una celda con dato) */
   tablasLeidas: number;
   /** Filas con datos encontradas entre todas las tablas leídas */
   filasTablaLeidas: number;
   /** Filas insertadas detectadas más allá de las filas base (crecimiento) */
   filasExtraDetectadas: number;
-  /** Campos tabla fuera del alcance actual (jerárquicas, agrupadores, columnas dinámicas) */
+  /** Campos tabla sin posición declarada en la estructura — no hay dónde leer */
   tablasOmitidas: number;
   /** Hojas que la plantilla declara pero el Excel no tiene (nombres cambiados, otro archivo) */
   hojasFaltantes: string[];
@@ -302,7 +546,7 @@ export async function leerValoresDeExcel(
 ): Promise<ResultadoVolcado> {
   const ops: OpcionesVolcado = {
     camposSimples: opciones?.camposSimples ?? true,
-    tablasSimples: opciones?.tablasSimples ?? false,
+    tablas: opciones?.tablas ?? false,
     seccionesIds: opciones?.seccionesIds ?? new Set(plantilla.secciones.map((s) => s.id)),
     valoresActuales: opciones?.valoresActuales ?? {},
   };
@@ -349,19 +593,42 @@ export async function leerValoresDeExcel(
       .sort((a, b) => (a.campo.configTabla?.captura?.filaInicial ?? 0) - (b.campo.configTabla?.captura?.filaInicial ?? 0));
 
     for (const { campo } of tablas) {
-      if (!ops.tablasSimples || !esTablaSimpleLegible(campo)) { resultado.tablasOmitidas++; continue; }
+      if (!ops.tablas || !esTablaLegible(campo)) { resultado.tablasOmitidas++; continue; }
       const config = campo.configTabla!;
       const filaOriginal = config.captura!.filaInicial!;
-      const lectura = leerTablaSimple(libro, hoja, config, filaOriginal + shift(filaOriginal));
+      const filaFisica = filaOriginal + shift(filaOriginal);
+      const periodos = getPeriodos(config);
+      const raw = ops.valoresActuales[campo.identificador] ?? campo.valorEjemplo;
 
+      // Jerárquica: la forma la dictan las fusiones verticales del Excel.
+      if (esJerarquica(config.subtipo)) {
+        const lectura = leerArbol(libro, hoja, config, 0, filaFisica, config.captura!.filasBase!, periodos);
+        if (lectura.filasConDatos === 0) continue;
+        resultado.valores[campo.identificador] = JSON.stringify(fusionarArbol(parseArbolActual(raw), lectura.nodos));
+        resultado.tablasLeidas++;
+        resultado.filasTablaLeidas += lectura.filasConDatos;
+        continue;
+      }
+
+      // Agrupada: las filas de título se reconocen por su fusión horizontal.
+      if (config.agrupador) {
+        const lectura = leerTablaAgrupada(libro, hoja, config, filaFisica, periodos);
+        if (lectura.filasConDatos === 0) continue;
+        resultado.valores[campo.identificador] = JSON.stringify(fusionarGrupos(parseGruposActuales(raw), lectura.grupos, config));
+        resultado.tablasLeidas++;
+        resultado.filasTablaLeidas += lectura.filasConDatos;
+        continue;
+      }
+
+      // Plana (con o sin columnas dinámicas). Solo la variante simple detecta filas insertadas.
+      const lectura = leerTablaSimple(libro, hoja, config, filaFisica, periodos, esTablaPlanaSimple(config));
       if (lectura.filasExtra > 0) {
         crecimientos.push({ despuesDeFila: filaOriginal + config.captura!.filasBase! - 1, cantidad: lectura.filasExtra });
         resultado.filasExtraDetectadas += lectura.filasExtra;
       }
       if (lectura.filasConDatos === 0) continue; // tabla vacía en el Excel: no tocar nada
 
-      const actuales = parseFilasActuales(ops.valoresActuales[campo.identificador] ?? campo.valorEjemplo);
-      resultado.valores[campo.identificador] = JSON.stringify(fusionarFilas(actuales, lectura.filas, config));
+      resultado.valores[campo.identificador] = JSON.stringify(fusionarFilas(parseFilasActuales(raw), lectura.filas, config));
       resultado.tablasLeidas++;
       resultado.filasTablaLeidas += lectura.filasConDatos;
     }

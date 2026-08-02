@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faXmark, faFileCode, faCopy, faCheck } from '@/lib/icons';
+import { faXmark, faFileCode, faCopy, faCheck, faDownload } from '@/lib/icons';
 
-defineProps<{
+const props = defineProps<{
   isOpen: boolean;
   title: string;
   json: string;
@@ -17,6 +17,29 @@ async function handleCopy(json: string) {
   await navigator.clipboard.writeText(json);
   copied.value = true;
   setTimeout(() => { copied.value = false; }, 1500);
+}
+
+// El título llega como "CÓDIGO — Estructura" o "CÓDIGO — Ejemplo: Nombre"; se convierte en un
+// nombre de archivo seguro (sin acentos ni caracteres que Windows rechaza en rutas).
+function nombreArchivo(): string {
+  const base = props.title
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase();
+  return `${base || 'documento'}.json`;
+}
+
+function handleDownload() {
+  const blob = new Blob([props.json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = nombreArchivo();
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 </script>
 
@@ -36,6 +59,15 @@ async function handleCopy(json: string) {
               </div>
             </div>
             <div class="flex items-center gap-2 shrink-0">
+              <button
+                @click="handleDownload"
+                type="button"
+                title="Descargar como archivo .json"
+                class="px-4 py-2 rounded-lg border border-gray-200 text-heading text-sm font-medium hover:bg-gray-50 hover:border-gray-300 transition-colors duration-75 flex items-center gap-2"
+              >
+                <FontAwesomeIcon :icon="faDownload" class="w-3.5 h-3.5" />
+                Descargar
+              </button>
               <button
                 @click="handleCopy(json)"
                 type="button"
