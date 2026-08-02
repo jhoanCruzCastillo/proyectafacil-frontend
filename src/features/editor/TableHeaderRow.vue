@@ -41,8 +41,13 @@ function buildRuns(): Run[] {
   return runs;
 }
 
+// Cuántas celdas físicas ocupa el grupo: la columna dinámica cuenta una por período, y una columna
+// partida (4.8) una por subcolumna — el resto, una.
 function runSpan(run: Run): number {
-  return run.cols.reduce((s, c) => s + (c.id === props.columnaDinamicaId ? Math.max(props.periodos.length, 1) : 1), 0);
+  return run.cols.reduce((s, c) => {
+    if (c.id === props.columnaDinamicaId) return s + Math.max(props.periodos.length, 1);
+    return s + (c.subcolumnas?.length || 1);
+  }, 0);
 }
 </script>
 
@@ -77,6 +82,17 @@ function runSpan(run: Run): number {
                 <FontAwesomeIcon :icon="faPlus" class="w-2 h-2" />
               </button>
             </div>
+          </th>
+        </template>
+        <!-- Columna partida (4.8): un encabezado por parte, sobre el mismo ancho de la columna -->
+        <template v-else-if="col.subcolumnas && col.subcolumnas.length > 0">
+          <th
+            v-for="sub in col.subcolumnas"
+            :key="`${col.id}-${sub.id}`"
+            class="px-2 py-1.5 text-left font-medium text-heading border-b border-brand-100 whitespace-nowrap text-[11px]"
+            :title="`${col.nombre} · ${sub.nombre}`"
+          >
+            {{ sub.nombre || col.nombre }}
           </th>
         </template>
         <th v-else class="px-2 py-1.5 text-left font-medium text-heading border-b border-brand-100 whitespace-nowrap text-[11px]">
@@ -138,6 +154,17 @@ function runSpan(run: Run): number {
                 <FontAwesomeIcon :icon="faPlus" class="w-2 h-2" />
               </button>
             </div>
+          </th>
+        </template>
+        <!-- Columna partida (4.8): un encabezado por parte, sobre el mismo ancho de la columna -->
+        <template v-else-if="col.subcolumnas && col.subcolumnas.length > 0">
+          <th
+            v-for="sub in col.subcolumnas"
+            :key="`${col.id}-${sub.id}`"
+            class="px-2 py-1.5 text-left font-medium text-heading border-b border-brand-100 whitespace-nowrap text-[11px]"
+            :title="`${col.nombre} · ${sub.nombre}`"
+          >
+            {{ sub.nombre || col.nombre }}
           </th>
         </template>
         <th v-else class="px-2 py-1.5 text-left font-medium text-heading border-b border-brand-100 whitespace-nowrap text-[11px]">

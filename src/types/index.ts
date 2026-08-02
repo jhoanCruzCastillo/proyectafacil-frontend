@@ -55,6 +55,21 @@ export interface ColumnaTabla {
   /** Lista fija de opciones (ej. validación de datos por lista en Excel) — cuando está presente,
    * la celda se edita con un <select> en vez de texto libre. No requiere un catálogo externo. */
   opciones?: string[];
+  /** Celdas partidas (convención 4.8): el ancho de esta columna guarda dos o más datos en celdas
+   * separadas de Excel. La partición se declara acá, una sola vez; qué filas van partidas y cuáles
+   * fusionadas lo decide la forma del valor de cada fila (objeto = partida, plano = fusionada). */
+  subcolumnas?: SubcolumnaTabla[];
+}
+
+/** Una parte de una columna partida — misma forma que ColumnaTabla pero sin anidamiento propio. */
+export interface SubcolumnaTabla {
+  id: string;
+  nombre: string;
+  tipo: TipoColumna;
+  /** Letra de columna Excel donde inicia esta parte */
+  columnaExcel?: string;
+  /** Cantidad de columnas Excel que abarca esta parte */
+  abarcaColumnasExcel?: number;
 }
 
 export interface CapturaTabla {

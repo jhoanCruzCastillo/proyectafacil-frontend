@@ -1,6 +1,6 @@
 import { leerLibroXlsx, type CeldaLeida, type LibroLeido } from './xlsxXmlReader';
 import { aFechaISO, aAnio, textoABooleano } from './conversionesExcel';
-import type { FilaDinamica } from './tableRowHelpers';
+import { esCeldaPartida, type FilaDinamica } from './tableRowHelpers';
 import type { Plantilla, Campo, Seccion, ConfigTabla, ColumnaTabla, TipoCampo, TipoColumna } from '@/types';
 
 // Volcado de datos Excel -> valores de un ejemplo: el inverso de excelWriter.ts. Recorre la
@@ -18,7 +18,8 @@ import type { Plantilla, Campo, Seccion, ConfigTabla, ColumnaTabla, TipoCampo, T
 //
 // Regla de no-destrucción, simétrica a la del writer ("celda vacía no toca el Excel"): una celda
 // vacía en el Excel NO borra el valor que el ejemplo ya tuviera — en tablas se aplica CELDA POR
-// CELDA (el dato del Excel gana solo donde existe; el resto de la fila conserva lo actual).
+// CELDA (el dato del Excel gana solo donde existe; el resto de la fila conserva lo actual), y en
+// columnas con subcolumnas (4.8) PARTE POR PARTE.
 
 // Convierte lo leído del Excel al formato que guarda el campo según su tipo. Devuelve null cuando
 // el contenido no es utilizable para ese tipo (se omite el campo en vez de guardar algo inválido).
@@ -87,7 +88,7 @@ export function esTablaSimpleLegible(campo: Campo): boolean {
     typeof c.captura?.filaInicial === 'number' &&
     typeof c.captura?.filasBase === 'number' &&
     c.captura.filasBase > 0 &&
-    c.columnas.some((col) => col.columnaExcel)
+    c.columnas.some((col) => columnasExcelDe(col).length > 0)
   );
 }
 
@@ -100,10 +101,41 @@ interface FilaLeida {
   tieneDatos: boolean;
 }
 
+// Letras de columna Excel que ocupa una columna lógica. Con subcolumnas (4.8) son varias — leer
+// solo la del padre perdería las otras partes y las machacaría al fusionar.
+function columnasExcelDe(col: ColumnaTabla): string[] {
+  if (col.subcolumnas?.length) {
+    return col.subcolumnas.map((s) => s.columnaExcel).filter((c): c is string => Boolean(c));
+  }
+  return col.columnaExcel ? [col.columnaExcel] : [];
+}
+
+// Lee una columna partida (4.8): cada parte desde su propia celda. La FORMA del resultado la decide
+// el dato, igual que en el documento — si solo la primera parte trae algo, el Excel tenía la celda
+// fusionada y devolvemos texto plano; si hay dato en otra parte, estaba partida y devolvemos objeto.
+function leerCeldaPartida(libro: LibroLeido, hoja: string, col: ColumnaTabla, filaFisica: number): string | Record<string, string> {
+  const partes: Record<string, string> = {};
+  let algunaExtra = false;
+  col.subcolumnas!.forEach((sub, i) => {
+    const celda = sub.columnaExcel ? libro.celda(hoja, `${sub.columnaExcel}${filaFisica}`) : undefined;
+    const v = celda ? valorParaColumna(sub.tipo, celda) : '';
+    partes[sub.id] = v;
+    if (i > 0 && v !== '') algunaExtra = true;
+  });
+  if (algunaExtra) return partes;
+  return partes[col.subcolumnas![0].id] ?? '';
+}
+
 function leerFilaTabla(libro: LibroLeido, hoja: string, config: ConfigTabla, filaFisica: number): FilaLeida {
   const valores: FilaDinamica = {};
   let tieneDatos = false;
   for (const col of config.columnas) {
+    if (col.subcolumnas?.length) {
+      const v = leerCeldaPartida(libro, hoja, col, filaFisica);
+      valores[col.id] = v;
+      if (typeof v === 'string' ? v !== '' : Object.values(v).some((p) => p !== '')) tieneDatos = true;
+      continue;
+    }
     if (!col.columnaExcel) { valores[col.id] = ''; continue; }
     const celda = libro.celda(hoja, `${col.columnaExcel}${filaFisica}`);
     const v = celda ? valorParaColumna(col.tipo, celda) : '';
@@ -127,8 +159,11 @@ function esDeLaMismaTabla(
 ): boolean {
   let coincidencias = 0;
   for (const col of cols) {
-    if (!col.columnaExcel) continue;
-    const estilo = libro.estilo(hoja, `${col.columnaExcel}${filaFisica}`);
+    // Una columna partida aporta el estilo de su PRIMERA parte: las demás pueden estar fusionadas
+    // en unas filas y separadas en otras, así que su estilo no es un patrón estable.
+    const letra = columnasExcelDe(col)[0];
+    if (!letra) continue;
+    const estilo = libro.estilo(hoja, `${letra}${filaFisica}`);
     const base = estilosBase.get(col.id);
     if (estilo === undefined || !base || base.size === 0) return false;
     if (!base.has(estilo)) return false;
@@ -152,10 +187,11 @@ function leerTablaSimple(libro: LibroLeido, hoja: string, config: ConfigTabla, f
   // filas siguientes para decidir si son parte de la tabla.
   const estilosBase = new Map<string, Set<number>>();
   for (const col of config.columnas) {
-    if (!col.columnaExcel) continue;
+    const letra = columnasExcelDe(col)[0];
+    if (!letra) continue;
     const set = new Set<number>();
     for (let i = 0; i < filasBase; i++) {
-      const estilo = libro.estilo(hoja, `${col.columnaExcel}${filaFisicaInicial + i}`);
+      const estilo = libro.estilo(hoja, `${letra}${filaFisicaInicial + i}`);
       if (estilo !== undefined) set.add(estilo);
     }
     estilosBase.set(col.id, set);
@@ -197,6 +233,16 @@ function fusionarFilas(actuales: FilaDinamica[], leidas: FilaDinamica[], config:
     const fila: FilaDinamica = {};
     for (const col of config.columnas) {
       const nuevo = leida[col.id];
+      // Celda partida (4.8): la no-destrucción se aplica PARTE POR PARTE, no a la celda entera.
+      if (esCeldaPartida(nuevo)) {
+        const previo = esCeldaPartida(actual[col.id]) ? (actual[col.id] as Record<string, string>) : {};
+        const partes: Record<string, string> = {};
+        for (const sub of col.subcolumnas ?? []) {
+          partes[sub.id] = nuevo[sub.id] !== '' && nuevo[sub.id] != null ? nuevo[sub.id] : (previo[sub.id] ?? '');
+        }
+        fila[col.id] = partes;
+        continue;
+      }
       fila[col.id] = typeof nuevo === 'string' && nuevo !== '' ? nuevo : (actual[col.id] ?? '');
     }
     out.push(fila);

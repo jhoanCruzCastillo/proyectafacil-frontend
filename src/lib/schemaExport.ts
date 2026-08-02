@@ -1,4 +1,4 @@
-import { parseDynamicRows, parseGroupedRows, parseTree, getPeriodos, esJerarquica, type FilaDinamica, type TreeNode } from './tableRowHelpers';
+import { parseDynamicRows, parseGroupedRows, parseTree, getPeriodos, esJerarquica, esCeldaPartida, type FilaDinamica, type TreeNode, type ValorCelda } from './tableRowHelpers';
 import type { Campo, ColumnaTabla, ConfigTabla, Ejemplo, Plantilla, Seccion, TipoCampo, TipoColumna } from '@/types';
 
 export type TipoVersionDocumento = 'estructura' | 'ejemplo';
@@ -73,10 +73,12 @@ function idColumna(col: ColumnaTabla, config: ConfigTabla): string {
   return col.id === config.columnaDinamicaId ? ID_COLUMNA_DINAMICA : col.id;
 }
 
-function capturaTabla(seccion: Seccion, config: ConfigTabla) {
+// `hoja` NO se escribe acá: la convención declara la hoja únicamente en el nodo `seccion` y todo
+// lo que cuelga de ella la hereda (ver punto 1 de la documentación). Repetirla dentro de `captura`
+// abría la puerta a que ambas se desincronizaran.
+function capturaTabla(_seccion: Seccion, config: ConfigTabla) {
   const periodos = getPeriodos(config);
   return {
-    hoja: seccion.hoja ?? '',
     columna_inicial: config.captura?.columnaInicial ?? '',
     fila_inicial: config.captura?.filaInicial ?? 0,
     filas_base: config.captura?.filasBase ?? 0,
@@ -85,6 +87,15 @@ function capturaTabla(seccion: Seccion, config: ConfigTabla) {
       columna: col.columnaExcel ?? '',
       abarca_columnas: col.abarcaColumnasExcel ?? 1,
       ...(col.id === config.columnaDinamicaId ? { columnas_base: periodos } : {}),
+      ...(col.subcolumnas?.length
+        ? {
+            subcolumnas: col.subcolumnas.map((s) => ({
+              id: s.id,
+              columna: s.columnaExcel ?? '',
+              abarca_columnas: s.abarcaColumnasExcel ?? 1,
+            })),
+          }
+        : {}),
     })),
   };
 }
@@ -97,14 +108,24 @@ function columnasLogicas(config: ConfigTabla) {
     nombre: col.nombre,
     tipo: mapTipoColumna(col.tipo),
     ...(esJerarquica(config.subtipo) && col.nivel === 'padre' ? { combina_vertical: true } : {}),
+    ...(col.subcolumnas?.length
+      ? { subcolumnas: col.subcolumnas.map((s) => ({ id: s.id, nombre: s.nombre, tipo: mapTipoColumna(s.tipo) })) }
+      : {}),
   }));
 }
 
 // --- Valor de tabla ---
 
-function coerceCelda(config: ConfigTabla, colId: string, raw: string | string[] | undefined): unknown {
-  if (colId === config.columnaDinamicaId) {
+// Una celda partida (4.8) se exporta como objeto {subId: valor} y una fusionada como valor plano —
+// esa diferencia de forma ES la señal que distingue ambos casos en el documento (ver punto 4.8).
+function coerceCelda(config: ConfigTabla, col: ColumnaTabla, raw: ValorCelda | undefined): unknown {
+  if (col.id === config.columnaDinamicaId) {
     return Array.isArray(raw) ? raw : [];
+  }
+  if (col.subcolumnas?.length && esCeldaPartida(raw)) {
+    const out: Record<string, string> = {};
+    for (const sub of col.subcolumnas) out[sub.id] = raw[sub.id] ?? '';
+    return out;
   }
   return typeof raw === 'string' ? raw : '';
 }
@@ -112,7 +133,7 @@ function coerceCelda(config: ConfigTabla, colId: string, raw: string | string[] 
 function mapFila(config: ConfigTabla, fila: FilaDinamica): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const col of config.columnas) {
-    out[idColumna(col, config)] = coerceCelda(config, col.id, fila[col.id]);
+    out[idColumna(col, config)] = coerceCelda(config, col, fila[col.id]);
   }
   return out;
 }

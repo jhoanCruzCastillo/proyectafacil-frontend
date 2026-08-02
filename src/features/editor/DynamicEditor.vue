@@ -4,7 +4,7 @@ import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faPlus } from '@/lib/icons';
 import TableHeaderRow from './TableHeaderRow.vue';
 import TableRow from './TableRow.vue';
-import { parseDynamicRows, newEmptyRow, getPeriodos, type FilaDinamica } from '@/lib/tableRowHelpers';
+import { parseDynamicRows, newEmptyRow, getPeriodos, esCeldaPartida, valorPlano, type FilaDinamica } from '@/lib/tableRowHelpers';
 import type { ConfigTabla } from '@/types';
 
 const props = defineProps<{
@@ -37,6 +37,30 @@ function updatePeriodo(ri: number, colId: string, pi: number, val: string) {
 }
 function addRow() { persist([...rows.value, newEmptyRow(props.config)]); }
 function removeRow(ri: number) { if (rows.value.length > 1) persist(rows.value.filter((_, i) => i !== ri)); }
+
+// --- Celdas partidas (4.8) ---
+function updateSubcelda(ri: number, colId: string, subId: string, val: string) {
+  persist(rows.value.map((r, i) => {
+    if (i !== ri) return r;
+    const actual = esCeldaPartida(r[colId]) ? (r[colId] as Record<string, string>) : {};
+    return { ...r, [colId]: { ...actual, [subId]: val } };
+  }));
+}
+
+// Alterna entre celda partida y fusionada en ESA fila. Al partir, lo que hubiera escrito pasa a la
+// primera parte; al fusionar, se concatena lo de todas las partes — en ningún sentido se pierde texto.
+function togglePartida(ri: number, colId: string) {
+  const col = props.config.columnas.find((c) => c.id === colId);
+  if (!col?.subcolumnas?.length) return;
+  persist(rows.value.map((r, i) => {
+    if (i !== ri) return r;
+    if (esCeldaPartida(r[colId])) return { ...r, [colId]: valorPlano(r[colId]) };
+    const texto = valorPlano(r[colId]);
+    const partes: Record<string, string> = {};
+    col.subcolumnas!.forEach((s, si) => { partes[s.id] = si === 0 ? texto : ''; });
+    return { ...r, [colId]: partes };
+  }));
+}
 
 function addPeriodo() {
   emit('update:config', { ...props.config, periodos: [...(props.config.periodos ?? []), ''] });
@@ -75,6 +99,8 @@ function renamePeriodo(pi: number, value: string) {
             :columna-dinamica-id="config.columnaDinamicaId"
             @cell-change="(colId, val) => updateCell(ri, colId, val)"
             @periodo-change="(colId, pi, val) => updatePeriodo(ri, colId, pi, val)"
+            @subcelda-change="(colId, subId, val) => updateSubcelda(ri, colId, subId, val)"
+            @toggle-partida="(colId) => togglePartida(ri, colId)"
             @delete="removeRow(ri)"
           />
         </tbody>

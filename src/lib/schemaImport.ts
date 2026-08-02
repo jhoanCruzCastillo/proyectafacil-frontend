@@ -1,6 +1,6 @@
 import { generateId } from '@/api/mock/_shared';
 import type { FilaDinamica, GrupoFilas, TreeNode } from './tableRowHelpers';
-import type { CabeceraGrupo, Campo, CapturaCampo, ColumnaTabla, ConfigTabla, Seccion, Subseccion, SubtipoTabla, TipoCampo, TipoColumna } from '../types';
+import type { CabeceraGrupo, Campo, CapturaCampo, ColumnaTabla, ConfigTabla, Seccion, Subseccion, SubcolumnaTabla, SubtipoTabla, TipoCampo, TipoColumna } from '../types';
 
 const ID_COLUMNA_DINAMICA = 'columnas_dinamicas';
 
@@ -60,6 +60,27 @@ function parseCapturaCampo(raw: unknown): CapturaCampo | undefined {
 
 // --- Columnas de tabla ---
 
+function subcolumnasFromDoc(rawSubs: unknown, rawCapturaSubs: unknown): SubcolumnaTabla[] | undefined {
+  if (!Array.isArray(rawSubs) || rawSubs.length === 0) return undefined;
+  const capturaSubs = Array.isArray(rawCapturaSubs) ? rawCapturaSubs : [];
+
+  const subs = rawSubs.map((rs) => {
+    const raw = rs as Record<string, unknown>;
+    const id = String(raw.id ?? '');
+    const capturaSub = capturaSubs.find((c) => (c as Record<string, unknown>).id === id) as Record<string, unknown> | undefined;
+    return {
+      id: id || generateId(),
+      nombre: String(raw.nombre ?? ''),
+      tipo: mapTipoColumnaReverse(raw.tipo),
+      columnaExcel: typeof capturaSub?.columna === 'string' && capturaSub.columna ? capturaSub.columna : undefined,
+      abarcaColumnasExcel: typeof capturaSub?.abarca_columnas === 'number' ? capturaSub.abarca_columnas : undefined,
+    } satisfies SubcolumnaTabla;
+  });
+
+  // Una sola parte no es una partición — se ignora y la columna queda como celda única.
+  return subs.length > 1 ? subs : undefined;
+}
+
 function buildColumnas(rawCols: unknown, rawCapturaCols: unknown, esJerarquica: boolean): { columnas: ColumnaTabla[]; columnaDinamicaId?: string } {
   const cols = Array.isArray(rawCols) ? rawCols : [];
   const capturaCols = Array.isArray(rawCapturaCols) ? rawCapturaCols : [];
@@ -81,6 +102,11 @@ function buildColumnas(rawCols: unknown, rawCapturaCols: unknown, esJerarquica: 
     };
     if (esJerarquica) col.nivel = raw.combina_vertical ? 'padre' : 'hijo';
     if (Array.isArray(raw.opciones) && raw.opciones.length > 0) col.opciones = raw.opciones.map(String);
+
+    // Celdas partidas (convención 4.8): la definición lógica vive en `columnas[].subcolumnas` y la
+    // posición física en `captura.columnas[].subcolumnas` — se cruzan por id, igual que las columnas.
+    const subs = subcolumnasFromDoc(raw.subcolumnas, capturaCol?.subcolumnas);
+    if (subs) col.subcolumnas = subs;
     return col;
   });
 
@@ -117,6 +143,14 @@ function rowFromDoc(rawRow: Record<string, unknown>, columnaDinamicaId?: string)
   for (const [key, val] of Object.entries(rawRow)) {
     if (key === ID_COLUMNA_DINAMICA && columnaDinamicaId) {
       fila[columnaDinamicaId] = Array.isArray(val) ? val.map((v) => String(v)) : [];
+    } else if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
+      // Celda partida (4.8): objeto {subId: valor}. Se conserva como objeto — aplanarlo con
+      // String() lo convertiría en "[object Object]" y perdería ambas partes.
+      const partes: Record<string, string> = {};
+      for (const [subId, subVal] of Object.entries(val as Record<string, unknown>)) {
+        partes[subId] = subVal == null ? '' : String(subVal);
+      }
+      fila[key] = partes;
     } else {
       fila[key] = val == null ? '' : String(val);
     }

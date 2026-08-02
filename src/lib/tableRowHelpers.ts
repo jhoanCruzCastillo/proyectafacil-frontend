@@ -1,6 +1,30 @@
 import type { ColumnaTabla, ConfigTabla, SubtipoTabla } from '../types';
 
-export interface FilaDinamica { [colId: string]: string | string[] }
+/** Valor de una celda de tabla:
+ *  - `string`            → celda normal (o celda partida en modo FUSIONADO: un solo dato a lo ancho)
+ *  - `string[]`          → columna dinámica (un valor por período)
+ *  - `Record<...>`       → celda PARTIDA (convención 4.8): un valor por subcolumna */
+export type ValorCelda = string | string[] | Record<string, string>;
+export interface FilaDinamica { [colId: string]: ValorCelda }
+
+/** ¿La celda de esta fila está partida? Es la única señal: objeto ⇒ partida, plano ⇒ fusionada. */
+export function esCeldaPartida(valor: ValorCelda | undefined): valor is Record<string, string> {
+  return typeof valor === 'object' && valor !== null && !Array.isArray(valor);
+}
+
+/** Valor de una subcolumna dentro de una celda partida (vacío si la celda no está partida). */
+export function valorSubcolumna(valor: ValorCelda | undefined, subId: string): string {
+  return esCeldaPartida(valor) ? (valor[subId] ?? '') : '';
+}
+
+/** Texto plano de una celda, sirva o no como partida — al fusionar una celda partida se concatena
+ * lo que hubiera en sus partes para no perder lo ya escrito. */
+export function valorPlano(valor: ValorCelda | undefined): string {
+  if (valor == null) return '';
+  if (typeof valor === 'string') return valor;
+  if (Array.isArray(valor)) return '';
+  return Object.values(valor).filter((v) => v !== '').join(' ');
+}
 export interface GrupoFilas {
   grupo: string;
   filas: FilaDinamica[];
