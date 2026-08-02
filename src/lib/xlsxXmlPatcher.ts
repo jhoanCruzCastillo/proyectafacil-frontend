@@ -27,6 +27,8 @@ export interface Crecimiento {
 interface HojaEdits {
   celdas: CeldaEdicion[];
   merges: Set<string>;
+  /** Rangos cuya fusión debe romperse antes de escribir (celdas partidas, 4.8) */
+  desfusiones: Set<string>;
   crecimientos: Crecimiento[];
 }
 
@@ -35,7 +37,7 @@ export class LibroEdits {
 
   private getHoja(hoja: string): HojaEdits {
     let h = this.hojas.get(hoja);
-    if (!h) { h = { celdas: [], merges: new Set(), crecimientos: [] }; this.hojas.set(hoja, h); }
+    if (!h) { h = { celdas: [], merges: new Set(), desfusiones: new Set(), crecimientos: [] }; this.hojas.set(hoja, h); }
     return h;
   }
 
@@ -52,6 +54,13 @@ export class LibroEdits {
 
   fusionar(hoja: string, rango: string) {
     this.getHoja(hoja).merges.add(rango);
+  }
+
+  // Rompe la fusión que cubra ese rango. Necesario para las celdas partidas (4.8): la plantilla
+  // oficial trae J:K fusionada por fila, y escribir en K dentro de una fusión deja el dato oculto
+  // — Excel solo muestra la celda superior-izquierda del rango.
+  desfusionar(hoja: string, rango: string) {
+    this.getHoja(hoja).desfusiones.add(rango);
   }
 
   // Registra que una tabla creció más allá de sus filas base — las filas físicas de Excel deben
@@ -132,6 +141,13 @@ function aplicarValorCelda(doc: Document, celda: Element, valor: string | number
     const v = doc.createElementNS(SML_NS, 'v');
     v.textContent = String(valor);
     celda.appendChild(v);
+    return;
+  }
+  if (valor === '') {
+    // Vaciar de verdad: sin `t` ni hijos queda `<c r=".." s=".."/>`, celda sin contenido pero con
+    // su estilo intacto (el estilo delimita la tabla al releer). Un <t/> vacío dejaría un rastro
+    // de texto que confundiría a la relectura.
+    celda.removeAttribute('t');
     return;
   }
   if (typeof valor === 'number' && Number.isFinite(valor)) {
@@ -297,6 +313,19 @@ function seSuperponen(a: RangoCeldas, b: RangoCeldas): boolean {
 // existente pero de otro tamaño (p. ej. la plantilla oficial asumía 3 hijos por grupo jerárquico y
 // este grupo real solo tiene 2), la fusión vieja se elimina primero: dos <mergeCell> superpuestos
 // son XML inválido y Excel repara/descarta el archivo al abrirlo.
+// Elimina toda fusión que se solape con el rango dado. Si no hay <mergeCells> no hay nada que
+// romper: la celda ya está partida en el archivo.
+function quitarMerge(worksheet: Element, rango: string) {
+  const mergeCells = Array.from(worksheet.children).find((el) => el.localName === 'mergeCells');
+  if (!mergeCells) return;
+  const objetivo = parseRango(rango);
+  for (const existente of Array.from(mergeCells.children)) {
+    const ref = existente.getAttribute('ref');
+    if (ref && seSuperponen(objetivo, parseRango(ref))) mergeCells.removeChild(existente);
+  }
+  mergeCells.setAttribute('count', String(mergeCells.children.length));
+}
+
 function agregarMerge(doc: Document, worksheet: Element, sheetData: Element, rango: string) {
   const mergeCells = ensureMergeCells(doc, worksheet, sheetData);
   const nuevoRango = parseRango(rango);
@@ -344,6 +373,12 @@ export async function aplicarEdicionesXlsx(dataUrl: string, ediciones: LibroEdit
     const crecimientosOrdenados = [...edits.crecimientos].sort((a, b) => b.despuesDeFila - a.despuesDeFila);
     for (const crecimiento of crecimientosOrdenados) {
       insertarFilasEnHoja(worksheet, sheetData, crecimiento);
+    }
+
+    // Romper fusiones ANTES de escribir: una celda partida escribe en columnas que la plantilla
+    // traía fusionadas, y el orden inverso volvería a taparlas.
+    for (const rango of edits.desfusiones) {
+      quitarMerge(worksheet, rango);
     }
 
     for (const { columna, fila, valor, formula } of edits.celdas) {

@@ -1,8 +1,8 @@
-import { parseDynamicRows, parseGroupedRows, parseTree, getPeriodos, esJerarquica, type FilaDinamica } from './tableRowHelpers';
+import { parseDynamicRows, parseGroupedRows, parseTree, getPeriodos, esJerarquica, esCeldaPartida, type FilaDinamica, type ValorCelda } from './tableRowHelpers';
 import { LibroEdits, aplicarEdicionesXlsx } from './xlsxXmlPatcher';
 import { crearResolver, esFormula, evaluarFormula, traducirFormulaAExcel, type ResolucionToken, type ResolucionCelda } from './formula';
 import { booleanoATexto, type EtiquetasBooleano } from './conversionesExcel';
-import type { Plantilla, Campo, ConfigTabla, TipoCampo } from '@/types';
+import type { Plantilla, Campo, ColumnaTabla, ConfigTabla, TipoCampo } from '@/types';
 
 // --- Aritmética de columnas Excel (A, B, ..., Z, AA, AB, ...) ---
 
@@ -89,10 +89,51 @@ function anchoFisicoPrimerasColumnas(config: ConfigTabla, n: number, periodos: s
   return total;
 }
 
+// Escribe una columna con subcolumnas (4.8). La FORMA del valor manda, igual que al leer:
+//  - objeto con alguna parte con dato  -> celda PARTIDA: se rompe la fusión J:K de esa fila y cada
+//    parte va a su propia columna de Excel.
+//  - texto plano                        -> celda FUSIONADA: se escribe en la columna padre con su
+//    ancho completo, y las columnas de las otras partes se vacían para no dejar restos ocultos
+//    debajo de la fusión (que al releer se interpretarían como una celda partida).
+// Si el objeto no tiene ninguna parte con dato, no se toca nada: rige la regla de celda vacía.
+function writeCeldaPartida(
+  ediciones: LibroEdits,
+  hoja: string | undefined,
+  col: ColumnaTabla,
+  valor: ValorCelda | undefined,
+  row: number,
+) {
+  const subs = col.subcolumnas!;
+  const rangoPadre = col.columnaExcel
+    ? `${col.columnaExcel}${row}:${addCols(col.columnaExcel, (col.abarcaColumnasExcel ?? subs.length) - 1)}${row}`
+    : undefined;
+
+  if (esCeldaPartida(valor)) {
+    if (!subs.some((s) => (valor[s.id] ?? '') !== '')) return;
+    if (hoja && rangoPadre) ediciones.desfusionar(hoja, rangoPadre);
+    for (const sub of subs) {
+      const v = valor[sub.id] ?? '';
+      if (v === '') continue;
+      writeCellSpan(ediciones, hoja, sub.columnaExcel, row, v, sub.abarcaColumnasExcel ?? 1);
+    }
+    return;
+  }
+
+  if (typeof valor !== 'string' || valor === '') return;
+  for (const sub of subs.slice(1)) {
+    if (hoja && sub.columnaExcel) ediciones.escribirCelda(hoja, sub.columnaExcel, row, '');
+  }
+  writeCellSpan(ediciones, hoja, col.columnaExcel, row, valor, col.abarcaColumnasExcel ?? subs.length);
+}
+
 // Celdas sin dato (vacías) se omiten por completo — no se escribe ni se fusiona nada sobre ellas,
 // así el contenido que ya tuviera esa celda en el Excel original queda intacto.
 function writeFilaColumnas(ediciones: LibroEdits, hoja: string | undefined, config: ConfigTabla, fila: FilaDinamica, row: number, periodos: string[]) {
   for (const col of config.columnas) {
+    if (col.subcolumnas?.length) {
+      writeCeldaPartida(ediciones, hoja, col, fila[col.id], row);
+      continue;
+    }
     if (!col.columnaExcel) continue;
     if (col.id === config.columnaDinamicaId) {
       const arr = Array.isArray(fila[col.id]) ? (fila[col.id] as string[]) : [];
