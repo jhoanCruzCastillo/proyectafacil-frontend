@@ -6,6 +6,7 @@ import { campoFaltaCaptura } from '@/lib/campoValidation';
 import { mejorarTexto } from '@/lib/mejoraTexto';
 import ExampleTableEditor from './ExampleTableEditor.vue';
 import CampoCoordenadasInput from '@/components/CampoCoordenadasInput.vue';
+import CampoImagenInput from '@/components/CampoImagenInput.vue';
 import type { Campo, ConfigTabla } from '@/types';
 
 const props = defineProps<{
@@ -42,6 +43,8 @@ const typeLabel = computed(() => fieldTypeLabels[props.campo.tipo]);
 const displayValue = computed(() => props.exampleValue ?? props.campo.valorEjemplo);
 const isTableField = computed(() => props.campo.tipo === 'tabla' || props.campo.tipo === 'tabla_jerarquica');
 const isCoordField = computed(() => props.campo.tipo === 'mapa_coordenadas');
+// Campo tipo imagen: el valor es una URL, pero se edita con vista previa y carga de archivo.
+const isImagenField = computed(() => props.campo.tipo === 'imagen');
 const faltaCaptura = computed(() => campoFaltaCaptura(props.campo));
 const esCampoTexto = computed(() => props.campo.tipo === 'texto_corto' || props.campo.tipo === 'texto_largo');
 const esTextoLargo = computed(() => props.campo.tipo === 'texto_largo');
@@ -147,6 +150,9 @@ function handleClick() {
           <div v-if="isCoordField" class="mt-1.5">
             <CampoCoordenadasInput :value="campo.valorEjemplo || ''" @change="emit('update-default-value', $event)" />
           </div>
+          <div v-else-if="isImagenField" class="mt-1.5">
+            <CampoImagenInput :value="campo.valorEjemplo || ''" @change="emit('update-default-value', $event)" />
+          </div>
           <ExampleTableEditor
             v-else-if="isTableField && campo.configTabla"
             :config="(campo.configTabla as ConfigTabla)"
@@ -195,6 +201,9 @@ function handleClick() {
           <div v-else-if="isCoordField" class="mt-1.5">
             <CampoCoordenadasInput :value="displayValue || ''" :editable="editableExample" @change="emit('update-example-value', $event)" />
           </div>
+          <div v-else-if="isImagenField" class="mt-1.5">
+            <CampoImagenInput :value="displayValue || ''" :editable="editableExample" @change="emit('update-example-value', $event)" />
+          </div>
           <ExampleTableEditor
             v-else-if="isTableField && campo.configTabla"
             :config="(campo.configTabla as ConfigTabla)"
@@ -225,7 +234,7 @@ function handleClick() {
               {{ error }}
             </p>
           </template>
-          <div v-if="referenciaValor && referenciaValor.trim() && !isTableField && !isCoordField" class="mt-2 flex items-start gap-2 p-2 rounded-lg bg-blue-50 border border-blue-100">
+          <div v-if="referenciaValor && referenciaValor.trim() && !isTableField && !isCoordField && !isImagenField" class="mt-2 flex items-start gap-2 p-2 rounded-lg bg-blue-50 border border-blue-100">
             <FontAwesomeIcon :icon="faLightbulb" class="w-3 h-3 text-blue-400 mt-0.5 shrink-0" />
             <div class="flex-1 min-w-0">
               <p class="text-[10px] font-bold uppercase tracking-wider text-blue-500">Ejemplo de referencia</p>

@@ -55,6 +55,25 @@ export interface ColumnaTabla {
   /** Lista fija de opciones (ej. validación de datos por lista en Excel) — cuando está presente,
    * la celda se edita con un <select> en vez de texto libre. No requiere un catálogo externo. */
   opciones?: string[];
+  /** Cómo se ve un valor booleano en el Excel oficial, por columna (ver Campo.etiquetasBooleano) */
+  etiquetasBooleano?: { true: string; false: string };
+  /** Cantidad de decimales con que se muestra/escribe el valor numérico de esta columna */
+  decimales?: number;
+  /** Celdas partidas (convención 4.8): el ancho de esta columna guarda dos o más datos en celdas
+   * separadas de Excel. La partición se declara acá, una sola vez; qué filas van partidas y cuáles
+   * fusionadas lo decide la forma del valor de cada fila (objeto = partida, plano = fusionada). */
+  subcolumnas?: SubcolumnaTabla[];
+}
+
+/** Una parte de una columna partida — misma forma que ColumnaTabla pero sin anidamiento propio. */
+export interface SubcolumnaTabla {
+  id: string;
+  nombre: string;
+  tipo: TipoColumna;
+  /** Letra de columna Excel donde inicia esta parte */
+  columnaExcel?: string;
+  /** Cantidad de columnas Excel que abarca esta parte */
+  abarcaColumnasExcel?: number;
 }
 
 export interface CapturaTabla {
@@ -83,6 +102,11 @@ export interface ConfigTabla {
   agrupador?: boolean;
   /** Cantidad de columnas que abarca (fusiona) la fila de título de cada grupo, contando desde la primera columna (solo si agrupador=true; por defecto, todas las columnas) */
   agrupadorAbarcaColumnas?: number;
+  /** Solo tablas JERÁRQUICAS con agrupador: nivel del árbol (índice de columna) donde viven las
+   * filas de título de grupo. La fila abarca desde esa columna hasta la última. Se elige con el
+   * botón "Agregar grupo" del panel central, debajo de la columna correspondiente. Si no está
+   * definido, se deduce de los flags Padre/Hijo (comportamiento anterior). */
+  agrupadorNivel?: number;
   /** Id de la columna cuyo valor se repite por período (solo subtipo matriz_por_periodos) */
   columnaDinamicaId?: string;
   /** Encabezados que agrupan columnas existentes bajo un título común (equivalente a "cabecera" del esquema oficial) */
@@ -192,6 +216,8 @@ export interface Campo {
    * Lo declara la plantilla porque cada formato usa sus propias palabras ("Sí"/"No", "X"/""), y
    * tanto el volcado desde Excel como la inserción hacia Excel deben respetarlas. */
   etiquetasBooleano?: { true: string; false: string };
+  /** Cantidad de decimales con que se muestra/escribe el valor numérico de este campo */
+  decimales?: number;
 }
 
 export interface Ejemplo {

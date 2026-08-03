@@ -4,7 +4,7 @@ import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faPlus, faTrash } from '@/lib/icons';
 import TableHeaderRow from './TableHeaderRow.vue';
 import TableRow from './TableRow.vue';
-import { parseGroupedRows, newEmptyRow, getPeriodos, type GrupoFilas } from '@/lib/tableRowHelpers';
+import { parseGroupedRows, newEmptyRow, getPeriodos, esCeldaPartida, valorPlano, type GrupoFilas } from '@/lib/tableRowHelpers';
 import type { ConfigTabla, ColumnaTabla } from '@/types';
 
 // Filas planas agrupadas bajo un encabezado de grupo (config.agrupador === true). Una sola tabla:
@@ -44,6 +44,34 @@ function updateValorGrupoPeriodo(gi: number, colId: string, pi: number, val: str
 }
 function updateCell(gi: number, ri: number, colId: string, val: string) {
   persist(grupos.value.map((g, i) => (i !== gi ? g : { ...g, filas: g.filas.map((r, j) => (j === ri ? { ...r, [colId]: val } : r)) })));
+}
+
+// --- Celdas partidas (4.8) — misma lógica que DynamicEditor, aplicada dentro del grupo ---
+function updateSubcelda(gi: number, ri: number, colId: string, subId: string, val: string) {
+  persist(grupos.value.map((g, i) => (i !== gi ? g : {
+    ...g,
+    filas: g.filas.map((r, j) => {
+      if (j !== ri) return r;
+      const actual = esCeldaPartida(r[colId]) ? (r[colId] as Record<string, string>) : {};
+      return { ...r, [colId]: { ...actual, [subId]: val } };
+    }),
+  })));
+}
+
+function togglePartida(gi: number, ri: number, colId: string) {
+  const col = props.config.columnas.find((c) => c.id === colId);
+  if (!col?.subcolumnas?.length) return;
+  persist(grupos.value.map((g, i) => (i !== gi ? g : {
+    ...g,
+    filas: g.filas.map((r, j) => {
+      if (j !== ri) return r;
+      if (esCeldaPartida(r[colId])) return { ...r, [colId]: valorPlano(r[colId]) };
+      const texto = valorPlano(r[colId]);
+      const partes: Record<string, string> = {};
+      col.subcolumnas!.forEach((s, si) => { partes[s.id] = si === 0 ? texto : ''; });
+      return { ...r, [colId]: partes };
+    }),
+  })));
 }
 function updatePeriodo(gi: number, ri: number, colId: string, pi: number, val: string) {
   persist(grupos.value.map((g, i) => {
@@ -94,6 +122,13 @@ function columnasResto(cols: ColumnaTabla[], abarcaN: number, dinamicaId: string
   return cols.slice(i);
 }
 const restColumnas = computed(() => columnasResto(props.config.columnas, abarca.value, props.config.columnaDinamicaId, periodos.value.length));
+
+// ¿Este bloque dibuja fila de título? Mismo criterio que el escritor de Excel: un bloque sin nombre
+// y sin valores propios no es un grupo, son filas sueltas antes del primer grupo real — y no ocupa
+// ninguna fila en el Excel. Dibujarle un título aquí mostraba una fila que no existe en el archivo.
+function tieneFilaTitulo(g: GrupoFilas): boolean {
+  return g.grupo !== '' || Boolean(g.valoresGrupo && Object.values(g.valoresGrupo).some((v) => v !== '' && v != null));
+}
 </script>
 
 <template>
@@ -114,7 +149,7 @@ const restColumnas = computed(() => columnasResto(props.config.columnas, abarca.
         </thead>
         <tbody>
           <template v-for="(grupo, gi) in grupos" :key="gi">
-            <tr class="bg-brand-50/60 border-t-2 border-brand-200">
+            <tr v-if="tieneFilaTitulo(grupo)" class="bg-brand-50/60 border-t-2 border-brand-200">
               <td :colspan="abarca" class="px-2 py-1.5">
                 <div class="flex items-center gap-2">
                   <input
@@ -167,6 +202,8 @@ const restColumnas = computed(() => columnasResto(props.config.columnas, abarca.
               :columna-dinamica-id="config.columnaDinamicaId"
               @cell-change="(colId, val) => updateCell(gi, ri, colId, val)"
               @periodo-change="(colId, pi, val) => updatePeriodo(gi, ri, colId, pi, val)"
+              @subcelda-change="(colId, subId, val) => updateSubcelda(gi, ri, colId, subId, val)"
+              @toggle-partida="(colId) => togglePartida(gi, ri, colId)"
               @delete="removeRow(gi, ri)"
             />
             <tr>

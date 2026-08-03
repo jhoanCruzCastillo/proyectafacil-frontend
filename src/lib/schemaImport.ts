@@ -1,6 +1,7 @@
 import { generateId } from '@/api/mock/_shared';
+import { columnaParaProfundidad } from './tableRowHelpers';
 import type { FilaDinamica, GrupoFilas, TreeNode } from './tableRowHelpers';
-import type { CabeceraGrupo, Campo, CapturaCampo, ColumnaTabla, ConfigTabla, Seccion, Subseccion, SubtipoTabla, TipoCampo, TipoColumna } from '../types';
+import type { CabeceraGrupo, Campo, CapturaCampo, ColumnaTabla, ConfigTabla, Seccion, Subseccion, SubcolumnaTabla, SubtipoTabla, TipoCampo, TipoColumna } from '../types';
 
 const ID_COLUMNA_DINAMICA = 'columnas_dinamicas';
 
@@ -60,6 +61,27 @@ function parseCapturaCampo(raw: unknown): CapturaCampo | undefined {
 
 // --- Columnas de tabla ---
 
+function subcolumnasFromDoc(rawSubs: unknown, rawCapturaSubs: unknown): SubcolumnaTabla[] | undefined {
+  if (!Array.isArray(rawSubs) || rawSubs.length === 0) return undefined;
+  const capturaSubs = Array.isArray(rawCapturaSubs) ? rawCapturaSubs : [];
+
+  const subs = rawSubs.map((rs) => {
+    const raw = rs as Record<string, unknown>;
+    const id = String(raw.id ?? '');
+    const capturaSub = capturaSubs.find((c) => (c as Record<string, unknown>).id === id) as Record<string, unknown> | undefined;
+    return {
+      id: id || generateId(),
+      nombre: String(raw.nombre ?? ''),
+      tipo: mapTipoColumnaReverse(raw.tipo),
+      columnaExcel: typeof capturaSub?.columna === 'string' && capturaSub.columna ? capturaSub.columna : undefined,
+      abarcaColumnasExcel: typeof capturaSub?.abarca_columnas === 'number' ? capturaSub.abarca_columnas : undefined,
+    } satisfies SubcolumnaTabla;
+  });
+
+  // Una sola parte no es una partición — se ignora y la columna queda como celda única.
+  return subs.length > 1 ? subs : undefined;
+}
+
 function buildColumnas(rawCols: unknown, rawCapturaCols: unknown, esJerarquica: boolean): { columnas: ColumnaTabla[]; columnaDinamicaId?: string } {
   const cols = Array.isArray(rawCols) ? rawCols : [];
   const capturaCols = Array.isArray(rawCapturaCols) ? rawCapturaCols : [];
@@ -81,6 +103,19 @@ function buildColumnas(rawCols: unknown, rawCapturaCols: unknown, esJerarquica: 
     };
     if (esJerarquica) col.nivel = raw.combina_vertical ? 'padre' : 'hijo';
     if (Array.isArray(raw.opciones) && raw.opciones.length > 0) col.opciones = raw.opciones.map(String);
+    if (typeof raw.formula === 'string' && raw.formula) col.formula = raw.formula;
+    if (typeof raw.decimales === 'number') col.decimales = raw.decimales;
+
+    // `etiquetas` a nivel de columna/nivel: mismo desdoblamiento que en los campos sueltos — array
+    // = lista fija de opciones, objeto {true,false} = cómo se escribe un booleano en el Excel.
+    const et = parseEtiquetas(raw.etiquetas);
+    if (et.opciones) col.opciones = et.opciones;
+    if (et.etiquetasBooleano) col.etiquetasBooleano = et.etiquetasBooleano;
+
+    // Celdas partidas (convención 4.8): la definición lógica vive en `columnas[].subcolumnas` y la
+    // posición física en `captura.columnas[].subcolumnas` — se cruzan por id, igual que las columnas.
+    const subs = subcolumnasFromDoc(raw.subcolumnas, capturaCol?.subcolumnas);
+    if (subs) col.subcolumnas = subs;
     return col;
   });
 
@@ -117,6 +152,14 @@ function rowFromDoc(rawRow: Record<string, unknown>, columnaDinamicaId?: string)
   for (const [key, val] of Object.entries(rawRow)) {
     if (key === ID_COLUMNA_DINAMICA && columnaDinamicaId) {
       fila[columnaDinamicaId] = Array.isArray(val) ? val.map((v) => String(v)) : [];
+    } else if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
+      // Celda partida (4.8): objeto {subId: valor}. Se conserva como objeto — aplanarlo con
+      // String() lo convertiría en "[object Object]" y perdería ambas partes.
+      const partes: Record<string, string> = {};
+      for (const [subId, subVal] of Object.entries(val as Record<string, unknown>)) {
+        partes[subId] = subVal == null ? '' : String(subVal);
+      }
+      fila[key] = partes;
     } else {
       fila[key] = val == null ? '' : String(val);
     }
@@ -130,7 +173,11 @@ function gruposFromDoc(rawGrupos: unknown[], columnaDinamicaId?: string): GrupoF
     const agrupador = raw.agrupador as Record<string, unknown> | undefined;
     const valores = Array.isArray(raw.valores) ? raw.valores : [];
     const valoresGrupoRaw = agrupador?.valores as Record<string, unknown> | undefined;
-    const tieneValoresPropios = valoresGrupoRaw && Object.keys(valoresGrupoRaw).length > 0;
+    // Un objeto de celdas todas vacías NO son "valores propios del grupo": es el molde de la
+    // estructura. Distinguirlo importa porque un bloque sin título ni valores propios no ocupa
+    // ninguna fila del Excel (ver writeCampoTabla).
+    const tieneValoresPropios = valoresGrupoRaw
+      && Object.values(valoresGrupoRaw).some((v) => v !== '' && v != null && !(Array.isArray(v) && v.every((x) => x === '')));
     return {
       grupo: typeof agrupador?.nombre === 'string' ? agrupador.nombre : '',
       filas: valores.map((r) => rowFromDoc(r as Record<string, unknown>, columnaDinamicaId)),
@@ -141,7 +188,7 @@ function gruposFromDoc(rawGrupos: unknown[], columnaDinamicaId?: string): GrupoF
 
 function nodeFromDoc(rawNode: unknown, depth: number, config: ConfigTabla): TreeNode {
   const raw = rawNode as Record<string, unknown>;
-  const col = config.columnas[depth];
+  const col = config.columnas[columnaParaProfundidad(config, depth)];
   const esDinamico = Boolean(col && col.id === config.columnaDinamicaId);
   const rawKey = esDinamico ? ID_COLUMNA_DINAMICA : col?.id;
   const rawValue = rawKey ? raw[rawKey] : undefined;
@@ -149,7 +196,20 @@ function nodeFromDoc(rawNode: unknown, depth: number, config: ConfigTabla): Tree
   const value: string | string[] = esDinamico
     ? (Array.isArray(rawValue) ? rawValue.map((v) => String(v)) : [])
     : (rawValue == null ? '' : String(rawValue));
-  return { value, children: hijos };
+
+  // Claves hermanas que corresponden a OTRAS columnas: son los valores propios de una fila de título
+  // de grupo (4.5c) en las columnas libres a su derecha. Cualquier otra clave (`hijos`, o basura) se
+  // ignora.
+  const valores: FilaDinamica = {};
+  for (const otra of config.columnas) {
+    if (otra.id === col?.id) continue;
+    const clave = otra.id === config.columnaDinamicaId ? ID_COLUMNA_DINAMICA : otra.id;
+    const bruto = raw[clave];
+    if (bruto == null) continue;
+    valores[otra.id] = Array.isArray(bruto) ? bruto.map((v) => String(v)) : String(bruto);
+  }
+
+  return { value, children: hijos, ...(Object.keys(valores).length > 0 ? { valores } : {}) };
 }
 
 function valorEjemploTabla(config: ConfigTabla, rawValor: unknown): string {
@@ -196,6 +256,7 @@ function campoFromDoc(rawCampo: unknown): Campo {
       columnas,
       agrupador: Boolean(rawConfig.agrupador),
       agrupadorAbarcaColumnas: typeof rawConfig.agrupador_abarca_columnas === 'number' ? rawConfig.agrupador_abarca_columnas : undefined,
+      agrupadorNivel: typeof rawConfig.agrupador_nivel === 'number' ? rawConfig.agrupador_nivel : undefined,
       columnaDinamicaId,
       periodos,
       cabeceras: cabecerasFromDoc(raw.cabecera, columnaDinamicaId),
@@ -221,6 +282,7 @@ function campoFromDoc(rawCampo: unknown): Campo {
   const { opciones, etiquetasBooleano } = parseEtiquetas(raw.etiquetas);
   if (opciones) campo.opciones = opciones;
   if (etiquetasBooleano) campo.etiquetasBooleano = etiquetasBooleano;
+  if (typeof raw.decimales === 'number') campo.decimales = raw.decimales;
 
   return campo;
 }

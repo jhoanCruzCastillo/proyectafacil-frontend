@@ -7,7 +7,7 @@ import FilasDinamicasColumnsEditor from './FilasDinamicasColumnsEditor.vue';
 import MatrizPeriodosEditor from './MatrizPeriodosEditor.vue';
 import JerarquicaColumnsEditor from './JerarquicaColumnsEditor.vue';
 import AgrupadorConfigModal from './AgrupadorConfigModal.vue';
-import { esJerarquica } from '@/lib/tableRowHelpers';
+import { esJerarquica, agrupadorProfundidad } from '@/lib/tableRowHelpers';
 import type { ConfigTabla, SubtipoTabla } from '@/types';
 
 const props = defineProps<{ config: ConfigTabla }>();
@@ -27,6 +27,14 @@ const config = computed({
 function updateCaptura(patch: Partial<NonNullable<ConfigTabla['captura']>>) {
   emit('update', { ...props.config, captura: { ...props.config.captura, ...patch } });
 }
+
+// En una tabla plana el título de grupo arranca en la primera columna, así que puede abarcar las
+// N cabeceras de la tabla. En una jerárquica arranca en la columna del agrupador, y solo quedan a
+// su derecha las que van de ahí al final — ese es el máximo configurable.
+const columnaInicioGrupo = computed(() =>
+  esJerarquica(props.config.subtipo) ? agrupadorProfundidad(props.config.columnas, props.config) : 0,
+);
+const cabecerasDisponibles = computed(() => Math.max(props.config.columnas.length - columnaInicioGrupo.value, 1));
 </script>
 
 <template>
@@ -82,7 +90,7 @@ function updateCaptura(patch: Partial<NonNullable<ConfigTabla['captura']>>) {
       <label class="text-xs font-medium text-heading">Agrupar filas bajo encabezados</label>
       <div class="flex items-center gap-2">
         <button
-          v-if="config.agrupador && !esJerarquica(config.subtipo)"
+          v-if="config.agrupador"
           @click="showAgrupadorConfig = true"
           type="button"
           title="Configurar fila de título de grupo"
@@ -136,8 +144,9 @@ function updateCaptura(patch: Partial<NonNullable<ConfigTabla['captura']>>) {
 
     <AgrupadorConfigModal
       :is-open="showAgrupadorConfig"
-      :abarca-columnas="config.agrupadorAbarcaColumnas ?? config.columnas.length"
-      :total-columnas="config.columnas.length"
+      :abarca-columnas="Math.min(config.agrupadorAbarcaColumnas ?? cabecerasDisponibles, cabecerasDisponibles)"
+      :total-columnas="cabecerasDisponibles"
+      :desde-columna="esJerarquica(config.subtipo) ? config.columnas[columnaInicioGrupo]?.nombre : undefined"
       @close="showAgrupadorConfig = false"
       @change="(v) => emit('update', { ...config, agrupadorAbarcaColumnas: v })"
     />

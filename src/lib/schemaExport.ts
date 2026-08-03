@@ -1,4 +1,4 @@
-import { parseDynamicRows, parseGroupedRows, parseTree, getPeriodos, esJerarquica, type FilaDinamica, type TreeNode } from './tableRowHelpers';
+import { parseDynamicRows, parseGroupedRows, parseTree, getPeriodos, esJerarquica, esCeldaPartida, columnaParaProfundidad, type FilaDinamica, type TreeNode, type ValorCelda } from './tableRowHelpers';
 import type { Campo, ColumnaTabla, ConfigTabla, Ejemplo, Plantilla, Seccion, TipoCampo, TipoColumna } from '@/types';
 
 export type TipoVersionDocumento = 'estructura' | 'ejemplo';
@@ -17,6 +17,8 @@ const tipoCampoMap: Partial<Record<TipoCampo, string>> = {
   booleano: 'booleano',
   mapa_coordenadas: 'coordenadas',
   calculado: 'calculado',
+  imagen: 'imagen',
+  firma: 'firma',
 };
 
 function mapTipoCampo(tipo: TipoCampo): string {
@@ -40,18 +42,23 @@ function mapTipoColumna(tipo: TipoColumna): string {
   return tipoColumnaMap[tipo] ?? 'texto_corto';
 }
 
+// "Sin dato" se escribe SIEMPRE como cadena vacía, nunca como null — es la forma que usan los
+// documentos de entrada y la que espera el importador, así que exportar null rompería el ciclo.
+// Aplica también al booleano: un campo sin responder NO es `false`. Emitir `false` inventaría un
+// "No" que nadie eligió, y es además lo que ya hace el escritor de Excel (ver su propio
+// coerceValor, que corta en vacío antes de traducir el booleano a las etiquetas de la plantilla).
 function coerceValor(tipo: TipoCampo, raw: string | undefined): unknown {
-  if (raw == null || raw === '') return tipo === 'booleano' ? false : tipo === 'numero' || tipo === 'decimal' ? null : '';
+  if (raw == null || raw === '') return '';
   switch (tipo) {
     case 'numero':
     case 'decimal': {
       const n = Number(raw);
-      return Number.isNaN(n) ? null : n;
+      return Number.isNaN(n) ? raw : n; // texto no numérico se conserva tal cual, no se descarta
     }
     case 'booleano':
       return raw === 'true';
     case 'mapa_coordenadas':
-      try { return JSON.parse(raw); } catch { return null; }
+      try { return JSON.parse(raw); } catch { return raw; }
     default:
       return raw;
   }
@@ -59,9 +66,10 @@ function coerceValor(tipo: TipoCampo, raw: string | undefined): unknown {
 
 // --- Captura ---
 
-function capturaCampo(seccion: Seccion, campo: Campo) {
+// `hoja` NO se escribe acá, por la misma razón que en capturaTabla: la convención la declara
+// únicamente en el nodo `seccion` y todo lo que cuelga de ella la hereda.
+function capturaCampo(campo: Campo) {
   return {
-    hoja: seccion.hoja ?? '',
     columna: campo.captura?.columna ?? '',
     fila: campo.captura?.fila ?? 0,
     abarca_columnas: campo.captura?.abarcaColumnas ?? 1,
@@ -73,11 +81,15 @@ function idColumna(col: ColumnaTabla, config: ConfigTabla): string {
   return col.id === config.columnaDinamicaId ? ID_COLUMNA_DINAMICA : col.id;
 }
 
-function capturaTabla(seccion: Seccion, config: ConfigTabla) {
+// `hoja` NO se escribe acá: la convención declara la hoja únicamente en el nodo `seccion` y todo
+// lo que cuelga de ella la hereda (ver punto 1 de la documentación). Repetirla dentro de `captura`
+// abría la puerta a que ambas se desincronizaran.
+function capturaTabla(_seccion: Seccion, config: ConfigTabla) {
   const periodos = getPeriodos(config);
   return {
-    hoja: seccion.hoja ?? '',
-    columna_inicial: config.captura?.columnaInicial ?? '',
+    // `columna_inicial` solo aplica a tablas con agrupador (marca dónde arranca la fila de título);
+    // emitirla vacía en el resto era ruido que ensuciaba cualquier diff del documento.
+    ...(config.captura?.columnaInicial ? { columna_inicial: config.captura.columnaInicial } : {}),
     fila_inicial: config.captura?.filaInicial ?? 0,
     filas_base: config.captura?.filasBase ?? 0,
     columnas: config.columnas.map((col) => ({
@@ -85,6 +97,15 @@ function capturaTabla(seccion: Seccion, config: ConfigTabla) {
       columna: col.columnaExcel ?? '',
       abarca_columnas: col.abarcaColumnasExcel ?? 1,
       ...(col.id === config.columnaDinamicaId ? { columnas_base: periodos } : {}),
+      ...(col.subcolumnas?.length
+        ? {
+            subcolumnas: col.subcolumnas.map((s) => ({
+              id: s.id,
+              columna: s.columnaExcel ?? '',
+              abarca_columnas: s.abarcaColumnasExcel ?? 1,
+            })),
+          }
+        : {}),
     })),
   };
 }
@@ -92,35 +113,68 @@ function capturaTabla(seccion: Seccion, config: ConfigTabla) {
 // --- Columnas / niveles lógicos ---
 
 function columnasLogicas(config: ConfigTabla) {
-  return config.columnas.map((col) => ({
-    id: idColumna(col, config),
-    nombre: col.nombre,
-    tipo: mapTipoColumna(col.tipo),
-    ...(esJerarquica(config.subtipo) && col.nivel === 'padre' ? { combina_vertical: true } : {}),
-  }));
+  return config.columnas.map((col) => {
+    // `etiquetas` vuelve en la misma forma en que se leyó (ver parseEtiquetas): objeto {true,false}
+    // para un booleano, array para la lista de opciones.
+    const etiquetas = col.etiquetasBooleano ?? (col.opciones?.length ? col.opciones : undefined);
+    return {
+      id: idColumna(col, config),
+      nombre: col.nombre,
+      tipo: mapTipoColumna(col.tipo),
+      ...(esJerarquica(config.subtipo) && col.nivel === 'padre' ? { combina_vertical: true } : {}),
+      ...(etiquetas ? { etiquetas } : {}),
+      ...(col.formula ? { formula: col.formula } : {}),
+      ...(col.decimales != null ? { decimales: col.decimales } : {}),
+      ...(col.subcolumnas?.length
+        ? { subcolumnas: col.subcolumnas.map((s) => ({ id: s.id, nombre: s.nombre, tipo: mapTipoColumna(s.tipo) })) }
+        : {}),
+    };
+  });
 }
 
 // --- Valor de tabla ---
 
-function coerceCelda(config: ConfigTabla, colId: string, raw: string | string[] | undefined): unknown {
-  if (colId === config.columnaDinamicaId) {
+// Una celda partida (4.8) se exporta como objeto {subId: valor} y una fusionada como valor plano —
+// esa diferencia de forma ES la señal que distingue ambos casos en el documento (ver punto 4.8).
+function coerceCelda(config: ConfigTabla, col: ColumnaTabla, raw: ValorCelda | undefined): unknown {
+  if (col.id === config.columnaDinamicaId) {
     return Array.isArray(raw) ? raw : [];
   }
-  return typeof raw === 'string' ? raw : '';
+  if (col.subcolumnas?.length && esCeldaPartida(raw)) {
+    const out: Record<string, string> = {};
+    for (const sub of col.subcolumnas) out[sub.id] = raw[sub.id] ?? '';
+    return out;
+  }
+  if (typeof raw !== 'string') return '';
+  // El modelo interno guarda TODA celda como string; el documento distingue tipos, así que una
+  // columna numérica vuelve como número (igual que coerceValor hace con los campos sueltos).
+  if ((col.tipo === 'numero' || col.tipo === 'decimal' || col.tipo === 'auto_numerico') && raw !== '') {
+    const n = Number(raw);
+    if (!Number.isNaN(n)) return n;
+  }
+  if (col.tipo === 'booleano' && (raw === 'true' || raw === 'false')) return raw === 'true';
+  return raw;
 }
 
 function mapFila(config: ConfigTabla, fila: FilaDinamica): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const col of config.columnas) {
-    out[idColumna(col, config)] = coerceCelda(config, col.id, fila[col.id]);
+    out[idColumna(col, config)] = coerceCelda(config, col, fila[col.id]);
   }
   return out;
 }
 
 function mapTreeNode(node: TreeNode, depth: number, config: ConfigTabla): Record<string, unknown> {
-  const col = config.columnas[depth];
+  const col = config.columnas[columnaParaProfundidad(config, depth)];
   const key = col ? idColumna(col, config) : `nivel_${depth}`;
   const out: Record<string, unknown> = { [key]: node.value };
+  // Fila de título de grupo (4.5c) con valores propios en las columnas libres a su derecha: se
+  // emiten como claves hermanas del título, igual que las de una fila normal.
+  for (const [colId, valor] of Object.entries(node.valores ?? {})) {
+    if (colId === key || valor === '' || valor == null) continue;
+    const colValor = config.columnas.find((c) => c.id === colId);
+    out[colValor ? idColumna(colValor, config) : colId] = colValor ? coerceCelda(config, colValor, valor) : valor;
+  }
   if (node.children.length > 0) {
     out.hijos = node.children.map((child) => mapTreeNode(child, depth + 1, config));
   }
@@ -167,6 +221,7 @@ function buildCampo(seccion: Seccion, campo: Campo, valorRaw: string | undefined
         columnas: config.columnaDinamicaId ? 'dinamicas' : 'fijas',
         agrupador: Boolean(config.agrupador),
         ...(config.agrupadorAbarcaColumnas != null ? { agrupador_abarca_columnas: config.agrupadorAbarcaColumnas } : {}),
+        ...(config.agrupadorNivel != null ? { agrupador_nivel: config.agrupadorNivel } : {}),
       },
       captura: capturaTabla(seccion, config),
       cabecera: (config.cabeceras ?? []).map((g) => ({ titulo: g.titulo, hijos: g.hijoIds })),
@@ -186,7 +241,8 @@ function buildCampo(seccion: Seccion, campo: Campo, valorRaw: string | undefined
     tipo: mapTipoCampo(campo.tipo),
     editable: campo.editable,
     ...(etiquetas ? { etiquetas } : {}),
-    captura: capturaCampo(seccion, campo),
+    ...(campo.decimales != null ? { decimales: campo.decimales } : {}),
+    captura: capturaCampo(campo),
     valor: coerceValor(campo.tipo, valorRaw),
   };
 }
@@ -218,9 +274,7 @@ export interface DocumentoJSON {
   formato: {
     codigo: string;
     nombre: string;
-    fuente_archivo: string;
     tipo_version: TipoVersionDocumento;
-    nota_secciones: string;
   };
   secciones: Record<string, unknown>[];
 }
@@ -231,9 +285,7 @@ export function buildDocumento(plantilla: Plantilla, tipoVersion: TipoVersionDoc
     formato: {
       codigo: plantilla.codigo,
       nombre: plantilla.nombre,
-      fuente_archivo: '',
       tipo_version: tipoVersion,
-      nota_secciones: '',
     },
     secciones: plantilla.secciones.map((seccion) => buildSeccion(seccion, tipoVersion === 'ejemplo' ? ejemplo : undefined)),
   };

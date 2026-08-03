@@ -36,6 +36,13 @@ const navItems = computed(() => {
       { to: '/', label: 'Inicio', icon: faHouse },
       { to: '/sectores', label: 'Sectores', icon: faLayerGroup },
     ];
+    // Catálogo por instrumento — atraviesa todos los sectores, a diferencia de "Sectores".
+    if (session.sesion?.rol === 'superusuario') {
+      items.push({ to: '/catalogo/formatos', label: 'Formatos', icon: instrumentoIcons.formato });
+      items.push({ to: '/catalogo/fichas-tecnicas', label: 'Fichas Técnicas', icon: instrumentoIcons.ficha_tecnica });
+      items.push({ to: '/catalogo/ioarr', label: 'IOARR', icon: instrumentoIcons.ioarr });
+      items.push({ to: '/catalogo/perfiles', label: 'Perfiles', icon: instrumentoIcons.perfil });
+    }
     if (session.sesion?.rol === 'administrativo_asesorias' || session.sesion?.rol === 'superusuario') {
       items.push({ to: '/asesoria/tickets', label: 'Tickets de asesoría', icon: faListCheck });
       items.push({ to: '/asesoria/cobertura-horarios', label: 'Cobertura de horarios', icon: faCalendarWeek });

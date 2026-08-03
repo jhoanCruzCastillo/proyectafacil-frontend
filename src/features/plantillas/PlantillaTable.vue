@@ -4,7 +4,7 @@ import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faEye, faPen, faFileExcel } from '@/lib/icons';
 import { instrumentoLabels, tipologiaIoarrLabels } from '@/lib/icons';
 import InstrumentoTabs from './InstrumentoTabs.vue';
-import FichasTecnicasAgrupadas from './FichasTecnicasAgrupadas.vue';
+import PlantillasAgrupadas from './PlantillasAgrupadas.vue';
 import PracticaToggle from './PracticaToggle.vue';
 import EstadoPlantillaToggle from './EstadoPlantillaToggle.vue';
 import ExcelCatalogModal from './ExcelCatalogModal.vue';
@@ -87,10 +87,11 @@ const excelPlantilla = computed(() => props.plantillas.find((p) => p.id === exce
       </button>
     </div>
 
-    <FichasTecnicasAgrupadas
+    <PlantillasAgrupadas
       v-if="vistaAgrupada && todasFichasTecnicas"
       :plantillas="todasFichasTecnicas.plantillas"
       :sectores="todasFichasTecnicas.sectores"
+      instrumento="ficha_tecnica"
     />
     <table v-else class="w-full">
       <thead>

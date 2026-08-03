@@ -2,7 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faPlus, faTrash } from '@/lib/icons';
-import { createNodeChain, parseTree, getPeriodos, agrupadorProfundidad, type TreeNode } from '@/lib/tableRowHelpers';
+import { createNodeChain, parseTree, getPeriodos, agrupadorProfundidad, esJerarquica, type TreeNode } from '@/lib/tableRowHelpers';
 import type { ConfigTabla, CabeceraGrupo, ColumnaTabla } from '@/types';
 
 // El componente de mayor riesgo de fidelidad de toda la migración (ver plan): edición de un árbol
@@ -37,45 +37,67 @@ function samePath(a: number[] | null, b: number[]): boolean {
 type FlatCell =
   | { type: 'data'; value: string | string[]; path: number[]; rowSpan: number }
   | { type: 'group-title'; value: string | string[]; path: number[]; colSpan: number }
+  // Columna libre a la derecha del título de grupo: editable, guarda en node.valores[colId]
+  | { type: 'group-extra'; path: number[]; colId: string; value: string | string[] }
   | { type: 'add'; parentPath: number[] }
   | { type: 'empty' };
 
 interface FlatRow { cells: (FlatCell | null)[]; isGroupStart?: boolean }
 
-function getNodeSpan(node: TreeNode, colIdx: number, numCols: number, selectedPath: number[] | null, path: number[], agrupadorDepth: number): number {
-  const isLeaf = node.children.length === 0 || colIdx >= numCols - 1;
-  const esNivelAgrupador = !isLeaf && colIdx === agrupadorDepth;
-  const childrenSpan = isLeaf ? 0 : node.children.reduce((s, c, ci) => s + getNodeSpan(c, colIdx + 1, numCols, selectedPath, [...path, ci], agrupadorDepth), 0);
+// Un nivel de agrupador NO consume columna: sus hijos siguen en la MISMA columna, debajo de la fila
+// de título. Así las columnas se configuran como en cualquier jerárquica y el agrupador es solo una
+// forma de dibujar un nivel — antes se comía un slot, y por eso había que declarar una columna
+// entera para él (la "Detalle (grupo)" duplicada de 3.07.01).
+function getNodeSpan(node: TreeNode, colIdx: number, numCols: number, selectedPath: number[] | null, path: number[], agrupadorDepth: number, prof = 0): number {
+  const esNivelAgrupador = prof === agrupadorDepth && node.children.length > 0;
+  const isLeaf = node.children.length === 0 || (!esNivelAgrupador && colIdx >= numCols - 1);
+  const colDeHijos = esNivelAgrupador ? colIdx : colIdx + 1;
+  const childrenSpan = isLeaf ? 0 : node.children.reduce((s, c, ci) => s + getNodeSpan(c, colDeHijos, numCols, selectedPath, [...path, ci], agrupadorDepth, prof + 1), 0);
   const baseSpan = isLeaf ? 1 : esNivelAgrupador ? 1 + childrenSpan : childrenSpan;
   const sel = samePath(selectedPath, path);
   return baseSpan + (sel && colIdx < numCols - 1 ? 1 : 0);
 }
 
-function buildFlatRows(roots: TreeNode[], numCols: number, selectedPath: number[] | null, agrupadorDepth: number): FlatRow[] {
+function buildFlatRows(roots: TreeNode[], numCols: number, selectedPath: number[] | null, agrupadorDepth: number, abarcaGrupo: number | undefined, columnas: ColumnaTabla[]): FlatRow[] {
   const rows: FlatRow[] = [];
 
-  function walkNode(node: TreeNode, colIdx: number, path: number[]) {
-    const isLeaf = node.children.length === 0 || colIdx >= numCols - 1;
+  function walkNode(node: TreeNode, colIdx: number, path: number[], prof = 0) {
+    const esNivelAgrupador = prof === agrupadorDepth && node.children.length > 0;
+    const isLeaf = node.children.length === 0 || (!esNivelAgrupador && colIdx >= numCols - 1);
     const sel = samePath(selectedPath, path);
     const addRowNeeded = sel && colIdx < numCols - 1;
 
     // Nivel de agrupador: en vez de fusionar su celda a la izquierda de la primera fila hija, esta
     // celda ocupa su propia fila de título de ancho completo (igual patrón que GroupedRowsEditor).
-    if (!isLeaf && colIdx === agrupadorDepth) {
+    // Sus hijos siguen en la MISMA columna: el título no desplaza la tabla a la derecha.
+    if (esNivelAgrupador) {
       const titleRow: FlatRow = { cells: Array(numCols).fill(null) };
-      titleRow.cells[colIdx] = { type: 'group-title', value: node.value, path, colSpan: numCols - colIdx };
+      // El título abarca las cabeceras que se hayan configurado (engranaje del agrupador), contando
+      // desde su propia columna; por defecto, hasta el final. Las que quedan LIBRES a su derecha son
+      // editables y guardan en node.valores — es la fila-resumen del grupo (ej. el total del grupo).
+      const disponibles = numCols - colIdx;
+      const abarca = Math.min(Math.max(abarcaGrupo ?? disponibles, 1), disponibles);
+      titleRow.cells[colIdx] = { type: 'group-title', value: node.value, path, colSpan: abarca };
+      for (let i = colIdx + abarca; i < numCols; i++) {
+        const colId = columnas[i]?.id ?? '';
+        // Las celdas partidas (4.8) no aplican a una fila de grupo: solo texto o valor por período.
+        const bruto = node.valores?.[colId];
+        const valor = typeof bruto === 'string' || Array.isArray(bruto) ? bruto : '';
+        titleRow.cells[i] = { type: 'group-extra', path, colId, value: valor };
+      }
       rows.push(titleRow);
-      node.children.forEach((child, ci) => walkNode(child, colIdx + 1, [...path, ci]));
+      node.children.forEach((child, ci) => walkNode(child, colIdx, [...path, ci], prof + 1));
       if (addRowNeeded) {
         const addRow: FlatRow = { cells: Array(numCols).fill(null) };
-        addRow.cells[colIdx + 1] = { type: 'add', parentPath: path };
-        for (let i = colIdx + 2; i < numCols; i++) addRow.cells[i] = { type: 'empty' };
+        addRow.cells[colIdx] = { type: 'add', parentPath: path };
+        for (let i = colIdx + 1; i < numCols; i++) addRow.cells[i] = { type: 'empty' };
         rows.push(addRow);
       }
       return;
     }
 
-    const baseSpan = isLeaf ? 1 : node.children.reduce((s, c, ci) => s + getNodeSpan(c, colIdx + 1, numCols, selectedPath, [...path, ci], agrupadorDepth), 0);
+    const colDeHijos = colIdx + 1;
+    const baseSpan = isLeaf ? 1 : node.children.reduce((s, c, ci) => s + getNodeSpan(c, colDeHijos, numCols, selectedPath, [...path, ci], agrupadorDepth, prof + 1), 0);
     const totalSpan = baseSpan + (addRowNeeded ? 1 : 0);
 
     if (isLeaf) {
@@ -85,7 +107,7 @@ function buildFlatRows(roots: TreeNode[], numCols: number, selectedPath: number[
       rows.push(row);
     } else {
       const startRow = rows.length;
-      node.children.forEach((child, ci) => walkNode(child, colIdx + 1, [...path, ci]));
+      node.children.forEach((child, ci) => walkNode(child, colDeHijos, [...path, ci], prof + 1));
       if (rows[startRow]) rows[startRow].cells[colIdx] = { type: 'data', value: node.value, path, rowSpan: totalSpan };
       for (let r = startRow + 1; r < startRow + baseSpan; r++) { if (rows[r]) rows[r].cells[colIdx] = null; }
     }
@@ -112,7 +134,7 @@ const columns = computed(() => props.config.columnas);
 const numCols = computed(() => columns.value.length);
 const dinamicaId = computed(() => props.config.columnaDinamicaId);
 const periodos = computed(() => getPeriodos(props.config));
-const agrupadorDepth = computed(() => (props.config.agrupador ? agrupadorProfundidad(columns.value) : -1));
+const agrupadorDepth = computed(() => (props.config.agrupador ? agrupadorProfundidad(columns.value, props.config) : -1));
 
 const roots = ref<TreeNode[]>(parseTree(props.modelValue, columns.value, props.config));
 watch(() => props.modelValue, (v) => { roots.value = parseTree(v, columns.value, props.config); });
@@ -145,6 +167,25 @@ function updateNodePeriodo(path: number[], periodoIdx: number, val: string) {
   const arr = Array.isArray(node.value) ? [...node.value] : [];
   arr[periodoIdx] = val;
   node.value = arr;
+  persist(next);
+}
+
+// Valores propios de la fila de título de grupo, en las columnas libres a su derecha (4.5c).
+function updateGrupoValor(path: number[], colId: string, val: string) {
+  const next = cloneTree(roots.value);
+  const node = getNode(next, path);
+  if (!node) return;
+  node.valores = { ...(node.valores ?? {}), [colId]: val };
+  persist(next);
+}
+function updateGrupoValorPeriodo(path: number[], colId: string, periodoIdx: number, val: string) {
+  const next = cloneTree(roots.value);
+  const node = getNode(next, path);
+  if (!node) return;
+  const actual = node.valores?.[colId];
+  const arr = Array.isArray(actual) ? [...actual] : [];
+  arr[periodoIdx] = val;
+  node.valores = { ...(node.valores ?? {}), [colId]: arr };
   persist(next);
 }
 
@@ -264,7 +305,7 @@ function isPathAncestor(path: number[]) {
   return path.every((v, i) => selectedPath.value![i] === v);
 }
 
-const flatRows = computed(() => buildFlatRows(roots.value, numCols.value, selectedPath.value, agrupadorDepth.value));
+const flatRows = computed(() => buildFlatRows(roots.value, numCols.value, selectedPath.value, agrupadorDepth.value, props.config.agrupadorAbarcaColumnas, columns.value));
 
 const grupos = computed(() => props.config.cabeceras ?? []);
 const hasCabeceras = computed(() => grupos.value.length > 0);
@@ -286,6 +327,64 @@ function selectCell(path: number[]) {
   selectedPath.value = path;
   isEditing.value = true;
   focusPath.value = JSON.stringify(path);
+}
+
+// --- Grupos en tablas jerárquicas ---
+//
+// Un grupo NO es un dato aparte: es un nodo del árbol en el nivel `agrupadorNivel`, que se dibuja
+// como fila de título de ancho completo. Elegir el nivel con un clic debajo de una columna sustituye
+// al mecanismo viejo (marcar columnas como Padre/Hijo), que obligaba a gastar una columna entera en
+// el agrupador. La última columna nunca puede serlo: un grupo necesita columnas a su derecha.
+const puedeAgrupar = computed(() => props.config.agrupador && esJerarquica(props.config.subtipo));
+
+// ¿Ya hay algún nodo en el nivel del agrupador? Mientras no lo haya, el nivel sigue libre y el botón
+// se ofrece bajo todas las columnas; en cuanto existe el primer grupo, queda fijado (una tabla tiene
+// un único nivel de agrupación, igual que en el Excel).
+const nivelFijado = computed(() => {
+  if (!puedeAgrupar.value) return null;
+  if (typeof props.config.agrupadorNivel !== 'number') return null;
+  return hayNodoEnNivel(roots.value, 0, props.config.agrupadorNivel) ? props.config.agrupadorNivel : null;
+});
+
+function hayNodoEnNivel(nodos: TreeNode[], prof: number, objetivo: number): boolean {
+  if (prof === objetivo) return nodos.length > 0;
+  return nodos.some((n) => hayNodoEnNivel(n.children, prof + 1, objetivo));
+}
+
+function puedeAgregarGrupoEn(colIdx: number): boolean {
+  if (!puedeAgrupar.value || colIdx >= numCols.value - 1) return false;
+  return nivelFijado.value === null || nivelFijado.value === colIdx;
+}
+
+// Desciende por el último hijo de cada nivel hasta `nivel`, y ahí cuelga el grupo nuevo. Si el árbol
+// todavía no llega a esa profundidad, se crean los eslabones que falten.
+function addGrupoEnNivel(nivel: number) {
+  const next = cloneTree(roots.value);
+  if (nivel === 0) {
+    next.push(createNodeChain(columns.value, props.config, 0));
+  } else {
+    let actual: TreeNode | undefined = next[next.length - 1];
+    for (let prof = 1; prof < nivel && actual; prof++) {
+      if (actual.children.length === 0) actual.children.push(createNodeChain(columns.value, props.config, prof));
+      actual = actual.children[actual.children.length - 1];
+    }
+    if (!actual) return;
+    actual.children.push(createNodeChain(columns.value, props.config, nivel));
+  }
+
+  if (props.config.agrupadorNivel !== nivel) emit('update:config', { ...props.config, agrupadorNivel: nivel });
+  persist(next);
+
+  const path = pathUltimoEnNivel(next, nivel);
+  if (path) { selectedPath.value = path; isEditing.value = true; focusPath.value = JSON.stringify(path); }
+}
+
+function pathUltimoEnNivel(nodos: TreeNode[], nivel: number): number[] | null {
+  if (nodos.length === 0) return null;
+  const idx = nodos.length - 1;
+  if (nivel === 0) return [idx];
+  const hijo = pathUltimoEnNivel(nodos[idx].children, nivel - 1);
+  return hijo ? [idx, ...hijo] : null;
 }
 
 function addPeriodo() {
@@ -459,6 +558,25 @@ function renamePeriodo(pi: number, value: string) {
                     </div>
                   </td>
                 </template>
+                <!-- Columna dinámica libre en la fila de grupo: un valor por período -->
+                <template v-else-if="cell.type === 'group-extra'">
+                  <td
+                    v-for="(p, pi) in periodos"
+                    :key="`ge-${ci}-${pi}`"
+                    class="px-1 py-1 bg-brand-50/60 border-t-2 border-brand-200"
+                    :class="pi === periodos.length - 1 ? '' : 'border-r border-gray-200'"
+                  >
+                    <input
+                      :value="(Array.isArray(cell.value) ? cell.value[pi] : '') || ''"
+                      :title="p"
+                      :placeholder="p || '—'"
+                      type="text"
+                      @input="updateGrupoValorPeriodo(cell.path, cell.colId, pi, ($event.target as HTMLInputElement).value)"
+                      @click.stop
+                      class="w-full min-w-0 px-1 py-1 rounded border border-transparent hover:border-amber-200 focus:border-amber-400 text-xs font-semibold text-heading focus:outline-none focus:ring-1 focus:ring-amber-500/30 bg-transparent"
+                    />
+                  </td>
+                </template>
                 <td v-else :colspan="periodos.length" class="px-1.5 py-1" :class="cell.type === 'empty' ? 'bg-gray-50/50' : ''">
                   <button
                     v-if="cell.type === 'add'"
@@ -470,6 +588,23 @@ function renamePeriodo(pi: number, value: string) {
                   </button>
                 </td>
               </template>
+
+              <!-- Columna libre a la derecha del título de grupo: editable, es la fila-resumen del
+                   grupo (ej. el total). Comparte el fondo del título para que se lea como una fila. -->
+              <td
+                v-else-if="cell.type === 'group-extra'"
+                class="px-1.5 py-1 align-top bg-brand-50/60 border-t-2 border-brand-200"
+                :class="ci < numCols - 1 ? 'border-r border-gray-300' : ''"
+              >
+                <textarea
+                  :value="typeof cell.value === 'string' ? cell.value : ''"
+                  rows="1"
+                  :placeholder="`${columns[ci]?.nombre}...`"
+                  @input="updateGrupoValor(cell.path, cell.colId, ($event.target as HTMLTextAreaElement).value)"
+                  @click.stop
+                  class="block w-full px-1.5 py-1 rounded border border-transparent hover:border-gray-200 focus:border-brand-300 text-xs font-semibold text-heading focus:outline-none focus:ring-1 focus:ring-brand-500/30 bg-transparent resize-none overflow-y-auto max-h-[15lh] [field-sizing:content]"
+                />
+              </td>
 
               <td
                 v-else-if="cell.type === 'group-title'"
@@ -549,6 +684,33 @@ function renamePeriodo(pi: number, value: string) {
                     <FontAwesomeIcon :icon="faTrash" class="w-2 h-2" />
                   </button>
                 </div>
+              </td>
+            </template>
+            <td class="w-6" />
+          </tr>
+
+          <!-- Pie: un "Agregar grupo" debajo de la última celda de cada columna. La columna donde se
+               hace clic define el nivel del agrupador; una vez creado el primer grupo, solo esa
+               columna sigue ofreciéndolo. -->
+          <tr v-if="puedeAgrupar" class="border-t-2 border-gray-300 bg-gray-50/60">
+            <template v-for="(col, ci) in columns" :key="`ag-${col.id}`">
+              <td
+                :colspan="col.id === dinamicaId && periodos.length > 0 ? periodos.length : 1"
+                class="px-1.5 py-1.5 align-top"
+                :class="ci < numCols - 1 ? 'border-r border-gray-300' : ''"
+              >
+                <button
+                  v-if="puedeAgregarGrupoEn(ci)"
+                  @click.stop="addGrupoEnNivel(ci)"
+                  type="button"
+                  :title="`Agregar grupo a partir de la columna «${col.nombre}»`"
+                  class="w-full py-1.5 rounded border border-dashed text-[10px] font-medium flex items-center justify-center gap-1 transition-colors"
+                  :class="nivelFijado === ci
+                    ? 'border-brand-300 text-brand-600 hover:bg-brand-50'
+                    : 'border-gray-300 text-gray-400 hover:border-brand-400 hover:text-brand-600 hover:bg-brand-50'"
+                >
+                  <FontAwesomeIcon :icon="faPlus" class="w-2.5 h-2.5" /> Grupo
+                </button>
               </td>
             </template>
             <td class="w-6" />

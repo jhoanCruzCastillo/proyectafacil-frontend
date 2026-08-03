@@ -1,4 +1,5 @@
 import JSZip from 'jszip';
+import { insertarImagenEnHoja, type ImagenAInsertar } from './xlsxImageWriter';
 
 // Parcheador quirúrgico de OOXML (.xlsx/.xlsm): en vez de re-serializar el libro entero con
 // SheetJS (XLSX.write), que en la edición gratuita descarta por completo los estilos de celda
@@ -27,7 +28,13 @@ export interface Crecimiento {
 interface HojaEdits {
   celdas: CeldaEdicion[];
   merges: Set<string>;
+  /** Rangos cuya fusión debe romperse antes de escribir (celdas partidas, 4.8) */
+  desfusiones: Set<string>;
   crecimientos: Crecimiento[];
+  /** Imágenes a incrustar (campos tipo `imagen`) — no son celdas: van a xl/media + xl/drawings */
+  imagenes: ImagenAInsertar[];
+  /** Celdas que deben quedar como hipervínculo: ref de celda -> URL destino */
+  enlaces: Map<string, string>;
 }
 
 export class LibroEdits {
@@ -35,7 +42,7 @@ export class LibroEdits {
 
   private getHoja(hoja: string): HojaEdits {
     let h = this.hojas.get(hoja);
-    if (!h) { h = { celdas: [], merges: new Set(), crecimientos: [] }; this.hojas.set(hoja, h); }
+    if (!h) { h = { celdas: [], merges: new Set(), desfusiones: new Set(), crecimientos: [], imagenes: [], enlaces: new Map() }; this.hojas.set(hoja, h); }
     return h;
   }
 
@@ -52,6 +59,25 @@ export class LibroEdits {
 
   fusionar(hoja: string, rango: string) {
     this.getHoja(hoja).merges.add(rango);
+  }
+
+  // Rompe la fusión que cubra ese rango. Necesario para las celdas partidas (4.8): la plantilla
+  // oficial trae J:K fusionada por fila, y escribir en K dentro de una fusión deja el dato oculto
+  // — Excel solo muestra la celda superior-izquierda del rango.
+  desfusionar(hoja: string, rango: string) {
+    this.getHoja(hoja).desfusiones.add(rango);
+  }
+
+  // Una imagen no ocupa una celda: se guarda como binario aparte y se ancla entre coordenadas.
+  // Se acumula acá para que el parcheo del ZIP siga siendo el único punto que toca el archivo.
+  insertarImagen(hoja: string, imagen: ImagenAInsertar) {
+    this.getHoja(hoja).imagenes.push(imagen);
+  }
+
+  // Convierte la celda en un enlace en el que se puede hacer clic. El texto visible lo pone
+  // escribirCelda por separado — esto solo añade el salto.
+  enlazar(hoja: string, columna: string, fila: number, url: string) {
+    this.getHoja(hoja).enlaces.set(`${columna}${fila}`, url);
   }
 
   // Registra que una tabla creció más allá de sus filas base — las filas físicas de Excel deben
@@ -132,6 +158,13 @@ function aplicarValorCelda(doc: Document, celda: Element, valor: string | number
     const v = doc.createElementNS(SML_NS, 'v');
     v.textContent = String(valor);
     celda.appendChild(v);
+    return;
+  }
+  if (valor === '') {
+    // Vaciar de verdad: sin `t` ni hijos queda `<c r=".." s=".."/>`, celda sin contenido pero con
+    // su estilo intacto (el estilo delimita la tabla al releer). Un <t/> vacío dejaría un rastro
+    // de texto que confundiría a la relectura.
+    celda.removeAttribute('t');
     return;
   }
   if (typeof valor === 'number' && Number.isFinite(valor)) {
@@ -280,6 +313,62 @@ function ensureMergeCells(doc: Document, worksheet: Element, sheetData: Element)
   return nuevo;
 }
 
+// Elementos que van DESPUÉS de <hyperlinks> en la secuencia de CT_Worksheet. El esquema es una
+// `xsd:sequence`: colocar el elemento en el sitio equivocado hace que Excel no pueda leer la hoja
+// y la reemplace entera.
+const TRAS_HYPERLINKS = new Set([
+  'printOptions', 'pageMargins', 'pageSetup', 'headerFooter', 'rowBreaks', 'colBreaks',
+  'customProperties', 'cellWatches', 'ignoredErrors', 'smartTags', 'drawing', 'legacyDrawing',
+  'legacyDrawingHF', 'drawingHF', 'picture', 'oleObjects', 'controls', 'webPublishItems',
+  'tableParts', 'extLst',
+]);
+
+function ensureHyperlinks(doc: Document, worksheet: Element): Element {
+  const existente = Array.from(worksheet.children).find((el) => el.localName === 'hyperlinks');
+  if (existente) return existente;
+  const nuevo = doc.createElementNS(SML_NS, 'hyperlinks');
+  const posterior = Array.from(worksheet.children).find((el) => TRAS_HYPERLINKS.has(el.localName));
+  worksheet.insertBefore(nuevo, posterior ?? null);
+  return nuevo;
+}
+
+// Un hipervínculo en OOXML son dos piezas: el <hyperlink ref="B28" r:id="…"/> dentro de la hoja, y
+// una relación EXTERNA (TargetMode="External") en el .rels de esa hoja, que es la que guarda la URL.
+// Se devuelve el XML de relaciones ya actualizado para que el llamador lo escriba en el ZIP.
+function agregarHipervinculo(doc: Document, worksheet: Element, relsDoc: Document, ref: string, url: string): void {
+  // Reutilizar la relación si esa misma URL ya estaba enlazada en la hoja
+  let rid: string | undefined;
+  let max = 0;
+  for (const rel of Array.from(relsDoc.getElementsByTagName('Relationship'))) {
+    const id = rel.getAttribute('Id') ?? '';
+    const m = id.match(/^rId(\d+)$/);
+    if (m) max = Math.max(max, Number(m[1]));
+    if (rel.getAttribute('Target') === url && rel.getAttribute('TargetMode') === 'External') rid = id;
+  }
+  if (!rid) {
+    rid = `rId${max + 1}`;
+    const rel = relsDoc.createElementNS('http://schemas.openxmlformats.org/package/2006/relationships', 'Relationship');
+    rel.setAttribute('Id', rid);
+    rel.setAttribute('Type', `${R_NS}/hyperlink`);
+    rel.setAttribute('Target', url);
+    rel.setAttribute('TargetMode', 'External');
+    relsDoc.documentElement.appendChild(rel);
+  }
+
+  const contenedor = ensureHyperlinks(doc, worksheet);
+  // Si la celda ya tenía un enlace, se repunta en vez de duplicar (dos <hyperlink> con el mismo
+  // `ref` hacen que Excel repare el archivo).
+  const previo = Array.from(contenedor.children).find((el) => el.getAttribute('ref') === ref);
+  if (previo) {
+    previo.setAttributeNS(R_NS, 'r:id', rid);
+    return;
+  }
+  const el = doc.createElementNS(SML_NS, 'hyperlink');
+  el.setAttribute('ref', ref);
+  el.setAttributeNS(R_NS, 'r:id', rid);
+  contenedor.appendChild(el);
+}
+
 interface RangoCeldas { c1: number; r1: number; c2: number; r2: number }
 
 function parseRango(rango: string): RangoCeldas {
@@ -297,6 +386,26 @@ function seSuperponen(a: RangoCeldas, b: RangoCeldas): boolean {
 // existente pero de otro tamaño (p. ej. la plantilla oficial asumía 3 hijos por grupo jerárquico y
 // este grupo real solo tiene 2), la fusión vieja se elimina primero: dos <mergeCell> superpuestos
 // son XML inválido y Excel repara/descarta el archivo al abrirlo.
+// Elimina toda fusión que se solape con el rango dado. Si no hay <mergeCells> no hay nada que
+// romper: la celda ya está partida en el archivo.
+function quitarMerge(worksheet: Element, rango: string) {
+  const mergeCells = Array.from(worksheet.children).find((el) => el.localName === 'mergeCells');
+  if (!mergeCells) return;
+  const objetivo = parseRango(rango);
+  for (const existente of Array.from(mergeCells.children)) {
+    const ref = existente.getAttribute('ref');
+    if (ref && seSuperponen(objetivo, parseRango(ref))) mergeCells.removeChild(existente);
+  }
+  mergeCells.setAttribute('count', String(mergeCells.children.length));
+}
+
+// ¿La celda ya trae una fórmula del libro original? Cubre los dos casos de OOXML: la fórmula
+// normal (`<f>texto</f>`) y las compartidas, donde solo la celda maestra lleva el texto y las demás
+// del grupo traen `<f t="shared" si="N"/>` vacío — ambas se detectan por la presencia del hijo <f>.
+function tieneFormula(celda: Element): boolean {
+  return Array.from(celda.children).some((el) => el.localName === 'f');
+}
+
 function agregarMerge(doc: Document, worksheet: Element, sheetData: Element, rango: string) {
   const mergeCells = ensureMergeCells(doc, worksheet, sheetData);
   const nuevoRango = parseRango(rango);
@@ -319,9 +428,17 @@ async function extraerMimeYBuffer(dataUrl: string): Promise<{ mime: string; buff
   return { mime, buffer };
 }
 
+export interface ResultadoEdicion {
+  /** El libro modificado, como data URL, en el mismo formato del original */
+  dataUrl: string;
+  /** Celdas que NO se escribieron por traer ya una fórmula del libro (referencias "Hoja!A1") */
+  omitidasPorFormula: string[];
+}
+
 // Aplica todas las ediciones acumuladas (celdas + fusiones nuevas) directamente sobre el XML de
 // cada hoja del ZIP, preservando estilos.xml, tema, macros y cualquier otra celda intacta.
-export async function aplicarEdicionesXlsx(dataUrl: string, ediciones: LibroEdits): Promise<string> {
+export async function aplicarEdicionesXlsx(dataUrl: string, ediciones: LibroEdits): Promise<ResultadoEdicion> {
+  const omitidasPorFormula: string[] = [];
   const { mime, buffer } = await extraerMimeYBuffer(dataUrl);
   const zip = await JSZip.loadAsync(buffer);
   const mapaHojas = await leerMapaHojas(zip);
@@ -346,20 +463,57 @@ export async function aplicarEdicionesXlsx(dataUrl: string, ediciones: LibroEdit
       insertarFilasEnHoja(worksheet, sheetData, crecimiento);
     }
 
+    // Romper fusiones ANTES de escribir: una celda partida escribe en columnas que la plantilla
+    // traía fusionadas, y el orden inverso volvería a taparlas.
+    for (const rango of edits.desfusiones) {
+      quitarMerge(worksheet, rango);
+    }
+
     for (const { columna, fila, valor, formula } of edits.celdas) {
       const filaEl = ensureRow(doc, sheetData, fila);
       const celda = ensureCell(doc, filaEl, columna, fila);
+      // Una celda que YA trae fórmula en el libro oficial es intocable: su valor lo calcula el
+      // propio Excel a partir de otras hojas, y sobrescribirla no solo pierde ese cálculo — rompe
+      // la cadena que alimenta a todo lo que dependa de ella. La plantilla del CIAI tiene ~2300.
+      if (tieneFormula(celda)) {
+        omitidasPorFormula.push(`${nombreHoja}!${columna}${fila}`);
+        continue;
+      }
       aplicarValorCelda(doc, celda, valor, formula);
     }
     for (const rango of edits.merges) {
       agregarMerge(doc, worksheet, sheetData, rango);
     }
 
+    // Hipervínculos: además del <hyperlink> en la hoja hay que tocar SU archivo de relaciones,
+    // que es donde vive la URL. Es la única edición que escribe una parte del ZIP distinta de la
+    // propia hoja, por eso se resuelve aquí y no en aplicarValorCelda.
+    if (edits.enlaces.size > 0) {
+      const rutaRels = path.replace(/(worksheets\/)/, '$1_rels/') + '.rels';
+      const relsFile = zip.file(rutaRels);
+      const relsDoc = parser.parseFromString(
+        relsFile
+          ? await relsFile.async('string')
+          : '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>',
+        'application/xml',
+      );
+      for (const [ref, url] of edits.enlaces) {
+        agregarHipervinculo(doc, worksheet, relsDoc, ref, url);
+      }
+      zip.file(rutaRels, serializer.serializeToString(relsDoc));
+    }
+
     zip.file(path, serializer.serializeToString(doc));
+
+    // Las imágenes se aplican DESPUÉS de volcar el XML de la hoja: insertarImagenEnHoja puede
+    // tener que añadirle el elemento <drawing>, y lo relee del zip ya actualizado.
+    for (const imagen of edits.imagenes) {
+      await insertarImagenEnHoja(zip, nombreHoja, imagen);
+    }
   }
 
   const outBuffer = await zip.generateAsync({ type: 'base64', compression: 'DEFLATE', compressionOptions: { level: 6 } });
-  return `data:${mime};base64,${outBuffer}`;
+  return { dataUrl: `data:${mime};base64,${outBuffer}`, omitidasPorFormula };
 }
 
 export { parseDireccion };
