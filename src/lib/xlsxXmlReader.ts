@@ -204,9 +204,12 @@ function parseHoja(
   return { celdas, estilos, fusiones: parseFusiones(doc) };
 }
 
-export async function leerLibroXlsx(dataUrl: string): Promise<LibroLeido> {
-  const base64 = dataUrl.includes(',') ? dataUrl.slice(dataUrl.indexOf(',') + 1) : dataUrl;
-  const zip = await JSZip.loadAsync(base64, { base64: true });
+/** `fuente` puede ser un data URI (el archivo que el usuario acaba de soltar, leído con FileReader)
+ * o una URL http(s) — el Excel de un ejemplo vive en Cloudinary. Se resuelve con `fetch`, que
+ * entiende ambas, igual que hace el parcheador. Antes se asumía data URI y se intentaba decodificar
+ * la URL como base64, lo que reventaba con "Invalid base64 input, bad content length". */
+export async function leerLibroXlsx(fuente: string): Promise<LibroLeido> {
+  const zip = await JSZip.loadAsync(await (await fetch(fuente)).arrayBuffer());
 
   const shared = parseSharedStrings((await zip.file('xl/sharedStrings.xml')?.async('string')) ?? null);
   const { numFmtPorEstilo, codigoPorNumFmt } = parseEstilos((await zip.file('xl/styles.xml')?.async('string')) ?? null);

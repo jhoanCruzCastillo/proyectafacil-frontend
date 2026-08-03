@@ -3,6 +3,7 @@ import { LibroEdits, aplicarEdicionesXlsx } from './xlsxXmlPatcher';
 import { crearResolver, esFormula, evaluarFormula, traducirFormulaAExcel, type ResolucionToken, type ResolucionCelda } from './formula';
 import { booleanoATexto, type EtiquetasBooleano } from './conversionesExcel';
 import { parseCoords, coordsATexto } from './coords';
+import { leerLibroXlsx } from './xlsxXmlReader';
 import type { Plantilla, Campo, ColumnaTabla, ConfigTabla, TipoCampo } from '@/types';
 
 // --- Aritmética de columnas Excel (A, B, ..., Z, AA, AB, ...) ---
@@ -135,7 +136,12 @@ function writeCeldaPartida(
 
 // Celdas sin dato (vacías) se omiten por completo — no se escribe ni se fusiona nada sobre ellas,
 // así el contenido que ya tuviera esa celda en el Excel original queda intacto.
-function writeFilaColumnas(ediciones: LibroEdits, hoja: string | undefined, config: ConfigTabla, fila: FilaDinamica, row: number, periodos: string[]) {
+function writeFilaColumnas(ediciones: LibroEdits, hoja: string | undefined, config: ConfigTabla, fila: FilaDinamica, row: number, periodos: string[], altoDeBloque?: AltoDeBloque) {
+  // La altura del bloque NO es uniforme en la fila: en 4.02.01 la columna B fusiona 3 filas por
+  // registro mientras que la E tiene tres celdas sueltas de una fila. Por eso cada celda reutiliza
+  // exactamente la geometría que la plantilla declara para ella; imponer una altura común destruía
+  // las fusiones de las columnas que no la compartían.
+  const alto = (col: ColumnaTabla) => (hoja ? Math.max(altoDeBloque?.(hoja, col.columnaExcel, row) ?? 1, 1) : 1);
   for (const col of config.columnas) {
     if (col.subcolumnas?.length) {
       writeCeldaPartida(ediciones, hoja, col, fila[col.id], row);
@@ -148,12 +154,12 @@ function writeFilaColumnas(ediciones: LibroEdits, hoja: string | undefined, conf
         const v = arr[i];
         if (v == null || v === '') return;
         const colLetter = addCols(col.columnaExcel!, i * (col.abarcaColumnasExcel ?? 1));
-        writeCellSpan(ediciones, hoja, colLetter, row, v, col.abarcaColumnasExcel ?? 1);
+        writeCellSpan(ediciones, hoja, colLetter, row, v, col.abarcaColumnasExcel ?? 1, alto(col));
       });
     } else {
       const v = fila[col.id];
       if (typeof v !== 'string' || v === '') continue;
-      writeCellSpan(ediciones, hoja, col.columnaExcel, row, v, col.abarcaColumnasExcel ?? 1);
+      writeCellSpan(ediciones, hoja, col.columnaExcel, row, v, col.abarcaColumnasExcel ?? 1, alto(col));
     }
   }
 }
@@ -186,6 +192,12 @@ function registrarCrecimientoTabla(ediciones: LibroEdits, hoja: string | undefin
   const filaInicial = config.captura?.filaInicial;
   const filasBase = config.captura?.filasBase;
   if (!hoja || !filaInicial || !filasBase) return;
+  // Una tabla sin datos no crece. Sin esta guarda, `parseDynamicRows('')` devuelve las filas en
+  // blanco que la UI muestra por cortesía (`filasIniciales`, 3 por defecto) y se contaban como si
+  // fueran datos: una tabla vacía con filas_base 1 "crecía" 2 filas e insertaba dos filas físicas,
+  // desplazando hacia abajo TODO lo que venía después en la hoja. Nada se escribe en ellas, así que
+  // el desplazamiento era puro daño.
+  if (!raw || raw.trim() === '') return;
   const necesarias = filasNecesariasTabla(config, raw);
   const excedente = necesarias - filasBase;
   if (excedente > 0) ediciones.registrarCrecimiento(hoja, filaInicial + filasBase - 1, excedente);
@@ -193,6 +205,11 @@ function registrarCrecimientoTabla(ediciones: LibroEdits, hoja: string | undefin
 
 // Escribe un nodo del árbol UNA sola vez — en la primera fila que ocupa su subárbol — y, si ese
 // subárbol abarca más de una fila, fusiona la celda de esa columna sobre todo el rango. Antes, el
+/** Altura en filas del bloque que la plantilla ya tiene reservado para una celda, o undefined si
+ * ahí no hay ninguna fusión. Se resuelve leyendo el propio Excel de destino: así la estructura no
+ * tiene que declarar cuántas filas mide cada ítem, y funciona igual en cualquier plantilla. */
+type AltoDeBloque = (hoja: string, columna: string | undefined, fila: number) => number | undefined;
+
 // valor de cada ancestro (columnas "padre") se escribía repetido en la fila de cada hoja, confiando
 // en que la fusión ya existente en la plantilla oficial ocultara las copias — pero el visor no
 // siempre respeta fusiones cuyas celdas no-ancla tienen contenido propio, así que se ven repetidas.
@@ -207,6 +224,7 @@ function writeArbol(
   filaInicio: number,
   colIdx = profundidad,
   agrupadorDepth = -1,
+  altoDeBloque?: AltoDeBloque,
 ): number {
   const col = config.columnas[colIdx];
   // Nivel de agrupador: el nodo ocupa una FILA propia (fila de título) y sus hijos siguen en la
@@ -217,12 +235,17 @@ function writeArbol(
 
   let filasConsumidas: number;
   if (node.children.length === 0) {
-    filasConsumidas = 1;
+    // Una hoja NO ocupa necesariamente una fila: la plantilla oficial suele reservarle un bloque de
+    // varias filas ya fusionadas (en 5.01.03, B19:E21 son 3 filas por cada "Efecto directo"). Se
+    // toma esa altura del propio archivo — suponer 1 desalineaba la tabla y, peor, las fusiones que
+    // escribíamos se solapaban con las del bloque y la deduplicación borraba las originales,
+    // dejando las celdas sueltas. Sin bloque declarado en el Excel, sigue siendo 1.
+    filasConsumidas = Math.max(altoDeBloque?.(hoja, col?.columnaExcel, filaInicio) ?? 1, 1);
   } else {
     let fila = filaInicio + (esNivelAgrupador ? 1 : 0);
     filasConsumidas = esNivelAgrupador ? 1 : 0;
     for (const hijo of node.children as typeof node[]) {
-      const consumidas = writeArbol(ediciones, hoja, config, periodos, hijo, profundidad + 1, fila, colDeHijos, agrupadorDepth);
+      const consumidas = writeArbol(ediciones, hoja, config, periodos, hijo, profundidad + 1, fila, colDeHijos, agrupadorDepth, altoDeBloque);
       fila += consumidas;
       filasConsumidas += consumidas;
     }
@@ -277,7 +300,16 @@ function writeArbol(
   return filasConsumidas;
 }
 
-function writeCampoTabla(ediciones: LibroEdits, hoja: string | undefined, config: ConfigTabla, raw: string) {
+// Alto del bloque que la plantilla reserva para UNA fila de datos, mirando la primera columna con
+// posición declarada. Las plantillas oficiales suelen fusionar varias filas por registro (4.02.01
+// reserva 3), y avanzar de una en una partía esos bloques y desalineaba la tabla entera.
+function altoDeFila(config: ConfigTabla, hoja: string, fila: number, altoDeBloque?: AltoDeBloque): number {
+  if (!altoDeBloque) return 1;
+  const primera = config.columnas.find((c) => c.columnaExcel)?.columnaExcel;
+  return Math.max(altoDeBloque(hoja, primera, fila) ?? 1, 1);
+}
+
+function writeCampoTabla(ediciones: LibroEdits, hoja: string | undefined, config: ConfigTabla, raw: string, altoDeBloque?: AltoDeBloque) {
   const filaInicial = config.captura?.filaInicial;
   if (!hoja || !filaInicial) return;
   // Desplazamiento uniforme por el crecimiento de tablas ANTERIORES en la misma hoja — no incluye
@@ -292,7 +324,7 @@ function writeCampoTabla(ediciones: LibroEdits, hoja: string | undefined, config
     const agrupadorDepth = config.agrupador ? agrupadorProfundidad(config.columnas, config) : -1;
     let row = filaInicial + shift;
     for (const r of roots) {
-      row += writeArbol(ediciones, hoja, config, periodos, r, 0, row, 0, agrupadorDepth);
+      row += writeArbol(ediciones, hoja, config, periodos, r, 0, row, 0, agrupadorDepth, altoDeBloque);
     }
     return;
   }
@@ -321,12 +353,12 @@ function writeCampoTabla(ediciones: LibroEdits, hoja: string | undefined, config
       // cobertura…" de 7.03, con un porcentaje por año. El lector ya las leía; sin esto, el viaje
       // de vuelta a Excel las perdía.
       if (grupo.valoresGrupo) {
-        writeFilaColumnas(ediciones, hoja, config, grupo.valoresGrupo, row, periodos);
+        writeFilaColumnas(ediciones, hoja, config, grupo.valoresGrupo, row, periodos, altoDeBloque);
       }
-      if (ocupaFila) row++;
+      if (ocupaFila) row += altoDeFila(config, hoja, row, altoDeBloque);
       for (const fila of grupo.filas) {
-        writeFilaColumnas(ediciones, hoja, config, fila, row, periodos);
-        row++;
+        writeFilaColumnas(ediciones, hoja, config, fila, row, periodos, altoDeBloque);
+        row += altoDeFila(config, hoja, row, altoDeBloque);
       }
     }
     return;
@@ -335,8 +367,8 @@ function writeCampoTabla(ediciones: LibroEdits, hoja: string | undefined, config
   const filas = parseDynamicRows(raw, config);
   let row = filaInicial + shift;
   for (const fila of filas) {
-    writeFilaColumnas(ediciones, hoja, config, fila, row, periodos);
-    row++;
+    writeFilaColumnas(ediciones, hoja, config, fila, row, periodos, altoDeBloque);
+    row += altoDeFila(config, hoja, row, altoDeBloque);
   }
 }
 
@@ -368,10 +400,11 @@ function writeCampo(
   valores: Record<string, string>,
   resolverFormula: (token: string) => ResolucionToken,
   tareasPorId: Map<string, { hoja: string | undefined; campo: Campo }>,
+  altoDeBloque?: AltoDeBloque,
 ) {
   const esTabla = campo.tipo === 'tabla' || campo.tipo === 'tabla_jerarquica';
   if (esTabla) {
-    if (campo.configTabla) writeCampoTabla(ediciones, hoja, campo.configTabla, valores[campo.identificador] ?? '');
+    if (campo.configTabla) writeCampoTabla(ediciones, hoja, campo.configTabla, valores[campo.identificador] ?? '', altoDeBloque);
     return;
   }
   if (!campo.captura?.columna || !campo.captura.fila || !hoja) return;
@@ -438,6 +471,14 @@ export async function insertarValoresEnExcel(
     }
   }
 
+  // Las plantillas oficiales reservan bloques de varias filas ya fusionadas por cada ítem de una
+  // tabla jerárquica. Se leen del propio archivo de destino para no tener que declararlos en la
+  // estructura: así funciona igual en cualquier plantilla, y una tabla sin bloques se comporta
+  // como antes (1 fila por ítem).
+  const libroOrigen = await leerLibroXlsx(dataUrl);
+  const altoDeBloque = (hoja: string, columna: string | undefined, fila: number): number | undefined =>
+    (columna ? libroOrigen.fusion(hoja, `${columna}${fila}`)?.filas : undefined);
+
   const resolverFormula = crearResolver(tareas.map((t) => t.campo), (id) => valores[id]);
   const tareasPorId = new Map(tareas.map((t) => [t.campo.identificador, t]));
 
@@ -445,7 +486,7 @@ export async function insertarValoresEnExcel(
   const loteSize = Math.max(1, Math.ceil(total / 30)); // ~30 repintados como máximo durante la acumulación
   for (let i = 0; i < tareas.length; i++) {
     const { hoja, campo } = tareas[i];
-    writeCampo(ediciones, hoja, campo, valores, resolverFormula, tareasPorId);
+    writeCampo(ediciones, hoja, campo, valores, resolverFormula, tareasPorId, altoDeBloque);
     if ((i + 1) % loteSize === 0 || i === tareas.length - 1) {
       onProgress?.(((i + 1) / total) * 0.9); // el 10% restante es el parcheo del ZIP
       await new Promise((resolve) => setTimeout(resolve, 0));

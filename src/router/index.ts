@@ -60,6 +60,37 @@ const router = createRouter({
           component: () => import('@/features/usuarios/UsuariosPage.vue'),
           meta: { gestionUsuarios: true },
         },
+        // Catálogo por instrumento (superusuario): el mismo listado agrupado que vive dentro de un
+        // sector, pero atravesando TODOS los sectores. Rutas bajo /catalogo para no chocar con
+        // /formatos, /fichas-tecnicas, /ioarr y /perfiles, que son las del cliente.
+        {
+          path: 'catalogo/formatos',
+          name: 'catalogo-formatos',
+          component: () => import('@/features/plantillas/CatalogoInstrumentoPage.vue'),
+          props: { instrumento: 'formato' },
+          meta: { soloSuperusuario: true },
+        },
+        {
+          path: 'catalogo/fichas-tecnicas',
+          name: 'catalogo-fichas-tecnicas',
+          component: () => import('@/features/plantillas/CatalogoInstrumentoPage.vue'),
+          props: { instrumento: 'ficha_tecnica' },
+          meta: { soloSuperusuario: true },
+        },
+        {
+          path: 'catalogo/ioarr',
+          name: 'catalogo-ioarr',
+          component: () => import('@/features/plantillas/CatalogoInstrumentoPage.vue'),
+          props: { instrumento: 'ioarr' },
+          meta: { soloSuperusuario: true },
+        },
+        {
+          path: 'catalogo/perfiles',
+          name: 'catalogo-perfiles',
+          component: () => import('@/features/plantillas/CatalogoInstrumentoPage.vue'),
+          props: { instrumento: 'perfil' },
+          meta: { soloSuperusuario: true },
+        },
         {
           path: 'formatos',
           name: 'formatos',
