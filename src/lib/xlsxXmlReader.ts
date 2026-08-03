@@ -31,6 +31,10 @@ export interface FusionLeida {
 export interface LibroLeido {
   /** Nombres de hoja presentes en el archivo, en el orden del libro */
   hojas: string[];
+  /** El ZIP ya abierto — lo necesita el lector de imágenes (xlsxImageReader), que trabaja sobre
+   * otras partes del paquete (xl/drawings, xl/media) y no sobre las celdas. Se expone para no
+   * tener que descomprimir el archivo por segunda vez. */
+  zip: JSZip;
   /** Valor de una celda ("H8"), o undefined si está vacía o la hoja no existe */
   celda(hoja: string, ref: string): CeldaLeida | undefined;
   /** Índice de estilo (atributo s=) de una celda, incluso si está vacía — undefined si la celda no
@@ -230,6 +234,7 @@ export async function leerLibroXlsx(dataUrl: string): Promise<LibroLeido> {
 
   return {
     hojas: Array.from(rutaPorHoja.keys()),
+    zip,
     celda(hoja: string, ref: string): CeldaLeida | undefined {
       return hojaParseada(hoja)?.celdas.get(ref);
     },

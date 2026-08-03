@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faXmark, faTriangleExclamation, faFileExcel, faFileImport, faSpinner, faTable, faAlignLeft } from '@/lib/icons';
+import { faXmark, faTriangleExclamation, faFileExcel, faFileImport, faSpinner, faTable, faAlignLeft, faImage } from '@/lib/icons';
 import { leerValoresDeExcel, type ResultadoVolcado } from '@/lib/excelReader';
+import { subirImagen } from '@/api/imagenes';
 import type { Ejemplo, Plantilla } from '@/types';
 
 // Volcado de datos desde un Excel ya llenado hacia los valores del ejemplo activo — el inverso de
@@ -23,6 +24,7 @@ const emit = defineEmits<{ close: []; confirmar: [valores: Record<string, string
 // --- Opciones de volcado ---
 const incluirCamposSimples = ref(true);
 const incluirTablas = ref(true);
+const incluirImagenes = ref(true);
 const seccionesElegidas = ref<Set<string>>(new Set());
 
 watch(
@@ -47,7 +49,7 @@ function toggleTodas() {
 }
 
 const nadaQueLeer = computed(
-  () => (!incluirCamposSimples.value && !incluirTablas.value) || seccionesElegidas.value.size === 0,
+  () => (!incluirCamposSimples.value && !incluirTablas.value && !incluirImagenes.value) || seccionesElegidas.value.size === 0,
 );
 
 // --- Análisis del archivo ---
@@ -104,8 +106,22 @@ async function analizar(file: File) {
     resultado.value = await leerValoresDeExcel(dataUrl, props.plantilla, {
       camposSimples: incluirCamposSimples.value,
       tablas: incluirTablas.value,
+      imagenes: incluirImagenes.value,
       seccionesIds: seccionesElegidas.value,
       valoresActuales: props.valoresActuales ?? props.ejemplo?.valores ?? {},
+      // El binario incrustado se sube a Cloudinary y en el JSON queda su URL, nunca la imagen.
+      // Si el backend no puede con el formato (EMF sin conversor) devuelve null y el volcado la
+      // reporta como omitida en vez de abortar el resto.
+      subirImagen: async (img, nombre) => {
+        try {
+          let bin = '';
+          for (let i = 0; i < img.bytes.length; i += 8192) bin += String.fromCharCode(...img.bytes.subarray(i, i + 8192));
+          const { url } = await subirImagen(`data:application/octet-stream;base64,${btoa(bin)}`, nombre, img.formato);
+          return url;
+        } catch {
+          return null;
+        }
+      },
     });
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'No se pudo leer el archivo.';
@@ -191,6 +207,20 @@ function confirmar() {
                     </span>
                   </span>
                 </label>
+                <label class="flex items-start gap-2.5 cursor-pointer">
+                  <input v-model="incluirImagenes" type="checkbox" class="mt-0.5 w-4 h-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500/30" />
+                  <span class="flex-1">
+                    <span class="text-sm font-medium text-heading flex items-center gap-1.5">
+                      <FontAwesomeIcon :icon="faImage" class="w-3 h-3 text-gray-400" />
+                      Imágenes
+                    </span>
+                    <span class="block text-xs text-muted">
+                      Se extraen del Excel, se suben y en el ejemplo queda su enlace. Los formatos
+                      no web (EMF de los mapas oficiales) se convierten en el servidor; si no se
+                      puede, se informa cuáles quedaron fuera.
+                    </span>
+                  </span>
+                </label>
               </div>
 
               <div class="rounded-xl border border-gray-200 p-4">
@@ -273,6 +303,17 @@ function confirmar() {
                   <div v-if="incluirTablas && resultado.filasExtraDetectadas > 0" class="px-4 py-2.5 flex items-center justify-between">
                     <span class="text-muted">Filas insertadas detectadas</span>
                     <span class="font-medium text-amber-600">+{{ resultado.filasExtraDetectadas }}</span>
+                  </div>
+                  <div v-if="incluirImagenes" class="px-4 py-2.5 flex items-center justify-between">
+                    <span class="text-muted">Imágenes subidas</span>
+                    <span class="font-bold text-emerald-700">{{ resultado.imagenesLeidas }}</span>
+                  </div>
+                  <div v-if="resultado.imagenesOmitidas.length > 0" class="px-4 py-2.5">
+                    <div class="flex items-center justify-between">
+                      <span class="text-muted">Imágenes no convertibles</span>
+                      <span class="font-medium text-amber-600">{{ resultado.imagenesOmitidas.length }}</span>
+                    </div>
+                    <p class="text-[11px] text-muted mt-1">{{ resultado.imagenesOmitidas.join(", ") }}</p>
                   </div>
                   <div v-if="resultado.tablasOmitidas > 0" class="px-4 py-2.5 flex items-center justify-between">
                     <span class="text-muted">Tablas de otros subtipos <span class="text-gray-400">(fuera de alcance)</span></span>

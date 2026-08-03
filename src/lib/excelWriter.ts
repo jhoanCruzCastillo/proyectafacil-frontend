@@ -2,6 +2,7 @@ import { parseDynamicRows, parseGroupedRows, parseTree, getPeriodos, esJerarquic
 import { LibroEdits, aplicarEdicionesXlsx } from './xlsxXmlPatcher';
 import { crearResolver, esFormula, evaluarFormula, traducirFormulaAExcel, type ResolucionToken, type ResolucionCelda } from './formula';
 import { booleanoATexto, type EtiquetasBooleano } from './conversionesExcel';
+import { parseCoords, coordsATexto } from './coords';
 import type { Plantilla, Campo, ColumnaTabla, ConfigTabla, TipoCampo } from '@/types';
 
 // --- Aritmética de columnas Excel (A, B, ..., Z, AA, AB, ...) ---
@@ -37,6 +38,12 @@ function coerceValor(tipo: TipoCampo, raw: string | undefined, etiquetasBooleano
     return Number.isNaN(n) ? '' : n;
   }
   if (tipo === 'booleano') return booleanoATexto(raw, etiquetasBooleano);
+  // Coordenadas: en el JSON viajan como objeto {lat,lng}, pero la celda del Excel lleva el par en
+  // texto plano. Volcarlas como el JSON crudo dejaría `{"lat":…}` a la vista en la hoja.
+  if (tipo === 'mapa_coordenadas') {
+    const c = parseCoords(raw);
+    return c ? coordsATexto(c) : raw;
+  }
   return raw;
 }
 
@@ -368,7 +375,15 @@ function writeCampo(
     return;
   }
   if (!campo.captura?.columna || !campo.captura.fila || !hoja) return;
+  // Campo imagen: su URL se escribe como texto y además se marca la celda como hipervínculo, para
+  // abrirla de un clic en el navegador. Incrustar el binario como dibujo está implementado (ver
+  // lib/xlsxImageWriter.ts) pero desactivado: Excel seguía marcando el archivo como reparado.
+  // Para reactivarlo: saltar este campo aquí y reponer el bloque de descarga en
+  // insertarValoresEnExcel, que registra la imagen con ediciones.insertarImagen().
   const raw = valores[campo.identificador];
+  if (campo.tipo === 'imagen' && typeof raw === 'string' && /^https?:\/\//i.test(raw.trim())) {
+    ediciones.enlazar(hoja, campo.captura.columna, campo.captura.fila + ediciones.desplazamientoPara(hoja, campo.captura.fila), raw.trim());
+  }
   if (raw == null || raw === '') return; // campo vacío: no tocar la celda
   const shift = ediciones.desplazamientoPara(hoja, campo.captura.fila);
 

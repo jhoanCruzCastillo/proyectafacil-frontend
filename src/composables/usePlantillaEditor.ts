@@ -111,13 +111,17 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
   async function handleCreateExample(nombre: string, subtitulo: string, detalle: string, tipologiasIoarr?: TipologiaIoarr[]) {
     if (!archivoExcelAsignado.value) return; // NuevoEjemploModal ya bloquea la creación sin Excel asignado
     const nuevo: Ejemplo = { id: generateId(), nombre, subtitulo, detalle, plantillaId: plantillaId.value, activo: false, valores: {}, tipologiasIoarr, estado: 'archivado' };
-    await crearEjemplo.mutateAsync(nuevo);
-    activeEjemplo.value = nuevo;
+    // El id que se manda es solo un provisional: el backend asigna el suyo (autoincremental) y
+    // devuelve el ejemplo ya creado. Hay que quedarse con ESE — usar el provisional hacía que la
+    // copia del Excel se pidiera contra un id inexistente (404) y que el ejemplo activo apuntara a
+    // algo que no existe, así que ni se copiaba el archivo ni se guardaban después sus valores.
+    const creado = await crearEjemplo.mutateAsync(nuevo);
+    activeEjemplo.value = creado;
     editedValores.value = {};
 
     // Copia propia del Excel asignado a la plantilla
     await setExcelEjemplo.mutateAsync({
-      ejemploId: nuevo.id,
+      ejemploId: creado.id,
       archivo: { id: generateId(), nombre: archivoExcelAsignado.value.nombre, dataUrl: archivoExcelAsignado.value.dataUrl, fechaSubida: new Date().toLocaleDateString('es-PE') },
     });
 

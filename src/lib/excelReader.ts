@@ -1,5 +1,7 @@
 import { leerLibroXlsx, type CeldaLeida, type LibroLeido } from './xlsxXmlReader';
+import { leerImagenesDeHoja, imagenParaFila, type ImagenIncrustada } from './xlsxImageReader';
 import { aFechaISO, aAnio, textoABooleano } from './conversionesExcel';
+import { parseCoords, serializarCoords } from './coords';
 import { esCeldaPartida, esJerarquica, getPeriodos, type FilaDinamica, type GrupoFilas, type TreeNode } from './tableRowHelpers';
 import type { Plantilla, Campo, Seccion, ConfigTabla, ColumnaTabla, TipoCampo, TipoColumna } from '@/types';
 
@@ -44,8 +46,14 @@ function valorParaCampo(campo: Campo, celda: CeldaLeida): string | null {
       const n = Number(texto.replace(/\s/g, '').replace(',', '.'));
       return Number.isFinite(n) ? String(n) : texto; // texto no numérico se conserva tal cual
     }
-    // 'mapa_coordenadas' cae aquí a propósito: por ahora las coordenadas se tratan como texto
-    // simple (decisión del usuario), sin intentar parsearlas a {lat,lng}.
+    // La celda del Excel trae las coordenadas como texto suelto ("-13.5407619,   -71.923069").
+    // Se normalizan a la forma canónica {lat,lng} que declara la convención, porque es la que
+    // entiende el editor para pintar el mapa. Si el texto no es un par de coordenadas válido se
+    // conserva tal cual, para no perder lo que el usuario haya escrito.
+    case 'mapa_coordenadas': {
+      const c = parseCoords(texto);
+      return c ? serializarCoords(c) : texto;
+    }
     default:
       return celda.valor; // texto_corto / texto_largo / catálogos: sin recortar, el original manda
   }
@@ -175,6 +183,11 @@ function leerFilaTabla(
   const valores: FilaDinamica = {};
   let tieneDatos = false;
   for (const col of config.columnas) {
+    // Columna calculada: se protege igual que un campo suelto calculado (ver el bucle de campos
+    // simples). Su valor lo produce nuestra propia fórmula, así que traerse el número que Excel
+    // dejó cacheado la convertiría en un dato muerto. Simétrico a la regla de escritura, donde
+    // tampoco pisamos una celda que ya trae fórmula del libro.
+    if (col.tipo === 'calculado' || col.formula) { valores[col.id] = ''; continue; }
     if (col.id === config.columnaDinamicaId && col.columnaExcel && periodos.length > 0) {
       const arr = leerCeldasPeriodos(libro, hoja, col, filaFisica, periodos);
       valores[col.id] = arr;
@@ -379,7 +392,12 @@ function leerArbol(
     const span = Math.min(Math.max(fusion?.filas ?? 1, 1), fin - row);
 
     let value: string | string[];
-    if (col?.id === config.columnaDinamicaId && col.columnaExcel && periodos.length > 0) {
+    // Nivel calculado: mismo criterio que en las tablas planas y en los campos sueltos — su valor
+    // lo produce nuestra fórmula, no el número que Excel dejó cacheado. Se devuelve vacío para que
+    // la fusión conserve lo que el ejemplo ya tenía.
+    if (col?.tipo === 'calculado' || col?.formula) {
+      value = '';
+    } else if (col?.id === config.columnaDinamicaId && col.columnaExcel && periodos.length > 0) {
       const arr = leerCeldasPeriodos(libro, hoja, col, row, periodos);
       value = arr;
       if (arr.some((v) => v !== '')) filasConDatos++;
@@ -510,6 +528,12 @@ export interface OpcionesVolcado {
   camposSimples: boolean;
   /** Leer tablas — todos los subtipos, siempre acotado a las `filasBase` declaradas */
   tablas: boolean;
+  /** Leer las imágenes incrustadas de los campos tipo `imagen`. Requiere `subirImagen`: el valor
+   * que se guarda en el JSON es una URL, nunca el binario. */
+  imagenes: boolean;
+  /** Sube la imagen y devuelve su URL, o null si no se pudo (formato no convertible, red, etc.).
+   * Se inyecta desde fuera para que esta librería no dependa de la capa de API. */
+  subirImagen?: (img: ImagenIncrustada, nombre: string) => Promise<string | null>;
   /** Ids de las secciones a incluir — las demás no se tocan */
   seccionesIds: Set<string>;
   /** Valores actuales del ejemplo — base de la fusión celda a celda en tablas */
@@ -533,6 +557,10 @@ export interface ResultadoVolcado {
   tablasOmitidas: number;
   /** Hojas que la plantilla declara pero el Excel no tiene (nombres cambiados, otro archivo) */
   hojasFaltantes: string[];
+  /** Imágenes extraídas del Excel y subidas, cuya URL quedó en `valores` */
+  imagenesLeidas: number;
+  /** Imágenes encontradas que no se pudieron traer, con el motivo (ej. "2.03.01 (emf)") */
+  imagenesOmitidas: string[];
 }
 
 const TIPOS_TABLA: TipoCampo[] = ['tabla', 'tabla_jerarquica'];
@@ -547,6 +575,8 @@ export async function leerValoresDeExcel(
   const ops: OpcionesVolcado = {
     camposSimples: opciones?.camposSimples ?? true,
     tablas: opciones?.tablas ?? false,
+    imagenes: opciones?.imagenes ?? false,
+    subirImagen: opciones?.subirImagen,
     seccionesIds: opciones?.seccionesIds ?? new Set(plantilla.secciones.map((s) => s.id)),
     valoresActuales: opciones?.valoresActuales ?? {},
   };
@@ -563,6 +593,8 @@ export async function leerValoresDeExcel(
     filasExtraDetectadas: 0,
     tablasOmitidas: 0,
     hojasFaltantes: [],
+    imagenesLeidas: 0,
+    imagenesOmitidas: [],
   };
 
   // Tareas de las secciones seleccionadas, agrupadas por hoja: las tablas de una hoja se procesan
@@ -633,10 +665,34 @@ export async function leerValoresDeExcel(
       resultado.filasTablaLeidas += lectura.filasConDatos;
     }
 
-    // 2) Campos simples, con el desplazamiento acumulado de las tablas crecidas de arriba
+    // 2) Imágenes incrustadas. No se resuelven por celda: el binario vive en xl/media y su
+    // posición se declara en xl/drawings, así que se busca el anclaje que cubre la FILA del campo.
+    if (ops.imagenes && ops.subirImagen) {
+      const conImagen = tareas.filter((t) => t.campo.tipo === 'imagen' && t.campo.editable && t.campo.captura?.fila);
+      if (conImagen.length > 0) {
+        const incrustadas = await leerImagenesDeHoja(libro.zip, hoja);
+        for (const { campo } of conImagen) {
+          const fila = campo.captura!.fila! + shift(campo.captura!.fila!);
+          const img = imagenParaFila(incrustadas, fila);
+          if (!img) continue; // sin imagen en esa fila: no se toca el valor actual
+
+          const url = await ops.subirImagen(img, `${campo.identificador}.${img.formato}`);
+          if (url === null) {
+            resultado.imagenesOmitidas.push(`${campo.identificador} (${img.formato})`);
+            continue;
+          }
+          resultado.valores[campo.identificador] = url;
+          resultado.imagenesLeidas++;
+        }
+      }
+    }
+
+    // 3) Campos simples, con el desplazamiento acumulado de las tablas crecidas de arriba
     if (!ops.camposSimples) continue;
     for (const { campo } of tareas) {
       if (TIPOS_TABLA.includes(campo.tipo)) continue;
+      // Las imágenes ya se resolvieron arriba, por anclaje y no por celda.
+      if (campo.tipo === 'imagen') continue;
       // Un campo calculado guarda su fórmula (ej. "=6.01.10-6.01.01"), no un dato tecleado:
       // sobrescribirlo con el número que Excel dejó cacheado rompería el cálculo.
       if (campo.tipo === 'calculado' || !campo.editable) continue;

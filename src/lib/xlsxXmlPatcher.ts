@@ -1,4 +1,5 @@
 import JSZip from 'jszip';
+import { insertarImagenEnHoja, type ImagenAInsertar } from './xlsxImageWriter';
 
 // Parcheador quirúrgico de OOXML (.xlsx/.xlsm): en vez de re-serializar el libro entero con
 // SheetJS (XLSX.write), que en la edición gratuita descarta por completo los estilos de celda
@@ -30,6 +31,10 @@ interface HojaEdits {
   /** Rangos cuya fusión debe romperse antes de escribir (celdas partidas, 4.8) */
   desfusiones: Set<string>;
   crecimientos: Crecimiento[];
+  /** Imágenes a incrustar (campos tipo `imagen`) — no son celdas: van a xl/media + xl/drawings */
+  imagenes: ImagenAInsertar[];
+  /** Celdas que deben quedar como hipervínculo: ref de celda -> URL destino */
+  enlaces: Map<string, string>;
 }
 
 export class LibroEdits {
@@ -37,7 +42,7 @@ export class LibroEdits {
 
   private getHoja(hoja: string): HojaEdits {
     let h = this.hojas.get(hoja);
-    if (!h) { h = { celdas: [], merges: new Set(), desfusiones: new Set(), crecimientos: [] }; this.hojas.set(hoja, h); }
+    if (!h) { h = { celdas: [], merges: new Set(), desfusiones: new Set(), crecimientos: [], imagenes: [], enlaces: new Map() }; this.hojas.set(hoja, h); }
     return h;
   }
 
@@ -61,6 +66,18 @@ export class LibroEdits {
   // — Excel solo muestra la celda superior-izquierda del rango.
   desfusionar(hoja: string, rango: string) {
     this.getHoja(hoja).desfusiones.add(rango);
+  }
+
+  // Una imagen no ocupa una celda: se guarda como binario aparte y se ancla entre coordenadas.
+  // Se acumula acá para que el parcheo del ZIP siga siendo el único punto que toca el archivo.
+  insertarImagen(hoja: string, imagen: ImagenAInsertar) {
+    this.getHoja(hoja).imagenes.push(imagen);
+  }
+
+  // Convierte la celda en un enlace en el que se puede hacer clic. El texto visible lo pone
+  // escribirCelda por separado — esto solo añade el salto.
+  enlazar(hoja: string, columna: string, fila: number, url: string) {
+    this.getHoja(hoja).enlaces.set(`${columna}${fila}`, url);
   }
 
   // Registra que una tabla creció más allá de sus filas base — las filas físicas de Excel deben
@@ -296,6 +313,62 @@ function ensureMergeCells(doc: Document, worksheet: Element, sheetData: Element)
   return nuevo;
 }
 
+// Elementos que van DESPUÉS de <hyperlinks> en la secuencia de CT_Worksheet. El esquema es una
+// `xsd:sequence`: colocar el elemento en el sitio equivocado hace que Excel no pueda leer la hoja
+// y la reemplace entera.
+const TRAS_HYPERLINKS = new Set([
+  'printOptions', 'pageMargins', 'pageSetup', 'headerFooter', 'rowBreaks', 'colBreaks',
+  'customProperties', 'cellWatches', 'ignoredErrors', 'smartTags', 'drawing', 'legacyDrawing',
+  'legacyDrawingHF', 'drawingHF', 'picture', 'oleObjects', 'controls', 'webPublishItems',
+  'tableParts', 'extLst',
+]);
+
+function ensureHyperlinks(doc: Document, worksheet: Element): Element {
+  const existente = Array.from(worksheet.children).find((el) => el.localName === 'hyperlinks');
+  if (existente) return existente;
+  const nuevo = doc.createElementNS(SML_NS, 'hyperlinks');
+  const posterior = Array.from(worksheet.children).find((el) => TRAS_HYPERLINKS.has(el.localName));
+  worksheet.insertBefore(nuevo, posterior ?? null);
+  return nuevo;
+}
+
+// Un hipervínculo en OOXML son dos piezas: el <hyperlink ref="B28" r:id="…"/> dentro de la hoja, y
+// una relación EXTERNA (TargetMode="External") en el .rels de esa hoja, que es la que guarda la URL.
+// Se devuelve el XML de relaciones ya actualizado para que el llamador lo escriba en el ZIP.
+function agregarHipervinculo(doc: Document, worksheet: Element, relsDoc: Document, ref: string, url: string): void {
+  // Reutilizar la relación si esa misma URL ya estaba enlazada en la hoja
+  let rid: string | undefined;
+  let max = 0;
+  for (const rel of Array.from(relsDoc.getElementsByTagName('Relationship'))) {
+    const id = rel.getAttribute('Id') ?? '';
+    const m = id.match(/^rId(\d+)$/);
+    if (m) max = Math.max(max, Number(m[1]));
+    if (rel.getAttribute('Target') === url && rel.getAttribute('TargetMode') === 'External') rid = id;
+  }
+  if (!rid) {
+    rid = `rId${max + 1}`;
+    const rel = relsDoc.createElementNS('http://schemas.openxmlformats.org/package/2006/relationships', 'Relationship');
+    rel.setAttribute('Id', rid);
+    rel.setAttribute('Type', `${R_NS}/hyperlink`);
+    rel.setAttribute('Target', url);
+    rel.setAttribute('TargetMode', 'External');
+    relsDoc.documentElement.appendChild(rel);
+  }
+
+  const contenedor = ensureHyperlinks(doc, worksheet);
+  // Si la celda ya tenía un enlace, se repunta en vez de duplicar (dos <hyperlink> con el mismo
+  // `ref` hacen que Excel repare el archivo).
+  const previo = Array.from(contenedor.children).find((el) => el.getAttribute('ref') === ref);
+  if (previo) {
+    previo.setAttributeNS(R_NS, 'r:id', rid);
+    return;
+  }
+  const el = doc.createElementNS(SML_NS, 'hyperlink');
+  el.setAttribute('ref', ref);
+  el.setAttributeNS(R_NS, 'r:id', rid);
+  contenedor.appendChild(el);
+}
+
 interface RangoCeldas { c1: number; r1: number; c2: number; r2: number }
 
 function parseRango(rango: string): RangoCeldas {
@@ -412,7 +485,31 @@ export async function aplicarEdicionesXlsx(dataUrl: string, ediciones: LibroEdit
       agregarMerge(doc, worksheet, sheetData, rango);
     }
 
+    // Hipervínculos: además del <hyperlink> en la hoja hay que tocar SU archivo de relaciones,
+    // que es donde vive la URL. Es la única edición que escribe una parte del ZIP distinta de la
+    // propia hoja, por eso se resuelve aquí y no en aplicarValorCelda.
+    if (edits.enlaces.size > 0) {
+      const rutaRels = path.replace(/(worksheets\/)/, '$1_rels/') + '.rels';
+      const relsFile = zip.file(rutaRels);
+      const relsDoc = parser.parseFromString(
+        relsFile
+          ? await relsFile.async('string')
+          : '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>',
+        'application/xml',
+      );
+      for (const [ref, url] of edits.enlaces) {
+        agregarHipervinculo(doc, worksheet, relsDoc, ref, url);
+      }
+      zip.file(rutaRels, serializer.serializeToString(relsDoc));
+    }
+
     zip.file(path, serializer.serializeToString(doc));
+
+    // Las imágenes se aplican DESPUÉS de volcar el XML de la hoja: insertarImagenEnHoja puede
+    // tener que añadirle el elemento <drawing>, y lo relee del zip ya actualizado.
+    for (const imagen of edits.imagenes) {
+      await insertarImagenEnHoja(zip, nombreHoja, imagen);
+    }
   }
 
   const outBuffer = await zip.generateAsync({ type: 'base64', compression: 'DEFLATE', compressionOptions: { level: 6 } });
