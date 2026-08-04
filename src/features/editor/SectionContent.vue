@@ -108,6 +108,7 @@ const subseccionAyuda = computed(() => props.seccion.subsecciones.find((s) => s.
           v-for="campo in sub.campos"
           :key="campo.id"
           :campo="campo"
+          :hoja="seccion.hoja"
           :show-example-value="showExampleValues"
           :example-value="exampleValores?.[campo.identificador]"
           :is-selected="selectedCampoId === campo.id"

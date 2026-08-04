@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, inject, ref } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { fieldTypeIcons, fieldTypeLabels, subtipoTablaLabels, columnTypeLabels, faTriangleExclamation, faEllipsisVertical, faTrash, faLightbulb, faWandMagicSparkles, faSpinner } from '@/lib/icons';
 import { campoFaltaCaptura } from '@/lib/campoValidation';
@@ -7,6 +7,8 @@ import { mejorarTexto } from '@/lib/mejoraTexto';
 import ExampleTableEditor from './ExampleTableEditor.vue';
 import CampoCoordenadasInput from '@/components/CampoCoordenadasInput.vue';
 import CampoImagenInput from '@/components/CampoImagenInput.vue';
+import CampoListaInput from '@/components/CampoListaInput.vue';
+import { LISTAS_EXCEL } from '@/composables/useListasExcel';
 import type { Campo, ConfigTabla } from '@/types';
 
 const props = defineProps<{
@@ -28,6 +30,9 @@ const props = defineProps<{
   referenciaValor?: string;
   /** true = el plan del cliente incluye la ayuda de IA para mejorar títulos/textos (Nivel 1+); undefined = no mostrar el botón (modo admin) */
   permiteMejoraIA?: boolean;
+  /** Hoja de Excel de la sección a la que pertenece el campo — hace falta para localizar su celda
+   * y saber si tiene lista desplegable */
+  hoja?: string;
 }>();
 
 const emit = defineEmits<{
@@ -46,6 +51,17 @@ const isCoordField = computed(() => props.campo.tipo === 'mapa_coordenadas');
 // Campo tipo imagen: el valor es una URL, pero se edita con vista previa y carga de archivo.
 const isImagenField = computed(() => props.campo.tipo === 'imagen');
 const faltaCaptura = computed(() => campoFaltaCaptura(props.campo));
+
+// Opciones del desplegable, leídas del Excel asignado (no de la estructura JSON). Si la celda de
+// este campo no tiene lista, o el Excel no está disponible, queda en undefined y el campo se
+// comporta como texto libre.
+const listas = inject(LISTAS_EXCEL, undefined);
+const opcionesExcel = computed(() => {
+  const captura = props.campo.captura;
+  if (!listas?.value || !props.hoja || !captura?.columna || !captura.fila) return undefined;
+  return listas.value.opcionesDe(props.hoja, `${captura.columna}${captura.fila}`);
+});
+const tieneLista = computed(() => (opcionesExcel.value?.length ?? 0) > 0);
 const esCampoTexto = computed(() => props.campo.tipo === 'texto_corto' || props.campo.tipo === 'texto_largo');
 const esTextoLargo = computed(() => props.campo.tipo === 'texto_largo');
 
@@ -161,6 +177,12 @@ function handleClick() {
             @update:model-value="emit('update-default-value', $event)"
             @update:config="emit('update-config-tabla', $event)"
           />
+          <CampoListaInput
+            v-else-if="tieneLista"
+            :value="campo.valorEjemplo || ''"
+            :opciones="opcionesExcel ?? []"
+            @change="emit('update-default-value', $event)"
+          />
           <textarea
             v-else-if="esTextoLargo"
             :value="campo.valorEjemplo || ''"
@@ -211,8 +233,15 @@ function handleClick() {
             @update:model-value="emit('update-example-value', $event)"
           />
           <template v-else>
+            <CampoListaInput
+              v-if="tieneLista"
+              :value="displayValue || ''"
+              :opciones="opcionesExcel ?? []"
+              :editable="editableExample"
+              @change="emit('update-example-value', $event)"
+            />
             <textarea
-              v-if="esTextoLargo"
+              v-else-if="esTextoLargo"
               :value="displayValue || ''"
               @input="emit('update-example-value', ($event.target as HTMLTextAreaElement).value)"
               rows="1"

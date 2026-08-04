@@ -4,6 +4,9 @@ import { crearResolver, esFormula, evaluarFormula, traducirFormulaAExcel, type R
 import { booleanoATexto, type EtiquetasBooleano } from './conversionesExcel';
 import { parseCoords, coordsATexto } from './coords';
 import { leerLibroXlsx } from './xlsxXmlReader';
+import { catalogoDeListas, normalizarOpcion, type AvisoLista } from './xlsxListas';
+
+export type { AvisoLista } from './xlsxListas';
 import type { Plantilla, Campo, ColumnaTabla, ConfigTabla, TipoCampo } from '@/types';
 
 // --- Aritmética de columnas Excel (A, B, ..., Z, AA, AB, ...) ---
@@ -445,11 +448,44 @@ function writeCampo(
 // celda que cambian — el resto del archivo (estilos, colores, macros) queda intacto.
 // `onProgress` (0 a 1) se reporta a medida que se acumulan los cambios de cada campo, cediendo el
 // hilo principal entre lotes para que la barra de carga se repinte con progreso real.
+// Un valor fuera de lista se escribe igual (Excel no lo rechaza al escribir el XML), pero rompe las
+// fórmulas que dependen de esa celda — en el formato oficial los desplegables de Problema-Objetivo
+// se resuelven con INDIRECT sobre lo que haya en su celda padre.
+function revisarListas(
+  libro: ReturnType<typeof catalogoDeListas>,
+  tareas: { hoja: string | undefined; campo: Campo }[],
+  valores: Record<string, string>,
+): { avisos: AvisoLista[]; correcciones: Record<string, string> } {
+  const avisos: AvisoLista[] = [];
+  // Cuando el valor del JSON coincide con una opción salvo por mayúsculas o tildes, se escribe el
+  // texto EXACTO del Excel: escribir "gobierno local" donde la opción es "Gobierno Local" rompería
+  // igualmente el INDIRECT que cuelga de esa celda, y avisar de una diferencia de tildes sería ruido.
+  const correcciones: Record<string, string> = {};
+
+  for (const { hoja, campo } of tareas) {
+    const captura = campo.captura;
+    if (!hoja || !captura?.columna || !captura.fila) continue;
+    const valor = (valores[campo.identificador] ?? '').trim();
+    if (valor === '') continue;
+    const ref = `${captura.columna}${captura.fila}`;
+    // Solo las listas resueltas: de las dependientes (INDIRECT) no sabemos las opciones, así que no
+    // se puede afirmar que el valor sea inválido.
+    const opciones = libro.opcionesDe(hoja, ref);
+    if (!opciones) continue;
+
+    const exacta = opciones.find((o) => normalizarOpcion(o) === normalizarOpcion(valor));
+    if (!exacta) avisos.push({ campo: campo.identificador, celda: `${hoja}!${ref}`, valor, opciones });
+    else if (exacta !== valores[campo.identificador]) correcciones[campo.identificador] = exacta;
+  }
+  return { avisos, correcciones };
+}
+
 export async function insertarValoresEnExcel(
   dataUrl: string,
   plantilla: Plantilla,
   valores: Record<string, string>,
   onProgress?: (fraction: number) => void,
+  onAvisos?: (avisos: AvisoLista[]) => void,
 ): Promise<string> {
   const ediciones = new LibroEdits();
 
@@ -479,14 +515,20 @@ export async function insertarValoresEnExcel(
   const altoDeBloque = (hoja: string, columna: string | undefined, fila: number): number | undefined =>
     (columna ? libroOrigen.fusion(hoja, `${columna}${fila}`)?.filas : undefined);
 
-  const resolverFormula = crearResolver(tareas.map((t) => t.campo), (id) => valores[id]);
+  // Celdas con lista desplegable: se ajusta el valor al texto exacto de la opción cuando solo
+  // difiere en mayúsculas/tildes, y se avisa (sin bloquear) de los que no están en la lista.
+  const { avisos, correcciones } = revisarListas(catalogoDeListas(libroOrigen), tareas, valores);
+  if (avisos.length > 0) onAvisos?.(avisos);
+  const valoresFinales = Object.keys(correcciones).length > 0 ? { ...valores, ...correcciones } : valores;
+
+  const resolverFormula = crearResolver(tareas.map((t) => t.campo), (id) => valoresFinales[id]);
   const tareasPorId = new Map(tareas.map((t) => [t.campo.identificador, t]));
 
   const total = tareas.length || 1;
   const loteSize = Math.max(1, Math.ceil(total / 30)); // ~30 repintados como máximo durante la acumulación
   for (let i = 0; i < tareas.length; i++) {
     const { hoja, campo } = tareas[i];
-    writeCampo(ediciones, hoja, campo, valores, resolverFormula, tareasPorId, altoDeBloque);
+    writeCampo(ediciones, hoja, campo, valoresFinales, resolverFormula, tareasPorId, altoDeBloque);
     if ((i + 1) % loteSize === 0 || i === tareas.length - 1) {
       onProgress?.(((i + 1) / total) * 0.9); // el 10% restante es el parcheo del ZIP
       await new Promise((resolve) => setTimeout(resolve, 0));

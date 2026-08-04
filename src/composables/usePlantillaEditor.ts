@@ -1,4 +1,4 @@
-import { type Ref, computed, ref, watch } from 'vue';
+import { type Ref, computed, provide, ref, watch } from 'vue';
 import { usePlantillaQuery, useActualizarPlantilla } from '@/composables/usePlantillas';
 import { useEjemplosByPlantillaQuery, useCrearEjemplo, useActualizarEjemplo, useEliminarEjemplo } from '@/composables/useEjemplos';
 import { useCatalogoExcelQuery } from '@/composables/useArchivosExcel';
@@ -7,8 +7,10 @@ import { generateId } from '@/api/mock/_shared';
 import { excelEjemplosApi } from '@/api/excelEjemplos';
 import { contarCamposSinCaptura } from '@/lib/campoValidation';
 import { buildDocumento } from '@/lib/schemaExport';
-import { insertarValoresEnExcel } from '@/lib/excelWriter';
+import { insertarValoresEnExcel, type AvisoLista } from '@/lib/excelWriter';
 import { usePushActividad } from '@/composables/useActividad';
+import { useListasExcel, LISTAS_EXCEL } from '@/composables/useListasExcel';
+import { mensajeAvisoListas } from '@/lib/xlsxListas';
 import { useUiStore } from '@/stores/ui';
 import type { VersionTab, Campo, Plantilla, Ejemplo, Seccion, TipologiaIoarr } from '@/types';
 
@@ -71,12 +73,19 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
   const showInsertConfirm = ref(false);
   const isInserting = ref(false);
   const insertProgress = ref(0);
+  /** Valores que no coincidieron con las opciones del desplegable de su celda en la última inserción */
+  const avisosListas = ref<AvisoLista[]>([]);
 
   const archivoExcelAsignado = computed(() => {
     const catalogo = catalogoExcel.value;
     return catalogo?.archivos.find((a) => a.id === catalogo.asignadoId) ?? null;
   });
   const { data: excelEjemploActivo } = useExcelEjemploQuery(computed(() => activeEjemplo.value?.id ?? null));
+
+  // Listas desplegables leídas del Excel del catálogo (no de la copia del ejemplo): es el mismo
+  // archivo en cuanto a opciones, pero no cambia al insertar valores, así que la caché sigue válida
+  // toda la sesión. Se comparte con las tarjetas de campo por inject.
+  provide(LISTAS_EXCEL, useListasExcel(computed(() => archivoExcelAsignado.value?.dataUrl ?? null)));
   const previewFileUrl = computed(
     () => (showExamples.value && activeEjemplo.value ? excelEjemploActivo.value?.dataUrl : undefined) ?? archivoExcelAsignado.value?.dataUrl ?? null,
   );
@@ -173,16 +182,27 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     if (!archivo) { ui.toast('Este ejemplo no tiene una copia de Excel asociada', 'error'); showInsertConfirm.value = false; return; }
     isInserting.value = true;
     insertProgress.value = 0;
+    avisosListas.value = [];
     try {
       // Siempre se inserta sobre el Excel original del catálogo (no sobre la copia ya insertada
       // del ejemplo) — insertar dos veces sobre la copia ya modificada duplicaría las filas
       // insertadas por tablas que crecen más allá de sus filas base.
-      const nuevaDataUrl = await insertarValoresEnExcel(archivoExcelAsignado.value.dataUrl, editData.value, editedValores.value, (fraction) => {
-        insertProgress.value = Math.round(fraction * 100);
-      });
+      const nuevaDataUrl = await insertarValoresEnExcel(
+        archivoExcelAsignado.value.dataUrl,
+        editData.value,
+        editedValores.value,
+        (fraction) => { insertProgress.value = Math.round(fraction * 100); },
+        (avisos) => { avisosListas.value = avisos; },
+      );
       await setExcelEjemplo.mutateAsync({ ejemploId: activeEjemplo.value.id, archivo: { ...archivo, dataUrl: nuevaDataUrl } });
       await pushActividad.mutateAsync({ mensaje: `Se insertaron los valores del ejemplo "${activeEjemplo.value.nombre}" en su Excel`, color: 'blue' });
       ui.toast('Valores insertados en el Excel del ejemplo');
+      // El aviso llega aparte y en rojo: la inserción sí se hizo, pero conviene revisar esos valores.
+      const aviso = mensajeAvisoListas(avisosListas.value);
+      if (aviso) {
+        ui.toast(aviso, 'error');
+        console.warn('[listas] valores fuera de las opciones del Excel:', avisosListas.value);
+      }
     } catch (e) {
       ui.toast(e instanceof Error ? e.message : 'No se pudo insertar los valores en el Excel', 'error');
     } finally {
