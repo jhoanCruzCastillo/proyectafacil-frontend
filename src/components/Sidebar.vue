@@ -3,6 +3,7 @@ import { computed } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faHouse, faLayerGroup, faAngleLeft, faUserGear, faCalendarWeek, faCalendarCheck, faCircleInfo, faCircleExclamation, faListCheck, faHeadset, faPeopleGroup, faMoneyBillTransfer, instrumentoIcons } from '@/lib/icons';
 import UserMenu from '@/features/settings/UserMenu.vue';
+import MejorarPlanCard from '@/features/settings/MejorarPlanCard.vue';
 import NotificacionesBell from '@/features/asesoria/NotificacionesBell.vue';
 import { useSessionStore } from '@/stores/session';
 import { puedeAccederGestionUsuarios } from '@/lib/permisos';
@@ -110,6 +111,7 @@ const emit = defineEmits<{ hide: [] }>();
       </ul>
     </nav>
 
+    <MejorarPlanCard v-if="esCliente" />
     <NotificacionesBell v-if="session.sesion" />
     <UserMenu />
   </aside>
