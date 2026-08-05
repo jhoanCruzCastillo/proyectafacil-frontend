@@ -464,6 +464,34 @@ export interface Docente {
   horario: HorarioDocente[];
 }
 
+// --- Contextos IA ---
+
+/** Contexto reutilizable por cualquier ficha (ej. "Invierte.pe", "Finanzas"). */
+export interface ContextoGlobalIA {
+  id: string;
+  nombre: string;
+  /** Clave de `sectorIcons`, o null */
+  icono?: string | null;
+  markdown: string;
+  /** Cuántas secciones lo tienen asociado */
+  usos: number;
+  actualizadoEn?: string | null;
+}
+
+/** Contexto propio de UNA sección de UNA ficha. */
+export interface ContextoSeccionIA {
+  seccionId: string;
+  markdown: string;
+  /** IDs de los contextos globales asociados */
+  globales: string[];
+  actualizadoEn?: string | null;
+}
+
+export interface ContextosIAPlantilla {
+  secciones: ContextoSeccionIA[];
+  globales: ContextoGlobalIA[];
+}
+
 // --- Mi Liquidación (asesor) ---
 
 /** Una consulta completada, como la ve el asesor en su liquidación. */

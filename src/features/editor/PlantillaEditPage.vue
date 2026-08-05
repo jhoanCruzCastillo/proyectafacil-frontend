@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faChevronLeft, faChevronRight } from '@/lib/icons';
@@ -9,6 +9,7 @@ import SectionIndex from './SectionIndex.vue';
 import SectionContent from './SectionContent.vue';
 import FieldPropertiesPanel from './FieldPropertiesPanel.vue';
 import EditorTopBar from './EditorTopBar.vue';
+import ContextosIAPanel from './ContextosIAPanel.vue';
 import SeccionHojaModal from './SeccionHojaModal.vue';
 import ImportarEstructuraModal from './ImportarEstructuraModal.vue';
 import ExamplesPanel from './ExamplesPanel.vue';
@@ -43,6 +44,10 @@ const {
 } = usePlantillaEditor(plantillaId);
 
 const mostrarTipologiasIoarr = computed(() => editData.value?.instrumento === 'ioarr');
+
+// Contextos IA reemplaza el cuerpo del editor (no es una versión más de la ficha, así que no entra
+// en `activeTab`): la barra superior se queda y debajo se cambia todo el contenido.
+const verContextosIA = ref(false);
 </script>
 
 <template>
@@ -53,14 +58,18 @@ const mostrarTipologiasIoarr = computed(() => editData.value?.instrumento === 'i
       :sector-id="sectorId"
       :plantilla-id="plantillaId"
       :active-tab="activeTab"
-      @change-tab="handleTabChange"
+      :contextos-i-a="verContextosIA"
+      @change-tab="(t) => { verContextosIA = false; handleTabChange(t); }"
+      @toggle-contextos-ia="verContextosIA = !verContextosIA"
       @save="handleSave"
       @view-json="handleViewJson"
       @preview-excel="showPreview = true"
       @insert-excel="showInsertConfirm = true"
     />
 
-    <div class="flex flex-1 overflow-hidden">
+    <ContextosIAPanel v-if="verContextosIA" :plantilla="editData" :plantilla-id="plantillaId" />
+
+    <div v-else class="flex flex-1 overflow-hidden">
       <template v-if="showExamples">
         <div class="shrink-0 bg-white overflow-hidden border-r border-gray-100" :style="{ width: `${examplesWidth}px` }">
           <ExamplesPanel

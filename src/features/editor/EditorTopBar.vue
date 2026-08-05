@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faEye, faSave, faArrowLeft, faFileCode, faFileExport } from '@/lib/icons';
+import { faEye, faSave, faArrowLeft, faFileCode, faFileExport, faWandMagicSparkles } from '@/lib/icons';
 import VersionTabs from '@/components/VersionTabs.vue';
 import { useSessionStore } from '@/stores/session';
+import { puedeAccederGestionUsuarios } from '@/lib/permisos';
 import type { VersionTab, Plantilla } from '@/types';
 
 const props = defineProps<{
@@ -11,12 +12,17 @@ const props = defineProps<{
   sectorId: string;
   plantillaId: string;
   activeTab: VersionTab;
+  /** true = se está viendo el panel de Contextos IA en vez del editor */
+  contextosIA?: boolean;
 }>();
 
-const emit = defineEmits<{ 'change-tab': [VersionTab]; save: []; 'view-json': []; 'preview-excel': []; 'insert-excel': [] }>();
+const emit = defineEmits<{ 'change-tab': [VersionTab]; save: []; 'view-json': []; 'preview-excel': []; 'insert-excel': []; 'toggle-contextos-ia': [] }>();
 
 const session = useSessionStore();
 const esSuperusuario = computed(() => session.sesion?.rol === 'superusuario');
+// El contexto que consume la IA lo redacta quien administra el catálogo, no cualquiera que edite
+// una ficha — mismo criterio que la gestión de usuarios (superusuario + administrador).
+const puedeEditarContextos = computed(() => !!session.sesion && puedeAccederGestionUsuarios(session.sesion.rol));
 const showInsert = computed(() => props.activeTab === 'ejemplos');
 </script>
 
@@ -40,6 +46,16 @@ const showInsert = computed(() => props.activeTab === 'ejemplos');
       </div>
       <div class="flex items-center gap-3">
         <VersionTabs :active-tab="activeTab" disable-proyecto dark @change="emit('change-tab', $event)" />
+        <button
+          v-if="puedeEditarContextos"
+          @click="emit('toggle-contextos-ia')"
+          type="button"
+          class="px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 border transition-colors bg-gradient-to-r from-violet-500/30 to-fuchsia-500/25 hover:from-violet-500/40 hover:to-fuchsia-500/35"
+          :class="contextosIA ? 'border-violet-300/60 text-white shadow-[0_0_0_1px_rgba(167,139,250,0.35)]' : 'border-violet-400/30 text-violet-100'"
+        >
+          <FontAwesomeIcon :icon="faWandMagicSparkles" class="w-3.5 h-3.5" />
+          Contextos IA
+        </button>
         <button
           v-if="esSuperusuario"
           @click="emit('view-json')"

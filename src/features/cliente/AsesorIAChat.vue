@@ -4,6 +4,7 @@ import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faRobot, faXmark, faPaperPlane } from '@/lib/icons';
 import { renderMarkdown } from '@/lib/markdown';
 import { buscarEnGlosario, buscarEnAyudas } from '@/lib/glosarioIA';
+import { consultarAsistenteIA } from '@/api/http/asistenteIA.http';
 import type { Plantilla } from '@/types';
 
 const props = defineProps<{
@@ -66,16 +67,37 @@ function preguntarPorSubseccion(subId: string) {
   );
 }
 
-function enviarPregunta() {
+// Primero se consulta a Claude a través del backend, que le inyecta el contexto que el administrador
+// redactó para esta sección. Si la IA no está configurada o falla, se cae al glosario local de
+// siempre: el chat nunca se queda mudo por un problema de red o por falta de clave.
+async function enviarPregunta() {
   const pregunta = input.value.trim();
-  if (!pregunta) return;
+  if (!pregunta || escribiendo.value) return;
   agregarMensaje('usuario', pregunta);
   input.value = '';
-  const respuesta = buscarEnGlosario(pregunta) ?? buscarEnAyudas(pregunta, props.plantilla.secciones);
-  responderConRetraso(
-    respuesta?.texto ?? 'No tengo una respuesta puntual para eso todavía. Revisa la ayuda de la subsección con el botón "?", o consúltalo con tu asesor humano.',
-    respuesta?.fuente,
-  );
+  escribiendo.value = true;
+
+  try {
+    const { texto } = await consultarAsistenteIA({
+      plantillaId: props.plantilla.id,
+      seccionId: props.seccionActivaId ?? '',
+      pregunta,
+      // Los turnos previos, sin incluir el que se acaba de agregar.
+      historial: mensajes.value
+        .slice(-7, -1)
+        .map((m) => ({ autor: m.autor === 'usuario' ? ('usuario' as const) : ('ia' as const), texto: m.texto })),
+    });
+    escribiendo.value = false;
+    agregarMensaje('asesor', texto);
+  } catch {
+    escribiendo.value = false;
+    const respuesta = buscarEnGlosario(pregunta) ?? buscarEnAyudas(pregunta, props.plantilla.secciones);
+    agregarMensaje(
+      'asesor',
+      respuesta?.texto ?? 'No pude consultar al asesor de IA en este momento. Revisa la ayuda de la subsección con el botón "?", o consúltalo con tu asesor humano.',
+      respuesta?.fuente,
+    );
+  }
 }
 
 function handleEnter(e: KeyboardEvent) {
