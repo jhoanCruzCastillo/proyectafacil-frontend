@@ -9,8 +9,9 @@ import { contarCamposSinCaptura } from '@/lib/campoValidation';
 import { buildDocumento } from '@/lib/schemaExport';
 import { insertarValoresEnExcel, type AvisoLista } from '@/lib/excelWriter';
 import { usePushActividad } from '@/composables/useActividad';
-import { useListasExcel, LISTAS_EXCEL } from '@/composables/useListasExcel';
+import { useExcelVivo, useAltoDeBloqueExcel, EXCEL_VIVO } from '@/composables/useListasExcel';
 import { mensajeAvisoListas } from '@/lib/xlsxListas';
+import { parseDynamicRows, parseTree, esJerarquica, agrupadorProfundidad, posicionesArbol, posicionDe, type AltoDeBloque, type TreeNode } from '@/lib/tableRowHelpers';
 import { useUiStore } from '@/stores/ui';
 import type { VersionTab, Campo, Plantilla, Ejemplo, Seccion, TipologiaIoarr } from '@/types';
 
@@ -27,6 +28,71 @@ const DEFAULT_EXAMPLES = 300;
 // profundamente sin toparse con Proxies.
 function deepClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
+}
+
+// Celdas de una tabla de filas dinámicas, para que el cálculo en vivo pueda usarlas como entrada:
+// la Localización de la sección 1 se construye a partir del UBIGEO, que vive en una columna de la
+// tabla 3.03.01. Solo el subtipo plano — las jerárquicas y agrupadas tienen una geometría de filas
+// variable y ninguna fórmula del formato depende de ellas.
+// Celdas de una tabla JERÁRQUICA. La fila de cada nodo sale de `posicionesArbol` — la misma función
+// que usan el escritor y el editor — para que el valor que se teclea alimente exactamente la celda
+// que el Excel va a leer en su fórmula. Sin esto, una columna calculada como "Total = Cantidad ×
+// Costo" siempre daba 0: la fórmula se detectaba, pero sus operandos nunca llegaban.
+function indexarCeldasJerarquicas(
+  mapa: Map<string, string>,
+  hoja: string,
+  campo: Campo,
+  valorCrudo: string,
+  altoDeBloque: AltoDeBloque,
+): void {
+  const config = campo.configTabla;
+  const filaInicial = config?.captura?.filaInicial;
+  if (!config || !filaInicial) return;
+
+  const roots = parseTree(valorCrudo, config.columnas, config);
+  const agrupadorDepth = config.agrupador ? agrupadorProfundidad(config.columnas, config) : -1;
+  const posiciones = posicionesArbol(roots, config, hoja, filaInicial, agrupadorDepth, altoDeBloque);
+
+  function recorrer(node: TreeNode, path: number[]): void {
+    const pos = posicionDe(posiciones, path);
+    if (pos) {
+      const col = config!.columnas[pos.colIdx];
+      if (col?.columnaExcel && typeof node.value === 'string' && node.value !== '') {
+        mapa.set(`${hoja}!${col.columnaExcel}${pos.fila}`, node.value);
+      }
+      // Fila de título de un grupo: sus columnas libres a la derecha también son celdas de datos.
+      for (const [colId, valor] of Object.entries(node.valores ?? {})) {
+        const libre = config!.columnas.find((c) => c.id === colId);
+        if (libre?.columnaExcel && typeof valor === 'string' && valor !== '') {
+          mapa.set(`${hoja}!${libre.columnaExcel}${pos.fila}`, valor);
+        }
+      }
+    }
+    node.children.forEach((hijo, i) => recorrer(hijo, [...path, i]));
+  }
+
+  roots.forEach((raiz, i) => recorrer(raiz, [i]));
+}
+
+function indexarCeldasDeTabla(mapa: Map<string, string>, hoja: string, campo: Campo, valorCrudo: string, altoDeBloque: AltoDeBloque): void {
+  const config = campo.configTabla;
+  const filaInicial = config?.captura?.filaInicial;
+  if (!config || !filaInicial) return;
+
+  if (esJerarquica(config.subtipo)) {
+    indexarCeldasJerarquicas(mapa, hoja, campo, valorCrudo, altoDeBloque);
+    return;
+  }
+  if (config.subtipo !== 'filas_dinamicas') return;
+
+  const filas = parseDynamicRows(valorCrudo, config);
+  filas.forEach((fila, i) => {
+    for (const col of config.columnas) {
+      if (!col.columnaExcel) continue;
+      const valor = fila[col.id];
+      if (typeof valor === 'string' && valor !== '') mapa.set(`${hoja}!${col.columnaExcel}${filaInicial + i}`, valor);
+    }
+  });
 }
 
 // Toda la lógica de edición de estructura y de autoría de ejemplos (tab Ejemplos) de
@@ -82,10 +148,43 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
   });
   const { data: excelEjemploActivo } = useExcelEjemploQuery(computed(() => activeEjemplo.value?.id ?? null));
 
-  // Listas desplegables leídas del Excel del catálogo (no de la copia del ejemplo): es el mismo
-  // archivo en cuanto a opciones, pero no cambia al insertar valores, así que la caché sigue válida
-  // toda la sesión. Se comparte con las tarjetas de campo por inject.
-  provide(LISTAS_EXCEL, useListasExcel(computed(() => archivoExcelAsignado.value?.dataUrl ?? null)));
+  const fuenteExcel = computed(() => archivoExcelAsignado.value?.dataUrl ?? null);
+  // Se pide antes que el servicio de cálculo porque ubicar las filas de una tabla jerárquica ya
+  // necesita saber cuánto mide cada bloque fusionado. Comparte caché con `useExcelVivo`: mismo
+  // archivo, una sola descarga.
+  const altoDeBloque = useAltoDeBloqueExcel(fuenteExcel);
+
+  // Entradas del cálculo en vivo, indexadas por la celda a la que apunta cada campo. En Estructura
+  // son los valores por defecto de la plantilla; en Ejemplos son los del ejemplo activo tal como se
+  // están editando, para que las fórmulas del Excel se recalculen mientras se escribe.
+  const valoresPorCelda = computed(() => {
+    if (!editData.value) return null;
+    const enEjemplos = activeTab.value === 'ejemplos';
+    const valores = editedValores.value;
+    const mapa = new Map<string, string>();
+    for (const sec of editData.value.secciones) {
+      if (!sec.hoja) continue;
+      for (const sub of sec.subsecciones) {
+        for (const campo of sub.campos) {
+          // Mismo criterio que FieldCard.displayValue: manda lo tecleado en el ejemplo y, si ahí no
+          // hay nada, se cae al valor por defecto de la estructura.
+          const crudo = (enEjemplos ? valores[campo.identificador] : undefined) ?? campo.valorEjemplo ?? '';
+          const cap = campo.captura;
+          if (cap?.columna && cap.fila) {
+            mapa.set(`${sec.hoja}!${cap.columna}${cap.fila}`, crudo);
+            continue;
+          }
+          indexarCeldasDeTabla(mapa, sec.hoja, campo, crudo, altoDeBloque.value);
+        }
+      }
+    }
+    return mapa;
+  });
+
+  // Se lee el Excel del catálogo (no la copia del ejemplo): es el mismo archivo en cuanto a opciones
+  // y fórmulas, pero no cambia al insertar valores, así que la caché sigue válida toda la sesión.
+  // Se comparte con las tarjetas de campo por inject.
+  provide(EXCEL_VIVO, useExcelVivo(fuenteExcel, valoresPorCelda));
   const previewFileUrl = computed(
     () => (showExamples.value && activeEjemplo.value ? excelEjemploActivo.value?.dataUrl : undefined) ?? archivoExcelAsignado.value?.dataUrl ?? null,
   );

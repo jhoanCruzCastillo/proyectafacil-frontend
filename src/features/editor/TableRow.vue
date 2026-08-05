@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import { inject } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faTrash, faGear } from '@/lib/icons';
+import { faTrash, faGear, fieldTypeIcons } from '@/lib/icons';
+import CampoListaInput from '@/components/CampoListaInput.vue';
+import { EXCEL_VIVO } from '@/composables/useListasExcel';
 import type { ColumnaTabla } from '@/types';
 import { esCeldaPartida, valorSubcolumna, valorPlano, type FilaDinamica } from '@/lib/tableRowHelpers';
 
@@ -14,6 +17,10 @@ const props = defineProps<{
   rowIndex: number;
   periodos: string[];
   columnaDinamicaId?: string;
+  /** Hoja de Excel de la sección — con `filaExcel` localiza cada celda en el archivo */
+  hoja?: string;
+  /** Fila de Excel que ocupa ESTA fila de la tabla (fila inicial de la captura + índice) */
+  filaExcel?: number;
 }>();
 
 const emit = defineEmits<{
@@ -38,6 +45,32 @@ function subValor(colId: string, subId: string): string {
 
 function textoPlano(colId: string): string {
   return valorPlano(props.row[colId]);
+}
+
+// --- Ayudas leídas del Excel, celda a celda ---
+// En Territorio, por ejemplo, la columna Ubigeo es un desplegable y Departamento/Provincia/Distrito
+// son VLOOKUP sobre ella: al elegir el ubigeo de una fila, las otras tres celdas de ESA fila se
+// llenan solas. Todo sale del archivo; nada de esto vive en la estructura JSON.
+const excel = inject(EXCEL_VIVO, undefined);
+
+function refDe(col: ColumnaTabla): string | null {
+  if (!excel?.value || !props.hoja || !props.filaExcel || !col.columnaExcel) return null;
+  return `${col.columnaExcel}${props.filaExcel}`;
+}
+
+/** Opciones del desplegable de esa celda, o null si no tiene */
+function opcionesExcel(col: ColumnaTabla): string[] | null {
+  const ref = refDe(col);
+  if (!ref || !props.hoja) return null;
+  const ops = excel?.value?.opcionesDe(props.hoja, ref);
+  return ops && ops.length > 0 ? ops : null;
+}
+
+/** Lo que el Excel calcula en esa celda, o null si no es una celda con fórmula */
+function calculoExcel(col: ColumnaTabla): { texto: string; soportado: boolean; error?: string } | null {
+  const ref = refDe(col);
+  if (!ref || !props.hoja) return null;
+  return excel?.value?.calculado(props.hoja, ref) ?? null;
 }
 </script>
 
@@ -113,6 +146,29 @@ function textoPlano(colId: string): string {
             <FontAwesomeIcon :icon="faGear" class="w-2.5 h-2.5" />
           </button>
         </div>
+      </td>
+      <!-- Celda que el Excel calcula solo (VLOOKUP sobre otra columna de la misma fila) -->
+      <td v-else-if="calculoExcel(col)" class="px-1 py-0.5 align-top bg-sky-50/50">
+        <div class="flex items-start gap-1 px-1 py-1">
+          <FontAwesomeIcon
+            :icon="fieldTypeIcons.calculado"
+            class="w-2.5 h-2.5 text-sky-500 shrink-0 mt-0.5"
+            title="Lo calcula el Excel"
+          />
+          <span v-if="!calculoExcel(col)!.soportado" class="text-[11px] text-sky-800/60 italic">Lo calcula el Excel</span>
+          <span v-else-if="calculoExcel(col)!.error" class="text-[11px] text-amber-700 font-mono">{{ calculoExcel(col)!.error }}</span>
+          <span v-else-if="calculoExcel(col)!.texto" class="text-xs text-heading break-words">{{ calculoExcel(col)!.texto }}</span>
+          <span v-else class="text-[11px] text-muted">—</span>
+        </div>
+      </td>
+      <!-- Celda con desplegable declarado en el Excel -->
+      <td v-else-if="opcionesExcel(col)" class="px-1 py-0.5 align-top">
+        <CampoListaInput
+          :value="(row[col.id] as string) || ''"
+          :opciones="opcionesExcel(col) ?? []"
+          compacto
+          @change="emit('cell-change', col.id, $event)"
+        />
       </td>
       <td v-else-if="col.opciones && col.opciones.length > 0" class="px-1 py-0.5 align-top">
         <select

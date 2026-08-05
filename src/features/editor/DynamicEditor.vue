@@ -12,6 +12,8 @@ const props = defineProps<{
   modelValue: string;
   /** true = permite agregar/renombrar columnas dinámicas (solo tab Estructura) */
   puedeEditarPeriodos?: boolean;
+  /** Hoja de Excel de la sección — habilita los desplegables y el cálculo en vivo por celda */
+  hoja?: string;
 }>();
 
 const emit = defineEmits<{ 'update:modelValue': [string]; 'update:config': [ConfigTabla] }>();
@@ -97,6 +99,8 @@ function renamePeriodo(pi: number, value: string) {
             :row-index="ri"
             :periodos="getPeriodos(config)"
             :columna-dinamica-id="config.columnaDinamicaId"
+            :hoja="hoja"
+            :fila-excel="config.captura?.filaInicial ? config.captura.filaInicial + ri : undefined"
             @cell-change="(colId, val) => updateCell(ri, colId, val)"
             @periodo-change="(colId, pi, val) => updatePeriodo(ri, colId, pi, val)"
             @subcelda-change="(colId, subId, val) => updateSubcelda(ri, colId, subId, val)"

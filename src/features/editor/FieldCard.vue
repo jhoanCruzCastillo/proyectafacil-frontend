@@ -8,7 +8,7 @@ import ExampleTableEditor from './ExampleTableEditor.vue';
 import CampoCoordenadasInput from '@/components/CampoCoordenadasInput.vue';
 import CampoImagenInput from '@/components/CampoImagenInput.vue';
 import CampoListaInput from '@/components/CampoListaInput.vue';
-import { LISTAS_EXCEL } from '@/composables/useListasExcel';
+import { EXCEL_VIVO } from '@/composables/useListasExcel';
 import type { Campo, ConfigTabla } from '@/types';
 
 const props = defineProps<{
@@ -52,16 +52,27 @@ const isCoordField = computed(() => props.campo.tipo === 'mapa_coordenadas');
 const isImagenField = computed(() => props.campo.tipo === 'imagen');
 const faltaCaptura = computed(() => campoFaltaCaptura(props.campo));
 
-// Opciones del desplegable, leídas del Excel asignado (no de la estructura JSON). Si la celda de
-// este campo no tiene lista, o el Excel no está disponible, queda en undefined y el campo se
-// comporta como texto libre.
-const listas = inject(LISTAS_EXCEL, undefined);
-const opcionesExcel = computed(() => {
+// Ayudas leídas del Excel asignado (no de la estructura JSON): las opciones del desplegable de esta
+// celda, y —si la celda es una fórmula— el valor que el Excel calcularía ahí con los datos actuales.
+// Si no hay Excel o la celda no aplica, quedan en undefined y el campo se comporta como siempre.
+const excel = inject(EXCEL_VIVO, undefined);
+const celdaExcel = computed(() => {
   const captura = props.campo.captura;
-  if (!listas?.value || !props.hoja || !captura?.columna || !captura.fila) return undefined;
-  return listas.value.opcionesDe(props.hoja, `${captura.columna}${captura.fila}`);
+  if (!excel?.value || !props.hoja || !captura?.columna || !captura.fila) return null;
+  return { hoja: props.hoja, ref: `${captura.columna}${captura.fila}` };
 });
+
+const opcionesExcel = computed(() =>
+  celdaExcel.value ? excel?.value?.opcionesDe(celdaExcel.value.hoja, celdaExcel.value.ref) : undefined,
+);
 const tieneLista = computed(() => (opcionesExcel.value?.length ?? 0) > 0);
+
+// Celda con fórmula: el Excel manda. No se escribe nunca (el escritor ya respeta las fórmulas del
+// archivo), así que se muestra en solo lectura en vez de un input que no llevaría a nada.
+const calculoExcel = computed(() =>
+  celdaExcel.value ? excel?.value?.calculado(celdaExcel.value.hoja, celdaExcel.value.ref) : undefined,
+);
+const esCalculadaPorExcel = computed(() => calculoExcel.value !== undefined);
 const esCampoTexto = computed(() => props.campo.tipo === 'texto_corto' || props.campo.tipo === 'texto_largo');
 const esTextoLargo = computed(() => props.campo.tipo === 'texto_largo');
 
@@ -161,7 +172,24 @@ function handleClick() {
           </div>
         </div>
 
-        <div v-if="editableDefault" class="mt-2 p-2.5 rounded-lg bg-gray-50 border border-gray-200" @click.stop>
+        <!-- Celda que el Excel calcula solo: no se edita, se muestra el resultado en vivo. Aplica
+             igual en Estructura y en Ejemplos — en Ejemplos reemplaza al input de "Valor de
+             ejemplo", porque teclear ahí no tendría efecto: al insertar en el Excel las fórmulas se
+             respetan y se recalculan solas. -->
+        <div v-if="(editableDefault || showExampleValue) && esCalculadaPorExcel" class="mt-2 p-2.5 rounded-lg bg-sky-50/60 border border-sky-200" @click.stop>
+          <span class="text-[10px] font-bold uppercase tracking-wider text-sky-700 flex items-center gap-1">
+            <FontAwesomeIcon :icon="fieldTypeIcons.calculado" class="w-2.5 h-2.5" />
+            Lo calcula el Excel
+          </span>
+          <p v-if="calculoExcel && !calculoExcel.soportado" class="text-xs text-sky-800/70 italic mt-1">
+            La fórmula de esta celda usa algo que todavía no sabemos calcular — su valor aparecerá al abrir el Excel.
+          </p>
+          <p v-else-if="calculoExcel?.error" class="text-xs text-amber-700 mt-1 font-mono">{{ calculoExcel.error }}</p>
+          <p v-else-if="calculoExcel?.texto" class="text-sm text-heading mt-1 break-words whitespace-pre-wrap">{{ calculoExcel.texto }}</p>
+          <p v-else class="text-xs text-muted italic mt-1">Vacío — depende de otros campos que aún no tienen valor.</p>
+        </div>
+
+        <div v-else-if="editableDefault" class="mt-2 p-2.5 rounded-lg bg-gray-50 border border-gray-200" @click.stop>
           <span class="text-[10px] font-bold uppercase tracking-wider text-gray-500">Valor por defecto</span>
           <div v-if="isCoordField" class="mt-1.5">
             <CampoCoordenadasInput :value="campo.valorEjemplo || ''" @change="emit('update-default-value', $event)" />
@@ -174,6 +202,7 @@ function handleClick() {
             :config="(campo.configTabla as ConfigTabla)"
             :model-value="campo.valorEjemplo || ''"
             :puede-editar-periodos="true"
+            :hoja="hoja"
             @update:model-value="emit('update-default-value', $event)"
             @update:config="emit('update-config-tabla', $event)"
           />
@@ -201,7 +230,7 @@ function handleClick() {
           />
         </div>
 
-        <div v-if="showExampleValue" class="mt-2 p-2.5 rounded-lg bg-brand-100/70 border border-brand-200" @click.stop>
+        <div v-if="showExampleValue && !esCalculadaPorExcel" class="mt-2 p-2.5 rounded-lg bg-brand-100/70 border border-brand-200" @click.stop>
           <div class="flex items-center justify-between">
             <span class="text-[10px] font-bold uppercase tracking-wider text-brand-600">Valor de ejemplo</span>
             <button

@@ -1,4 +1,4 @@
-import { parseDynamicRows, parseGroupedRows, parseTree, getPeriodos, esJerarquica, esCeldaPartida, agrupadorProfundidad, type FilaDinamica, type ValorCelda } from './tableRowHelpers';
+import { parseDynamicRows, parseGroupedRows, parseTree, getPeriodos, esJerarquica, esCeldaPartida, agrupadorProfundidad, posicionesArbol, posicionDe, type FilaDinamica, type ValorCelda, type PosicionNodo } from './tableRowHelpers';
 import { LibroEdits, aplicarEdicionesXlsx } from './xlsxXmlPatcher';
 import { crearResolver, esFormula, evaluarFormula, traducirFormulaAExcel, type ResolucionToken, type ResolucionCelda } from './formula';
 import { booleanoATexto, type EtiquetasBooleano } from './conversionesExcel';
@@ -224,35 +224,28 @@ function writeArbol(
   periodos: string[],
   node: { value: string | string[]; children: unknown[] },
   profundidad: number,
-  filaInicio: number,
-  colIdx = profundidad,
+  path: number[],
+  posiciones: Map<string, PosicionNodo>,
   agrupadorDepth = -1,
-  altoDeBloque?: AltoDeBloque,
 ): number {
+  // La aritmética de filas ya NO vive aquí: la resuelve `posicionesArbol` (tableRowHelpers), que es
+  // exactamente la misma que consulta el editor de la UI para saber a qué celda pedirle sus opciones
+  // o su fórmula. Con una sola definición es imposible que la celda que se le muestra al usuario y
+  // la celda donde termina el dato se desincronicen — cuando eran dos copias, ese desfase fallaba
+  // en silencio.
+  const pos = posicionDe(posiciones, path);
+  if (!pos) return 0;
+  const { fila: filaInicio, filasConsumidas, colIdx } = pos;
+
   const col = config.columnas[colIdx];
   // Nivel de agrupador: el nodo ocupa una FILA propia (fila de título) y sus hijos siguen en la
   // MISMA columna, debajo — igual que en el Excel oficial, donde "Actores comunales:" y
   // "o Madre cuidadora" comparten la columna B en filas consecutivas.
   const esNivelAgrupador = profundidad === agrupadorDepth && node.children.length > 0;
-  const colDeHijos = esNivelAgrupador ? colIdx : colIdx + 1;
 
-  let filasConsumidas: number;
-  if (node.children.length === 0) {
-    // Una hoja NO ocupa necesariamente una fila: la plantilla oficial suele reservarle un bloque de
-    // varias filas ya fusionadas (en 5.01.03, B19:E21 son 3 filas por cada "Efecto directo"). Se
-    // toma esa altura del propio archivo — suponer 1 desalineaba la tabla y, peor, las fusiones que
-    // escribíamos se solapaban con las del bloque y la deduplicación borraba las originales,
-    // dejando las celdas sueltas. Sin bloque declarado en el Excel, sigue siendo 1.
-    filasConsumidas = Math.max(altoDeBloque?.(hoja, col?.columnaExcel, filaInicio) ?? 1, 1);
-  } else {
-    let fila = filaInicio + (esNivelAgrupador ? 1 : 0);
-    filasConsumidas = esNivelAgrupador ? 1 : 0;
-    for (const hijo of node.children as typeof node[]) {
-      const consumidas = writeArbol(ediciones, hoja, config, periodos, hijo, profundidad + 1, fila, colDeHijos, agrupadorDepth, altoDeBloque);
-      fila += consumidas;
-      filasConsumidas += consumidas;
-    }
-  }
+  (node.children as typeof node[]).forEach((hijo, ci) => {
+    writeArbol(ediciones, hoja, config, periodos, hijo, profundidad + 1, [...path, ci], posiciones, agrupadorDepth);
+  });
 
   // El título de grupo no se fusiona verticalmente: vive en su propia fila, y se extiende a lo ancho
   // de las cabeceras configuradas en el engranaje del agrupador (por defecto, hasta la última).
@@ -325,10 +318,10 @@ function writeCampoTabla(ediciones: LibroEdits, hoja: string | undefined, config
   if (esJerarquica(config.subtipo)) {
     const roots = parseTree(raw, config.columnas, config);
     const agrupadorDepth = config.agrupador ? agrupadorProfundidad(config.columnas, config) : -1;
-    let row = filaInicial + shift;
-    for (const r of roots) {
-      row += writeArbol(ediciones, hoja, config, periodos, r, 0, row, 0, agrupadorDepth, altoDeBloque);
-    }
+    const posiciones = posicionesArbol(roots, config, hoja, filaInicial + shift, agrupadorDepth, altoDeBloque);
+    roots.forEach((r, i) => {
+      writeArbol(ediciones, hoja, config, periodos, r, 0, [i], posiciones, agrupadorDepth);
+    });
     return;
   }
 

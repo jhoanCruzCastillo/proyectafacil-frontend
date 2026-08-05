@@ -6,7 +6,7 @@ import { useRegistrarCambioFicha } from '@/composables/useHistorialCambios';
 import { usePushActividad } from '@/composables/useActividad';
 import { useUsuariosQuery } from '@/composables/useUsuarios';
 import { useEstadoEntrenamiento } from '@/composables/useEstadoEntrenamiento';
-import { useListasExcel, LISTAS_EXCEL } from '@/composables/useListasExcel';
+import { useExcelVivo, EXCEL_VIVO } from '@/composables/useListasExcel';
 import { useSessionStore } from '@/stores/session';
 import { useUiStore } from '@/stores/ui';
 import { generateId } from '@/api/mock/_shared';
@@ -37,8 +37,9 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
   const { esNivel0, vencido, diasRestantes, numeroNivel } = useEstadoEntrenamiento();
 
   // Desplegables leídos del Excel de la ficha, para que el cliente elija la opción exacta en vez de
-  // teclearla (ver useListasExcel).
-  provide(LISTAS_EXCEL, useListasExcel(computed(() => archivoEjemplo.value?.dataUrl ?? null)));
+  // teclearla. El cálculo en vivo va con `null`: de momento solo está habilitado en el editor de
+  // estructura (ver useExcelVivo).
+  provide(EXCEL_VIVO, useExcelVivo(computed(() => archivoEjemplo.value?.dataUrl ?? null), computed(() => null)));
 
   const soloLectura = computed(() => esNivel0.value && vencido.value);
   const permiteMejoraIA = computed(() => numeroNivel.value >= 1);

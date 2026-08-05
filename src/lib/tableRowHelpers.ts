@@ -123,3 +123,81 @@ export function parseTree(value: string, columns: ColumnaTabla[], config: Config
   } catch { /* valor previo no es JSON (placeholder viejo) */ }
   return [createNodeChain(columns, config)];
 }
+
+/**
+ * Altura en filas del bloque (posiblemente fusionado) anclado en esa celda del archivo destino.
+ * Sin archivo o sin fusión declarada, una fila.
+ */
+export type AltoDeBloque = (hoja: string, columna: string | undefined, fila: number) => number | undefined;
+
+/** Dónde cae un nodo del árbol dentro de la hoja de Excel. */
+export interface PosicionNodo {
+  /** Fila real de Excel donde arranca el nodo */
+  fila: number;
+  /** Cuántas filas del Excel ocupa él y todo lo que cuelga de él */
+  filasConsumidas: number;
+  /** Índice de la columna de `config.columnas` en la que se dibuja */
+  colIdx: number;
+}
+
+function claveRuta(path: number[]): string {
+  return path.join('.');
+}
+
+/**
+ * Fila de Excel de cada nodo de una tabla jerárquica.
+ *
+ * ES LA ÚNICA DEFINICIÓN de esa aritmética: la consumen tanto el escritor (para saber dónde escribir)
+ * como el editor de la UI (para saber a qué celda preguntarle sus opciones o su fórmula). Tenerla
+ * duplicada era el riesgo real — dos copias que se desfasan hacen que la UI ofrezca el desplegable de
+ * una celda mientras el archivo se escribe en otra, y eso falla en silencio.
+ *
+ * Dos sutilezas que no son obvias y que hay que respetar para que cuadre con el archivo oficial:
+ *  - Una hoja del árbol NO ocupa siempre una fila: la plantilla suele reservarle un bloque ya
+ *    fusionado de varias (`altoDeBloque`).
+ *  - Un nivel de agrupador ocupa una fila propia de título y sus hijos siguen en la MISMA columna.
+ */
+export function posicionesArbol(
+  roots: TreeNode[],
+  config: ConfigTabla,
+  hoja: string,
+  filaInicial: number,
+  agrupadorDepth: number,
+  altoDeBloque?: AltoDeBloque,
+): Map<string, PosicionNodo> {
+  const mapa = new Map<string, PosicionNodo>();
+
+  function walk(node: TreeNode, profundidad: number, filaInicio: number, colIdx: number, path: number[]): number {
+    const col = config.columnas[colIdx];
+    const esNivelAgrupador = profundidad === agrupadorDepth && node.children.length > 0;
+    const colDeHijos = esNivelAgrupador ? colIdx : colIdx + 1;
+
+    let filasConsumidas: number;
+    if (node.children.length === 0) {
+      filasConsumidas = Math.max(altoDeBloque?.(hoja, col?.columnaExcel, filaInicio) ?? 1, 1);
+    } else {
+      let fila = filaInicio + (esNivelAgrupador ? 1 : 0);
+      filasConsumidas = esNivelAgrupador ? 1 : 0;
+      node.children.forEach((hijo, ci) => {
+        const consumidas = walk(hijo, profundidad + 1, fila, colDeHijos, [...path, ci]);
+        fila += consumidas;
+        filasConsumidas += consumidas;
+      });
+    }
+
+    mapa.set(claveRuta(path), { fila: filaInicio, filasConsumidas, colIdx });
+    return filasConsumidas;
+  }
+
+  let fila = filaInicial;
+  roots.forEach((raiz, i) => {
+    fila += walk(raiz, 0, fila, 0, [i]);
+  });
+
+  return mapa;
+}
+
+/** Posición de un nodo concreto dentro del mapa devuelto por `posicionesArbol`. */
+export function posicionDe(mapa: Map<string, PosicionNodo>, path: number[]): PosicionNodo | undefined {
+  return mapa.get(claveRuta(path));
+}

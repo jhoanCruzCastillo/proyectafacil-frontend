@@ -55,6 +55,10 @@ export interface LibroLeido {
    * rango (`UBIGEO!$A$3:$A$1876`) o un `INDIRECT(...)`. Resolverlo a opciones es trabajo de
    * xlsxListas.ts — aquí solo se extrae. */
   validacionLista(hoja: string, ref: string): string | undefined;
+  /** Fórmula de la celda, sin el `=` inicial, o undefined si no tiene */
+  formulaDe(hoja: string, ref: string): string | undefined;
+  /** Formato de fecha de la celda, aunque esté vacía — para dar forma al resultado de una fórmula */
+  formatoFecha(hoja: string, ref: string): { esFecha: boolean; soloAnio: boolean } | undefined;
 }
 
 function textoDe(el: Element): string {
@@ -141,6 +145,12 @@ async function leerMapaHojas(zip: JSZip): Promise<{ rutaPorHoja: Map<string, str
 
 interface HojaParseada {
   celdas: Map<string, CeldaLeida>;
+  /** Fórmula de cada celda que la tenga, sin el `=` inicial. La usa el evaluador en vivo
+   * (excelFormulaEval) para reproducir lo que el Excel calcularía. */
+  formulas: Map<string, string>;
+  /** Formato de fecha por celda, incluso si está vacía — `celdas` solo trae las que tienen valor,
+   * y una celda con fórmula sin calcular está vacía pero conserva su formato. */
+  formatos: Map<string, { esFecha: boolean; soloAnio: boolean }>;
   /** Estilo de TODA celda presente en el XML, tenga valor o no — base de la detección por formato */
   estilos: Map<string, number>;
   /** Fusiones indexadas por su celda ancla (esquina superior-izquierda del rango) */
@@ -240,6 +250,8 @@ function parseHoja(
 ): HojaParseada {
   const celdas = new Map<string, CeldaLeida>();
   const estilos = new Map<string, number>();
+  const formulas = new Map<string, string>();
+  const formatos = new Map<string, { esFecha: boolean; soloAnio: boolean }>();
   const doc = new DOMParser().parseFromString(xml, 'application/xml');
 
   for (const c of Array.from(doc.getElementsByTagName('c'))) {
@@ -249,6 +261,17 @@ function parseHoja(
 
     const estiloAttr = c.getAttribute('s');
     if (estiloAttr !== null) estilos.set(ref, Number(estiloAttr));
+
+    // El formato se guarda para TODA celda, tenga valor o no: una celda con fórmula todavía sin
+    // calcular aparece vacía, y aun así su resultado debe mostrarse con su formato (R53 = TODAY()
+    // con formato "yyyy;@" se ve como el año, no como una fecha completa).
+    const numFmtCelda = estiloAttr !== null ? (numFmtPorEstilo[Number(estiloAttr)] ?? 0) : 0;
+    const formatoCelda = analizarFormato(numFmtCelda, codigoPorNumFmt);
+    if (formatoCelda.esFecha) formatos.set(ref, formatoCelda);
+
+    const f = c.getElementsByTagName('f')[0];
+    const textoFormula = f?.textContent?.trim();
+    if (textoFormula) formulas.set(ref, textoFormula);
 
     let valor: string | null = null;
     if (tipo === 'inlineStr') {
@@ -265,17 +288,14 @@ function parseHoja(
 
     if (valor === null || valor === '') continue;
 
-    const numFmtId = estiloAttr !== null ? (numFmtPorEstilo[Number(estiloAttr)] ?? 0) : 0;
     // Solo tiene sentido interpretar el formato de fecha sobre un número: una celda de texto con
     // formato de fecha heredado seguiría siendo texto.
     const esNumero = tipo == null || tipo === 'n';
-    const { esFecha, soloAnio } = esNumero
-      ? analizarFormato(numFmtId, codigoPorNumFmt)
-      : { esFecha: false, soloAnio: false };
+    const { esFecha, soloAnio } = esNumero ? formatoCelda : { esFecha: false, soloAnio: false };
 
     celdas.set(ref, { valor, esFecha, soloAnio });
   }
-  return { celdas, estilos, fusiones: parseFusiones(doc), validaciones: parseValidaciones(doc) };
+  return { celdas, estilos, formulas, formatos, fusiones: parseFusiones(doc), validaciones: parseValidaciones(doc) };
 }
 
 // Nombres definidos de ámbito global. Se descartan los internos de Excel (`_xlnm.Print_Area`, que
@@ -334,6 +354,12 @@ export async function leerLibroXlsx(fuente: string): Promise<LibroLeido> {
     },
     fusion(hoja: string, ref: string): FusionLeida | undefined {
       return hojaParseada(hoja)?.fusiones.get(ref);
+    },
+    formulaDe(hoja: string, ref: string): string | undefined {
+      return hojaParseada(hoja)?.formulas.get(ref);
+    },
+    formatoFecha(hoja: string, ref: string): { esFecha: boolean; soloAnio: boolean } | undefined {
+      return hojaParseada(hoja)?.formatos.get(ref);
     },
     validacionLista(hoja: string, ref: string): string | undefined {
       const m = ref.match(/^\$?([A-Z]+)\$?(\d+)$/i);
