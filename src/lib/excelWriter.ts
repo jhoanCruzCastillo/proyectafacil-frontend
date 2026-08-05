@@ -510,7 +510,16 @@ export async function insertarValoresEnExcel(
 
   // Celdas con lista desplegable: se ajusta el valor al texto exacto de la opción cuando solo
   // difiere en mayúsculas/tildes, y se avisa (sin bloquear) de los que no están en la lista.
-  const { avisos, correcciones } = revisarListas(catalogoDeListas(libroOrigen), tareas, valores);
+  // Los valores indexados por celda: los necesitan las listas dependientes (`INDIRECT`) para saber
+  // qué opciones ofrece cada una. Solo campos simples — basta para resolver las del formato oficial.
+  const valoresPorCelda = new Map<string, string>();
+  for (const { hoja, campo } of tareas) {
+    const cap = campo.captura;
+    const valor = valores[campo.identificador];
+    if (hoja && cap?.columna && cap.fila && valor) valoresPorCelda.set(`${hoja}!${cap.columna}${cap.fila}`, valor);
+  }
+
+  const { avisos, correcciones } = revisarListas(catalogoDeListas(libroOrigen, valoresPorCelda), tareas, valores);
   if (avisos.length > 0) onAvisos?.(avisos);
   const valoresFinales = Object.keys(correcciones).length > 0 ? { ...valores, ...correcciones } : valores;
 

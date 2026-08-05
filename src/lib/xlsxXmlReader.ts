@@ -192,6 +192,54 @@ function parseFusiones(doc: Document): Map<string, FusionLeida> {
   return out;
 }
 
+// Referencia A1 dentro de una fórmula, con sus `$` opcionales. Se usa para trasladar las fórmulas
+// compartidas; por eso importa distinguir la parte absoluta (con `$`, no se mueve) de la relativa.
+const RE_REF_EN_FORMULA = /(\$?)([A-Z]{1,3})(\$?)([0-9]{1,7})/g;
+
+function letraColumna(n: number): string {
+  let s = '';
+  let i = n;
+  while (i > 0) {
+    const r = (i - 1) % 26;
+    s = String.fromCharCode(65 + r) + s;
+    i = Math.floor((i - 1) / 26);
+  }
+  return s;
+}
+
+/**
+ * Traslada las referencias RELATIVAS de una fórmula, como hace Excel al copiarla a otra celda.
+ *
+ * Hace falta para las fórmulas compartidas (`<f t="shared">`): Excel guarda el texto UNA sola vez,
+ * en la celda maestra, y las demás celdas del rango solo apuntan a ella con su `si`. Sin expandirlas
+ * esas celdas parecen no tener fórmula — en el formato oficial son 109, casi todas columnas de
+ * totales que se repiten fila a fila.
+ */
+function trasladarFormula(formula: string, dCol: number, dFila: number): string {
+  if (dCol === 0 && dFila === 0) return formula;
+  let out = '';
+  let i = 0;
+  // Lo que va entre comillas es texto literal y no se toca.
+  const partes = formula.split(/("(?:[^"]|"")*")/);
+  for (const parte of partes) {
+    if (i++ % 2 === 1) {
+      out += parte;
+      continue;
+    }
+    out += parte.replace(RE_REF_EN_FORMULA, (todo, absCol, col, absFila, fila, offset: number) => {
+      // Un nombre de función (`LOG10(`) o un identificador más largo no es una referencia
+      const siguiente = parte[offset + todo.length];
+      const anterior = parte[offset - 1];
+      if (siguiente === '(' || (anterior && /[A-Za-z0-9_.]/.test(anterior))) return todo;
+
+      const nCol = absCol ? col : letraColumna(Math.max(indiceColumna(col) + dCol, 1));
+      const nFila = absFila ? fila : String(Math.max(Number(fila) + dFila, 1));
+      return `${absCol}${nCol}${absFila}${nFila}`;
+    });
+  }
+  return out;
+}
+
 function parseSqref(sqref: string): Rect[] {
   const out: Rect[] = [];
   // Un sqref son varios rangos separados por espacios: "O66:O81 G66:G81", "H8 H18".
@@ -252,6 +300,9 @@ function parseHoja(
   const estilos = new Map<string, number>();
   const formulas = new Map<string, string>();
   const formatos = new Map<string, { esFecha: boolean; soloAnio: boolean }>();
+  // Fórmulas compartidas: `si` -> celda que sí trae el texto, y las que solo la referencian.
+  const maestras = new Map<string, { formula: string; ref: string }>();
+  const pendientes: { ref: string; si: string }[] = [];
   const doc = new DOMParser().parseFromString(xml, 'application/xml');
 
   for (const c of Array.from(doc.getElementsByTagName('c'))) {
@@ -270,8 +321,18 @@ function parseHoja(
     if (formatoCelda.esFecha) formatos.set(ref, formatoCelda);
 
     const f = c.getElementsByTagName('f')[0];
-    const textoFormula = f?.textContent?.trim();
-    if (textoFormula) formulas.set(ref, textoFormula);
+    if (f) {
+      const textoFormula = f.textContent?.trim() ?? '';
+      const si = f.getAttribute('t') === 'shared' ? f.getAttribute('si') : null;
+      if (si !== null && textoFormula === '') {
+        // Celda que solo referencia una fórmula compartida: se resuelve al final, cuando ya se
+        // conocen todas las maestras.
+        pendientes.push({ ref, si });
+      } else if (textoFormula) {
+        formulas.set(ref, textoFormula);
+        if (si !== null) maestras.set(si, { formula: textoFormula, ref });
+      }
+    }
 
     let valor: string | null = null;
     if (tipo === 'inlineStr') {
@@ -295,7 +356,23 @@ function parseHoja(
 
     celdas.set(ref, { valor, esFecha, soloAnio });
   }
+  // Expansión de las fórmulas compartidas: cada celda recibe la fórmula de su maestra trasladada
+  // por la diferencia de fila y columna entre ambas, que es exactamente lo que hace Excel.
+  for (const { ref, si } of pendientes) {
+    const maestra = maestras.get(si);
+    if (!maestra) continue;
+    const destino = partirRef(ref);
+    const origen = partirRef(maestra.ref);
+    if (!destino || !origen) continue;
+    formulas.set(ref, trasladarFormula(maestra.formula, destino.col - origen.col, destino.fila - origen.fila));
+  }
+
   return { celdas, estilos, formulas, formatos, fusiones: parseFusiones(doc), validaciones: parseValidaciones(doc) };
+}
+
+function partirRef(ref: string): { col: number; fila: number } | undefined {
+  const m = ref.match(/^([A-Z]+)([0-9]+)$/i);
+  return m ? { col: indiceColumna(m[1]), fila: Number(m[2]) } : undefined;
 }
 
 // Nombres definidos de ámbito global. Se descartan los internos de Excel (`_xlnm.Print_Area`, que

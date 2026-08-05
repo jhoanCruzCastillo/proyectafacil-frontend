@@ -28,7 +28,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'select-campo': [campo: Campo];
-  'add-campo': [subseccionId: string, subseccionCodigo: string];
+  /** `despuesDeCampoId` inserta el campo justo detrás de ese; sin él, al final de la subsección */
+  'add-campo': [subseccionId: string, subseccionCodigo: string, despuesDeCampoId?: string];
   'delete-campo': [campoId: string, subseccionId: string];
   'section-name-change': [seccionId: string, nombre: string];
   'section-hoja-change': [seccionId: string, hoja: string];
@@ -104,9 +105,8 @@ const subseccionAyuda = computed(() => props.seccion.subsecciones.find((s) => s.
         </button>
       </div>
       <div class="space-y-3">
+        <template v-for="campo in sub.campos" :key="campo.id">
         <FieldCard
-          v-for="campo in sub.campos"
-          :key="campo.id"
           :campo="campo"
           :hoja="seccion.hoja"
           :show-example-value="showExampleValues"
@@ -127,6 +127,18 @@ const subseccionAyuda = computed(() => props.seccion.subsecciones.find((s) => s.
           @update-example-value="emit('update-example-value', campo.identificador, $event)"
           @update-config-tabla="emit('update-config-tabla', campo.id, $event)"
         />
+        <!-- Mismo botón que el del final de la subsección, pero pegado al campo seleccionado: el
+             campo nuevo entra justo detrás de él, no al final. -->
+        <button
+          v-if="editable && selectedCampoId === campo.id"
+          @click="emit('add-campo', sub.id, sub.codigo, campo.id)"
+          type="button"
+          class="w-full py-2.5 rounded-lg border-2 border-dashed border-brand-200 text-sm font-medium text-brand-600 hover:border-brand-400 hover:bg-brand-50/50 transition-colors flex items-center justify-center gap-2"
+        >
+          <FontAwesomeIcon :icon="faPlus" class="w-3 h-3" />
+          Agregar campo aquí
+        </button>
+        </template>
         <button
           v-if="editable"
           @click="emit('add-campo', sub.id, sub.codigo)"

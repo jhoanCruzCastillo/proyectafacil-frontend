@@ -364,19 +364,36 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     if (selectedCampo.value?.id === campoId) selectedCampo.value = { ...selectedCampo.value, ...updates };
   }
 
-  function handleAddCampo(subseccionId: string, subseccionCodigo: string) {
+  /**
+   * `despuesDeCampoId` coloca el campo nuevo justo detrás de ese; sin él, al final de la subsección.
+   *
+   * El identificador se sigue calculando como el siguiente al mayor de la subsección, aunque el
+   * campo se inserte en medio: renumerar los de abajo cambiaría identificadores que ya se usan como
+   * clave de los valores de cada ejemplo y en las fórmulas de los campos calculados.
+   */
+  function handleAddCampo(subseccionId: string, subseccionCodigo: string, despuesDeCampoId?: string) {
     const nuevoId = generateId();
     let nuevoCampo: Campo | null = null;
     mutate((p) => {
       for (const sec of p.secciones) {
         const sub = sec.subsecciones.find((s) => s.id === subseccionId);
         if (sub) {
-          const maxN = sub.campos.reduce((max, c) => {
-            const n = Number(c.identificador.split('.').pop());
-            return Number.isFinite(n) ? Math.max(max, n) : max;
-          }, 0);
-          nuevoCampo = { id: nuevoId, identificador: `${subseccionCodigo}.${maxN + 1}`, etiqueta: 'Nuevo campo', tipo: 'texto_corto', editable: true, descripcion: '' };
-          sub.campos.push(nuevoCampo);
+          let maxN = 0;
+          let ancho = 1;
+          for (const c of sub.campos) {
+            const ultimo = c.identificador.split('.').pop() ?? '';
+            const n = Number(ultimo);
+            if (!Number.isFinite(n)) continue;
+            maxN = Math.max(maxN, n);
+            // Se respeta el cero a la izquierda de los hermanos: un campo nuevo entre 1.01.03 y
+            // 1.01.04 debe ser 1.01.09, no 1.01.9.
+            ancho = Math.max(ancho, ultimo.trim().length);
+          }
+          const numero = String(maxN + 1).padStart(ancho, '0');
+          nuevoCampo = { id: nuevoId, identificador: `${subseccionCodigo}.${numero}`, etiqueta: 'Nuevo campo', tipo: 'texto_corto', editable: true, descripcion: '' };
+          const idx = despuesDeCampoId ? sub.campos.findIndex((c) => c.id === despuesDeCampoId) : -1;
+          if (idx >= 0) sub.campos.splice(idx + 1, 0, nuevoCampo);
+          else sub.campos.push(nuevoCampo);
           sec.cantidadCampos += 1;
           break;
         }

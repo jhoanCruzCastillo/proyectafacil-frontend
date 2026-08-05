@@ -627,6 +627,28 @@ function fechaDesdeSerial(serial: number, soloAnio: boolean): string {
 }
 
 /**
+ * Evalúa una expresión suelta (no la fórmula de una celda) y devuelve su texto, o null si no se pudo
+ * resolver o salió vacía.
+ *
+ * Lo usa la resolución de los desplegables dependientes: una validación `INDIRECT(Listas!$D$44)`
+ * obliga a calcular primero qué hay en `Listas!D44` —que a su vez es un VLOOKUP sobre otra hoja—
+ * para saber a qué rango con nombre apunta la lista.
+ */
+export function evaluarTexto(
+  libro: LibroLeido,
+  valores: Map<string, string>,
+  hoja: string,
+  expresion: string,
+): string | null {
+  const ctx: Contexto = { libro, valores, memo: new Map(), enCurso: new Set(), hojaBase: hoja };
+  const bruto = evaluarExpresion(expresion, ctx);
+  const v = esRango(bruto) ? escalar(bruto, ctx) : bruto;
+  if (v === NO_SOPORTADO || esRango(v) || v instanceof ErrorExcel) return null;
+  const t = texto(v);
+  return t.trim() === '' ? null : t;
+}
+
+/**
  * Calcula lo que el Excel mostraría en esa celda, usando como entradas los valores que tenemos
  * mapeados en la estructura. Devuelve undefined si la celda no tiene fórmula (no hay nada que
  * calcular: su valor es simplemente el que el usuario escriba).

@@ -86,7 +86,11 @@ export function useExcelVivo(
   valoresPorCelda: Ref<Map<string, string> | null>,
 ): ComputedRef<ExcelVivo | null> {
   const libro = useLibro(fuente);
-  const catalogo = computed<CatalogoListas | null>(() => (libro.value ? catalogoDeListas(libro.value) : null));
+  // El catálogo depende de los valores porque las listas dependientes (`INDIRECT`) se calculan a
+  // partir de otros campos: al cambiar el campo padre, cambian las opciones que ofrece el hijo.
+  const catalogo = computed<CatalogoListas | null>(() =>
+    libro.value ? catalogoDeListas(libro.value, valoresPorCelda.value ?? new Map()) : null,
+  );
 
   return computed<ExcelVivo | null>(() => {
     const l = libro.value;
