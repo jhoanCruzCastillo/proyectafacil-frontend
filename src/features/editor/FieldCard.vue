@@ -9,6 +9,7 @@ import CampoCoordenadasInput from '@/components/CampoCoordenadasInput.vue';
 import CampoImagenInput from '@/components/CampoImagenInput.vue';
 import CampoListaInput from '@/components/CampoListaInput.vue';
 import { EXCEL_VIVO } from '@/composables/useListasExcel';
+import { etiquetaDeValor } from '@/lib/conversionesExcel';
 import type { Campo, ConfigTabla } from '@/types';
 
 const props = defineProps<{
@@ -66,6 +67,12 @@ const opcionesExcel = computed(() =>
   celdaExcel.value ? excel?.value?.opcionesDe(celdaExcel.value.hoja, celdaExcel.value.ref) : undefined,
 );
 const tieneLista = computed(() => (opcionesExcel.value?.length ?? 0) > 0);
+
+// El valor guardado ya es la palabra del Excel; la traducción solo entra para lo que se guardó
+// antes con la forma canónica 'true'/'false' (ver etiquetaDeValor).
+function mostrado(valor: string | undefined): string {
+  return etiquetaDeValor(valor || '', opcionesExcel.value, props.campo.etiquetasBooleano);
+}
 
 // Celda con fórmula: el Excel manda. No se escribe nunca (el escritor ya respeta las fórmulas del
 // archivo), así que se muestra en solo lectura en vez de un input que no llevaría a nada.
@@ -208,7 +215,7 @@ function handleClick() {
           />
           <CampoListaInput
             v-else-if="tieneLista"
-            :value="campo.valorEjemplo || ''"
+            :value="mostrado(campo.valorEjemplo)"
             :opciones="opcionesExcel ?? []"
             @change="emit('update-default-value', $event)"
           />
@@ -259,12 +266,13 @@ function handleClick() {
             v-else-if="isTableField && campo.configTabla"
             :config="(campo.configTabla as ConfigTabla)"
             :model-value="displayValue || ''"
+            :hoja="hoja"
             @update:model-value="emit('update-example-value', $event)"
           />
           <template v-else>
             <CampoListaInput
               v-if="tieneLista"
-              :value="displayValue || ''"
+              :value="mostrado(displayValue)"
               :opciones="opcionesExcel ?? []"
               :editable="editableExample"
               @change="emit('update-example-value', $event)"

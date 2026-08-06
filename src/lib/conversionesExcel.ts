@@ -109,6 +109,25 @@ export function textoABooleano(texto: string, etiquetas?: EtiquetasBooleano): st
  * Sin `etiquetas` declaradas, se escribe un booleano nativo de Excel (el writer lo resuelve).
  */
 export function booleanoATexto(valor: string, etiquetas?: EtiquetasBooleano): string | boolean {
-  const esVerdadero = valor === 'true';
+  const v = valor.trim();
+  // Desde que el volcado conserva el texto del Excel, lo normal es que el valor YA venga con las
+  // palabras de la plantilla ("Sí"). Solo se traduce la forma canónica, que es lo que guardaron los
+  // ejemplos anteriores. Sin esta guarda, un "Sí" acabaría escrito como "No" en el Excel.
+  if (v !== 'true' && v !== 'false') return v;
+  const esVerdadero = v === 'true';
   return etiquetas ? (esVerdadero ? etiquetas.true : etiquetas.false) : esVerdadero;
+}
+
+/**
+ * Texto que debe VERSE para un valor guardado, dadas las opciones que ofrece el Excel para esa
+ * celda. Existe solo por los ejemplos que ya se guardaron con la forma canónica 'true'/'false':
+ * se muestran con la palabra equivalente del Excel en vez de con el literal. Un valor que ya venga
+ * con las palabras del Excel se devuelve intacto.
+ */
+export function etiquetaDeValor(valor: string, opciones?: string[] | null, etiquetas?: EtiquetasBooleano): string {
+  if (valor !== 'true' && valor !== 'false') return valor;
+  const equivalente = opciones?.find((o) => textoABooleano(o, etiquetas) === valor);
+  if (equivalente) return equivalente;
+  if (etiquetas) return valor === 'true' ? etiquetas.true : etiquetas.false;
+  return valor;
 }

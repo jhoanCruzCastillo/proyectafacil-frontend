@@ -1,13 +1,13 @@
 import { parseDynamicRows, parseGroupedRows, parseTree, getPeriodos, esJerarquica, esCeldaPartida, agrupadorProfundidad, posicionesArbol, posicionDe, type FilaDinamica, type ValorCelda, type PosicionNodo } from './tableRowHelpers';
 import { LibroEdits, aplicarEdicionesXlsx } from './xlsxXmlPatcher';
 import { crearResolver, esFormula, evaluarFormula, traducirFormulaAExcel, type ResolucionToken, type ResolucionCelda } from './formula';
-import { booleanoATexto, type EtiquetasBooleano } from './conversionesExcel';
+import { booleanoATexto, dateASerialExcel, type EtiquetasBooleano } from './conversionesExcel';
 import { parseCoords, coordsATexto } from './coords';
 import { leerLibroXlsx } from './xlsxXmlReader';
 import { catalogoDeListas, normalizarOpcion, type AvisoLista } from './xlsxListas';
 
 export type { AvisoLista } from './xlsxListas';
-import type { Plantilla, Campo, ColumnaTabla, ConfigTabla, TipoCampo } from '@/types';
+import type { Plantilla, Campo, ColumnaTabla, ConfigTabla, TipoCampo, TipoColumna } from '@/types';
 
 // --- Aritmética de columnas Excel (A, B, ..., Z, AA, AB, ...) ---
 
@@ -35,20 +35,44 @@ function addCols(letter: string, delta: number): string {
 // `etiquetasBooleano` son las palabras con que la plantilla oficial escribe un booleano en el Excel
 // ("Sí"/"No"). Sin ellas se escribe un booleano nativo (TRUE/FALSE), que es el comportamiento
 // previo — pero una plantilla que las declara debe recuperar su propio texto, no el genérico.
-function coerceValor(tipo: TipoCampo, raw: string | undefined, etiquetasBooleano?: EtiquetasBooleano): string | number | boolean {
+const RE_FECHA_ISO = /^\d{4}-\d{2}-\d{2}$/;
+
+function coerceValor(
+  tipo: TipoCampo | TipoColumna,
+  raw: string | undefined,
+  etiquetasBooleano?: EtiquetasBooleano,
+): string | number | boolean {
   if (raw == null || raw === '') return '';
   if (tipo === 'numero' || tipo === 'decimal') {
     const n = Number(raw);
     return Number.isNaN(n) ? '' : n;
   }
+  // Excel guarda las fechas como número de serie. Escribir el texto ISO dejaría la celda como texto:
+  // se vería con el formato roto y cualquier fórmula que opere con ella fallaría.
+  if (tipo === 'fecha' && RE_FECHA_ISO.test(raw.trim())) {
+    const ms = Date.parse(`${raw.trim()}T00:00:00Z`);
+    if (!Number.isNaN(ms)) return dateASerialExcel(new Date(ms));
+  }
   if (tipo === 'booleano') return booleanoATexto(raw, etiquetasBooleano);
   // Coordenadas: en el JSON viajan como objeto {lat,lng}, pero la celda del Excel lleva el par en
   // texto plano. Volcarlas como el JSON crudo dejaría `{"lat":…}` a la vista en la hoja.
-  if (tipo === 'mapa_coordenadas') {
+  if (tipo === 'mapa_coordenadas' || tipo === 'coordenadas') {
     const c = parseCoords(raw);
     return c ? coordsATexto(c) : raw;
   }
   return raw;
+}
+
+/**
+ * Valor de una CELDA DE TABLA, convertido al tipo que espera el Excel según el tipo de su columna.
+ *
+ * Sin esto, las celdas de tabla se escribían siempre como texto: un "60" en una columna numérica
+ * llegaba a la hoja como texto y rompía en silencio cualquier fórmula que lo usara —el
+ * `VLOOKUP` numérico de Análisis Técnico devolvía `#N/A`— además de verse desalineado. Los campos
+ * simples ya pasaban por `coerceValor`; esto lo extiende a las tablas, que son la mayoría de celdas.
+ */
+function valorDeColumna(col: ColumnaTabla | undefined, raw: string): string | number | boolean {
+  return coerceValor(col?.tipo ?? 'texto_corto', raw, col?.etiquetasBooleano);
 }
 
 // Escribe un valor y, si abarca más de una columna o fila, fusiona la celda combinada
@@ -125,7 +149,7 @@ function writeCeldaPartida(
     for (const sub of subs) {
       const v = valor[sub.id] ?? '';
       if (v === '') continue;
-      writeCellSpan(ediciones, hoja, sub.columnaExcel, row, v, sub.abarcaColumnasExcel ?? 1);
+      writeCellSpan(ediciones, hoja, sub.columnaExcel, row, valorDeColumna(sub, v), sub.abarcaColumnasExcel ?? 1);
     }
     return;
   }
@@ -134,7 +158,7 @@ function writeCeldaPartida(
   for (const sub of subs.slice(1)) {
     if (hoja && sub.columnaExcel) ediciones.escribirCelda(hoja, sub.columnaExcel, row, '');
   }
-  writeCellSpan(ediciones, hoja, col.columnaExcel, row, valor, col.abarcaColumnasExcel ?? subs.length);
+  writeCellSpan(ediciones, hoja, col.columnaExcel, row, valorDeColumna(col, valor), col.abarcaColumnasExcel ?? subs.length);
 }
 
 // Celdas sin dato (vacías) se omiten por completo — no se escribe ni se fusiona nada sobre ellas,
@@ -157,12 +181,12 @@ function writeFilaColumnas(ediciones: LibroEdits, hoja: string | undefined, conf
         const v = arr[i];
         if (v == null || v === '') return;
         const colLetter = addCols(col.columnaExcel!, i * (col.abarcaColumnasExcel ?? 1));
-        writeCellSpan(ediciones, hoja, colLetter, row, v, col.abarcaColumnasExcel ?? 1, alto(col));
+        writeCellSpan(ediciones, hoja, colLetter, row, valorDeColumna(col, v), col.abarcaColumnasExcel ?? 1, alto(col));
       });
     } else {
       const v = fila[col.id];
       if (typeof v !== 'string' || v === '') continue;
-      writeCellSpan(ediciones, hoja, col.columnaExcel, row, v, col.abarcaColumnasExcel ?? 1, alto(col));
+      writeCellSpan(ediciones, hoja, col.columnaExcel, row, valorDeColumna(col, v), col.abarcaColumnasExcel ?? 1, alto(col));
     }
   }
 }
@@ -254,7 +278,7 @@ function writeArbol(
     const cabeceras = Math.min(Math.max(config.agrupadorAbarcaColumnas ?? disponibles, 1), disponibles);
     if (col?.columnaExcel && typeof node.value === 'string' && node.value !== '') {
       const ancho = anchoFisicoPrimerasColumnas(config, cabeceras, periodos, colIdx);
-      writeCellSpan(ediciones, hoja, col.columnaExcel, filaInicio, node.value, Math.max(ancho, 1));
+      writeCellSpan(ediciones, hoja, col.columnaExcel, filaInicio, valorDeColumna(col, node.value as string), Math.max(ancho, 1));
     }
     // Valores propios del grupo en las columnas libres a la derecha del título (fila-resumen).
     const valores = (node as { valores?: FilaDinamica }).valores;
@@ -268,12 +292,12 @@ function writeArbol(
           periodos.forEach((_, pi) => {
             const celda = v[pi];
             if (celda == null || celda === '') return;
-            writeCellSpan(ediciones, hoja, addCols(libre.columnaExcel!, pi * ancho), filaInicio, celda, ancho);
+            writeCellSpan(ediciones, hoja, addCols(libre.columnaExcel!, pi * ancho), filaInicio, valorDeColumna(libre, celda), ancho);
           });
           continue;
         }
         if (typeof v !== 'string' || v === '') continue;
-        writeCellSpan(ediciones, hoja, libre.columnaExcel, filaInicio, v, libre.abarcaColumnasExcel ?? 1);
+        writeCellSpan(ediciones, hoja, libre.columnaExcel, filaInicio, valorDeColumna(libre, v), libre.abarcaColumnasExcel ?? 1);
       }
     }
     return filasConsumidas;
@@ -287,10 +311,10 @@ function writeArbol(
         const v = arr[i];
         if (v == null || v === '') return;
         const colLetter = addCols(col.columnaExcel!, i * (col.abarcaColumnasExcel ?? 1));
-        writeCellSpan(ediciones, hoja, colLetter, filaInicio, v, col.abarcaColumnasExcel ?? 1, filasConsumidas);
+        writeCellSpan(ediciones, hoja, colLetter, filaInicio, valorDeColumna(col, v), col.abarcaColumnasExcel ?? 1, filasConsumidas);
       });
     } else if (typeof node.value === 'string' && node.value !== '') {
-      writeCellSpan(ediciones, hoja, col.columnaExcel, filaInicio, node.value, col.abarcaColumnasExcel ?? 1, filasConsumidas);
+      writeCellSpan(ediciones, hoja, col.columnaExcel, filaInicio, valorDeColumna(col, node.value as string), col.abarcaColumnasExcel ?? 1, filasConsumidas);
     }
   }
   return filasConsumidas;

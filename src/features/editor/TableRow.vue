@@ -4,6 +4,7 @@ import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faTrash, faGear, fieldTypeIcons } from '@/lib/icons';
 import CampoListaInput from '@/components/CampoListaInput.vue';
 import { EXCEL_VIVO } from '@/composables/useListasExcel';
+import { etiquetaDeValor } from '@/lib/conversionesExcel';
 import type { ColumnaTabla } from '@/types';
 import { esCeldaPartida, valorSubcolumna, valorPlano, type FilaDinamica } from '@/lib/tableRowHelpers';
 
@@ -71,6 +72,12 @@ function calculoExcel(col: ColumnaTabla): { texto: string; soportado: boolean; e
   const ref = refDe(col);
   if (!ref || !props.hoja) return null;
   return excel?.value?.calculado(props.hoja, ref) ?? null;
+}
+
+// El valor guardado es la palabra del Excel; lo elegido se guarda tal cual. La traducción solo
+// entra para los ejemplos anteriores, que guardaron 'true'/'false' (ver etiquetaDeValor).
+function valorMostrado(col: ColumnaTabla, opciones: string[] | null): string {
+  return etiquetaDeValor((props.row[col.id] as string) || '', opciones, col.etiquetasBooleano);
 }
 </script>
 
@@ -164,7 +171,7 @@ function calculoExcel(col: ColumnaTabla): { texto: string; soportado: boolean; e
       <!-- Celda con desplegable declarado en el Excel -->
       <td v-else-if="opcionesExcel(col)" class="px-1 py-0.5 align-top">
         <CampoListaInput
-          :value="(row[col.id] as string) || ''"
+          :value="valorMostrado(col, opcionesExcel(col))"
           :opciones="opcionesExcel(col) ?? []"
           compacto
           @change="emit('cell-change', col.id, $event)"

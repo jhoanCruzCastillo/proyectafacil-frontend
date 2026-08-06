@@ -15,6 +15,7 @@
 // identificadores de campo). Aquí el lenguaje es el de Excel y los operandos son celdas.
 
 import type { LibroLeido } from './xlsxXmlReader';
+import { dateASerialExcel } from './conversionesExcel';
 
 export class ErrorExcel {
   codigo: string;
@@ -376,8 +377,20 @@ function valorDeCelda(ctx: Contexto, hoja: string, ref: string): Valor {
   return resultado;
 }
 
+// Nuestro JSON guarda las fechas como "YYYY-MM-DD"; Excel las guarda como número de serie, y sus
+// fórmulas hacen aritmética con ellas — restar dos fechas da los días entre ambas. Sin convertir,
+// esa resta recibía texto y devolvía #VALUE! (era el caso de "Fase de Ejecución", que divide entre
+// 365 la diferencia de dos fechas).
+const RE_FECHA_ISO = /^\d{4}-\d{2}-\d{2}$/;
+
 function comoEscalar(v: string): Escalar {
-  if (v.trim() !== '' && !Number.isNaN(Number(v))) return Number(v);
+  const t = v.trim();
+  if (t === '') return v;
+  if (RE_FECHA_ISO.test(t)) {
+    const ms = Date.parse(`${t}T00:00:00Z`);
+    if (!Number.isNaN(ms)) return dateASerialExcel(new Date(ms));
+  }
+  if (!Number.isNaN(Number(t))) return Number(t);
   return v;
 }
 
@@ -546,10 +559,11 @@ function aplicarFuncion(nombre: string, args: Valor[], ctx: Contexto): Valor {
       if (!esRango(tabla)) return NO_SOPORTADO;
       const col = numero(indice);
       if (col instanceof ErrorExcel) return col;
-      // Solo coincidencia exacta (4.º argumento FALSE), que es como lo usa todo el formato oficial.
-      const exacta = args[3] === undefined ? false : escalar(args[3], ctx) === false;
-      if (!exacta) return NO_SOPORTADO;
-      return buscarVertical(buscado, tabla, col, ctx);
+      // El 4.º argumento decide el modo. Omitido, Excel asume aproximado.
+      const cuarto = args[3] === undefined ? true : escalar(args[3], ctx);
+      if (cuarto === NO_SOPORTADO) return NO_SOPORTADO;
+      const aproximado = !(cuarto === false || cuarto === 0);
+      return buscarVertical(buscado, tabla, col, ctx, aproximado);
     }
 
     case 'AND':
@@ -595,18 +609,28 @@ function aplicarFuncion(nombre: string, args: Valor[], ctx: Contexto): Valor {
   }
 }
 
-function buscarVertical(buscado: Escalar, tabla: Rango, indice: number, ctx: Contexto): Valor {
+/**
+ * `aproximado` es el modo por defecto de Excel: la primera columna debe venir ordenada de menor a
+ * mayor y se devuelve la última fila cuyo valor NO supera al buscado (el "tramo" en el que cae).
+ * Es como el formato oficial deduce, por ejemplo, el tipo de CIAI a partir del número de niños.
+ */
+function buscarVertical(buscado: Escalar, tabla: Rango, indice: number, ctx: Contexto, aproximado = false): Valor {
   if (indice < 1 || tabla.c1 + indice - 1 > tabla.c2) return new ErrorExcel('#REF!');
   const clave = typeof buscado === 'string' ? buscado.toLowerCase() : buscado;
+  const devolver = (f: number): Valor => {
+    const destino = valorDeCelda(ctx, tabla.hoja, `${letraColumna(tabla.c1 + indice - 1)}${f}`);
+    return esRango(destino) ? NO_SOPORTADO : destino;
+  };
+
+  let candidata: number | null = null;
   for (let f = tabla.f1; f <= tabla.f2; f++) {
     const celda = valorDeCelda(ctx, tabla.hoja, `${letraColumna(tabla.c1)}${f}`);
-    if (esRango(celda) || celda === NO_SOPORTADO) continue;
+    if (esRango(celda) || celda === NO_SOPORTADO || celda instanceof ErrorExcel) continue;
     const v = typeof celda === 'string' ? celda.toLowerCase() : celda;
-    if (v === clave) {
-      const destino = valorDeCelda(ctx, tabla.hoja, `${letraColumna(tabla.c1 + indice - 1)}${f}`);
-      return esRango(destino) ? NO_SOPORTADO : destino;
-    }
+    if (v === clave) return devolver(f);
+    if (aproximado && v !== null && v !== '' && clave !== null && v <= clave) candidata = f;
   }
+  if (aproximado && candidata !== null) return devolver(candidata);
   return new ErrorExcel('#N/A');
 }
 
@@ -676,6 +700,12 @@ export function calcularCelda(
   const formato = libro.formatoFecha(hoja, ref);
   if (formato?.esFecha && typeof v === 'number') {
     return { texto: fechaDesdeSerial(v, formato.soloAnio), soportado: true };
+  }
+  if (typeof v === 'number') {
+    // Se muestra con los decimales que declara la celda, como lo mostraría Excel. Sin formato
+    // declarado se recorta la precisión para no arrastrar la basura del coma flotante.
+    const decimales = libro.decimalesDe(hoja, ref);
+    return { texto: decimales !== undefined ? v.toFixed(decimales) : String(Number(v.toPrecision(12))), soportado: true };
   }
   return { texto: texto(v), soportado: true };
 }

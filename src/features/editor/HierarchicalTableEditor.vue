@@ -4,6 +4,7 @@ import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faPlus, faTrash, fieldTypeIcons } from '@/lib/icons';
 import CampoListaInput from '@/components/CampoListaInput.vue';
 import { EXCEL_VIVO } from '@/composables/useListasExcel';
+import { etiquetaDeValor } from '@/lib/conversionesExcel';
 import { createNodeChain, parseTree, getPeriodos, agrupadorProfundidad, esJerarquica, posicionesArbol, posicionDe, type TreeNode } from '@/lib/tableRowHelpers';
 import type { ConfigTabla, CabeceraGrupo, ColumnaTabla } from '@/types';
 
@@ -351,6 +352,13 @@ function opcionesCelda(path: number[], ci: number): string[] | null {
   return ops && ops.length > 0 ? ops : null;
 }
 
+// El valor guardado ya es la palabra del Excel; la traducción solo entra para los ejemplos
+// anteriores, que guardaron 'true'/'false' (ver etiquetaDeValor).
+function valorMostradoCelda(valor: unknown, ci: number, opciones: string[] | null): string {
+  const bruto = typeof valor === 'string' ? valor : '';
+  return etiquetaDeValor(bruto, opciones, columns.value[ci]?.etiquetasBooleano);
+}
+
 /** Lo que el Excel calcula en esa celda, o null si no lleva fórmula. */
 function calculoCelda(path: number[], ci: number) {
   const ref = refCelda(path, ci);
@@ -640,14 +648,32 @@ function renamePeriodo(pi: number, value: string) {
                 </td>
               </template>
 
-              <!-- Columna libre a la derecha del título de grupo: editable, es la fila-resumen del
-                   grupo (ej. el total). Comparte el fondo del título para que se lea como una fila. -->
+              <!-- Columna libre a la derecha del título de grupo: es la fila-resumen del grupo (ej.
+                   el total de sus ítems). Recibe el mismo trato del Excel que cualquier otra celda
+                   —cálculo en vivo o desplegable—, porque en el archivo es una celda como las demás:
+                   la fila del grupo con la columna de esa columna libre. -->
               <td
                 v-else-if="cell.type === 'group-extra'"
                 class="px-1.5 py-1 align-top bg-brand-50/60 border-t-2 border-brand-200"
                 :class="ci < numCols - 1 ? 'border-r border-gray-300' : ''"
               >
+                <div v-if="calculoCelda(cell.path, ci)" class="flex items-start gap-1 px-1 py-1">
+                  <FontAwesomeIcon :icon="fieldTypeIcons.calculado" class="w-2.5 h-2.5 text-sky-500 shrink-0 mt-0.5" title="Lo calcula el Excel" />
+                  <span v-if="!calculoCelda(cell.path, ci)!.soportado" class="text-[11px] text-sky-800/60 italic">Lo calcula el Excel</span>
+                  <span v-else-if="calculoCelda(cell.path, ci)!.error" class="text-[11px] text-amber-700 font-mono">{{ calculoCelda(cell.path, ci)!.error }}</span>
+                  <span v-else-if="calculoCelda(cell.path, ci)!.texto" class="text-xs font-semibold text-heading break-words">{{ calculoCelda(cell.path, ci)!.texto }}</span>
+                  <span v-else class="text-[11px] text-muted">—</span>
+                </div>
+                <CampoListaInput
+                  v-else-if="opcionesCelda(cell.path, ci)"
+                  :value="valorMostradoCelda(cell.value, ci, opcionesCelda(cell.path, ci))"
+                  :opciones="opcionesCelda(cell.path, ci) ?? []"
+                  compacto
+                  @change="updateGrupoValor(cell.path, cell.colId, $event)"
+                  @click.stop
+                />
                 <textarea
+                  v-else
                   :value="typeof cell.value === 'string' ? cell.value : ''"
                   rows="1"
                   :placeholder="`${columns[ci]?.nombre}...`"
@@ -723,7 +749,7 @@ function renamePeriodo(pi: number, value: string) {
                   <!-- Celda con desplegable declarado en el Excel -->
                   <CampoListaInput
                     v-else-if="opcionesCelda(cell.path, ci)"
-                    :value="typeof cell.value === 'string' ? cell.value : ''"
+                    :value="valorMostradoCelda(cell.value, ci, opcionesCelda(cell.path, ci))"
                     :opciones="opcionesCelda(cell.path, ci) ?? []"
                     class="flex-1 min-w-0"
                     @change="updateNodeValue(cell.path, $event)"

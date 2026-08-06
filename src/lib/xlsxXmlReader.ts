@@ -59,6 +59,8 @@ export interface LibroLeido {
   formulaDe(hoja: string, ref: string): string | undefined;
   /** Formato de fecha de la celda, aunque esté vacía — para dar forma al resultado de una fórmula */
   formatoFecha(hoja: string, ref: string): { esFecha: boolean; soloAnio: boolean } | undefined;
+  /** Decimales que muestra el formato de la celda, o undefined si no los declara */
+  decimalesDe(hoja: string, ref: string): number | undefined;
 }
 
 function textoDe(el: Element): string {
@@ -97,6 +99,26 @@ function parseEstilos(xml: string | null): { numFmtPorEstilo: number[]; codigoPo
     }
   }
   return { numFmtPorEstilo, codigoPorNumFmt };
+}
+
+// Códigos de los formatos numéricos integrados que declaran decimales (ECMA-376, §18.8.30). El
+// archivo puede redefinirlos en <numFmts>; esta tabla es el respaldo cuando no lo hace.
+const BUILTIN_DECIMALES: Record<number, string> = {
+  2: '0.00', 4: '#,##0.00', 10: '0.00%', 39: '#,##0.00', 40: '#,##0.00', 43: '#,##0.00', 44: '#,##0.00',
+};
+
+/**
+ * Cuántos decimales muestra el formato de la celda, o undefined si no lo declara.
+ *
+ * Hace falta para presentar el resultado de una fórmula como lo presenta Excel: una división da
+ * 1.4054794520547946, pero si la celda tiene formato `#,##0.00` lo que se ve en el Excel es 1.41.
+ */
+function decimalesDeFormato(numFmtId: number, codigoPorNumFmt: Map<number, string>): number | undefined {
+  const code = codigoPorNumFmt.get(numFmtId) ?? BUILTIN_DECIMALES[numFmtId];
+  if (!code) return undefined;
+  const limpio = code.replace(/"[^"]*"/g, '').replace(/\[[^\]]*\]/g, '');
+  const m = limpio.split(';')[0].match(/\.(0+)/);
+  return m ? m[1].length : undefined;
 }
 
 // Un formato es de fecha si es uno de los integrados, o si su código contiene tokens de fecha
@@ -148,9 +170,9 @@ interface HojaParseada {
   /** Fórmula de cada celda que la tenga, sin el `=` inicial. La usa el evaluador en vivo
    * (excelFormulaEval) para reproducir lo que el Excel calcularía. */
   formulas: Map<string, string>;
-  /** Formato de fecha por celda, incluso si está vacía — `celdas` solo trae las que tienen valor,
-   * y una celda con fórmula sin calcular está vacía pero conserva su formato. */
-  formatos: Map<string, { esFecha: boolean; soloAnio: boolean }>;
+  /** Formato por celda, incluso si está vacía — `celdas` solo trae las que tienen valor, y una
+   * celda con fórmula sin calcular está vacía pero conserva su formato. */
+  formatos: Map<string, { esFecha: boolean; soloAnio: boolean; decimales?: number }>;
   /** Estilo de TODA celda presente en el XML, tenga valor o no — base de la detección por formato */
   estilos: Map<string, number>;
   /** Fusiones indexadas por su celda ancla (esquina superior-izquierda del rango) */
@@ -317,8 +339,9 @@ function parseHoja(
     // calcular aparece vacía, y aun así su resultado debe mostrarse con su formato (R53 = TODAY()
     // con formato "yyyy;@" se ve como el año, no como una fecha completa).
     const numFmtCelda = estiloAttr !== null ? (numFmtPorEstilo[Number(estiloAttr)] ?? 0) : 0;
-    const formatoCelda = analizarFormato(numFmtCelda, codigoPorNumFmt);
-    if (formatoCelda.esFecha) formatos.set(ref, formatoCelda);
+    const decimales = decimalesDeFormato(numFmtCelda, codigoPorNumFmt);
+    const formatoCelda = { ...analizarFormato(numFmtCelda, codigoPorNumFmt), decimales };
+    if (formatoCelda.esFecha || decimales !== undefined) formatos.set(ref, formatoCelda);
 
     const f = c.getElementsByTagName('f')[0];
     if (f) {
@@ -436,7 +459,11 @@ export async function leerLibroXlsx(fuente: string): Promise<LibroLeido> {
       return hojaParseada(hoja)?.formulas.get(ref);
     },
     formatoFecha(hoja: string, ref: string): { esFecha: boolean; soloAnio: boolean } | undefined {
-      return hojaParseada(hoja)?.formatos.get(ref);
+      const f = hojaParseada(hoja)?.formatos.get(ref);
+      return f?.esFecha ? f : undefined;
+    },
+    decimalesDe(hoja: string, ref: string): number | undefined {
+      return hojaParseada(hoja)?.formatos.get(ref)?.decimales;
     },
     validacionLista(hoja: string, ref: string): string | undefined {
       const m = ref.match(/^\$?([A-Z]+)\$?(\d+)$/i);

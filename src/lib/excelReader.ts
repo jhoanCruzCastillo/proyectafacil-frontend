@@ -1,8 +1,11 @@
 import { leerLibroXlsx, type CeldaLeida, type LibroLeido } from './xlsxXmlReader';
 import { leerImagenesDeHoja, imagenParaFila, type ImagenIncrustada } from './xlsxImageReader';
-import { aFechaISO, aAnio, textoABooleano } from './conversionesExcel';
+import { aFechaISO, aAnio } from './conversionesExcel';
 import { parseCoords, serializarCoords } from './coords';
-import { esCeldaPartida, esJerarquica, getPeriodos, type FilaDinamica, type GrupoFilas, type TreeNode } from './tableRowHelpers';
+import {
+  esCeldaPartida, esJerarquica, getPeriodos, parseTree, posicionesArbol, posicionDe, agrupadorProfundidad,
+  type FilaDinamica, type GrupoFilas, type TreeNode,
+} from './tableRowHelpers';
 import type { Plantilla, Campo, Seccion, ConfigTabla, ColumnaTabla, TipoCampo, TipoColumna } from '@/types';
 
 // Volcado de datos Excel -> valores de un ejemplo: el inverso de excelWriter.ts. Recorre la
@@ -37,8 +40,9 @@ function valorParaCampo(campo: Campo, celda: CeldaLeida): string | null {
   if (celda.esFecha) return aFechaISO(celda.valor, true);
 
   switch (campo.tipo) {
-    case 'booleano':
-      return textoABooleano(texto, campo.etiquetasBooleano);
+    // 'booleano' NO se convierte: se guarda la palabra que trae el Excel ("Sí"), que es la misma
+    // que ofrece su desplegable. Convertirla a 'true'/'false' obligaba a traducir en cada punto de
+    // la UI y hacía que el valor no coincidiera con ninguna opción de la lista.
     case 'fecha':
       return aFechaISO(celda.valor, false) ?? texto;
     case 'numero':
@@ -68,8 +72,7 @@ function valorParaColumna(tipo: TipoColumna, celda: CeldaLeida): string {
   if (celda.esFecha) return aFechaISO(celda.valor, true) ?? '';
 
   switch (tipo) {
-    case 'booleano':
-      return textoABooleano(texto) ?? '';
+    // 'booleano': igual que en valorParaCampo, se conserva el texto del Excel.
     case 'fecha':
       return aFechaISO(celda.valor, false) ?? texto;
     case 'numero':
@@ -362,63 +365,96 @@ interface ArbolLeido {
   filasConDatos: number;
 }
 
-// Reconstruye el árbol desde las fusiones VERTICALES: el escritor pone el valor de un padre una
-// sola vez, en la primera fila de su subárbol, y fusiona esa celda sobre todas las filas que ocupa.
-// Así, la altura de la fusión ES la cantidad de hijos que cuelgan de él. Sin fusión, el nodo ocupa
-// una sola fila (el escritor solo fusiona cuando abarca más de una).
-function leerArbol(
+/**
+ * Rellena con los datos del Excel el árbol que la estructura YA declara, sin tocar su forma.
+ *
+ * Antes se reconstruía el árbol a partir de las fusiones verticales del Excel. Eso solo funciona
+ * cuando la jerarquía está dibujada con celdas fusionadas; en una tabla con agrupador no lo está —
+ * el título del grupo y sus ítems viven todos en la misma columna, como celdas sueltas, y quien
+ * marca la jerarquía es la estructura, no el archivo. Ahí la lectura devolvía una lista plana de
+ * hermanos y la fusión posicional posterior descolocaba grupos, ítems y datos.
+ *
+ * Ahora se recorre el árbol actual y, para cada nodo, se lee la celda que le toca según
+ * `posicionesArbol` — la misma aritmética que usan el escritor y el editor, así que la celda que se
+ * lee es exactamente la que se escribiría. El volcado solo rellena valores: nunca añade, quita ni
+ * reordena filas ni grupos.
+ */
+function rellenarArbol(
   libro: LibroLeido,
   hoja: string,
   config: ConfigTabla,
-  profundidad: number,
-  filaInicio: number,
-  filasDisponibles: number,
+  actuales: TreeNode[],
+  filaInicial: number,
   periodos: string[],
-  colIdx = profundidad,
 ): ArbolLeido {
-  // Un nivel de agrupador no consume columna (ver writeArbol): el índice de columna avanza solo en
-  // los niveles normales, así que no coincide con la profundidad del árbol cuando hay agrupador.
-  const col = config.columnas[colIdx];
-  const nodos: TreeNode[] = [];
+  const agrupadorDepth = config.agrupador ? agrupadorProfundidad(config.columnas, config) : -1;
+  const posiciones = posicionesArbol(actuales, config, hoja, filaInicial, agrupadorDepth, (h, columna, fila) =>
+    (columna ? libro.fusion(h, `${columna}${fila}`)?.filas : undefined));
   let filasConDatos = 0;
-  const fin = filaInicio + filasDisponibles;
 
-  let row = filaInicio;
-  while (row < fin) {
+  // Nivel calculado: su valor lo produce nuestra fórmula, no el número que Excel dejó cacheado.
+  function leerColumna(col: ColumnaTabla | undefined, fila: number): string | string[] {
+    if (!col || col.tipo === 'calculado' || col.formula) return '';
+    if (col.id === config.columnaDinamicaId && col.columnaExcel && periodos.length > 0) {
+      return leerCeldasPeriodos(libro, hoja, col, fila, periodos);
+    }
     const letra = columnasExcelDe(col)[0];
-    const fusion = letra ? libro.fusion(hoja, `${letra}${row}`) : undefined;
-    // La fusión nunca puede exceder el espacio que le cedió el padre: si la plantilla trae un rango
-    // más alto de lo que queda (tabla mal formada, o el padre acortado), se recorta.
-    const span = Math.min(Math.max(fusion?.filas ?? 1, 1), fin - row);
-
-    let value: string | string[];
-    // Nivel calculado: mismo criterio que en las tablas planas y en los campos sueltos — su valor
-    // lo produce nuestra fórmula, no el número que Excel dejó cacheado. Se devuelve vacío para que
-    // la fusión conserve lo que el ejemplo ya tenía.
-    if (col?.tipo === 'calculado' || col?.formula) {
-      value = '';
-    } else if (col?.id === config.columnaDinamicaId && col.columnaExcel && periodos.length > 0) {
-      const arr = leerCeldasPeriodos(libro, hoja, col, row, periodos);
-      value = arr;
-      if (arr.some((v) => v !== '')) filasConDatos++;
-    } else {
-      const celda = letra ? libro.celda(hoja, `${letra}${row}`) : undefined;
-      value = celda ? valorParaColumna(col?.tipo ?? 'texto_corto', celda) : '';
-      if (value !== '') filasConDatos++;
-    }
-
-    let children: TreeNode[] = [];
-    if (colIdx + 1 < config.columnas.length) {
-      const sub = leerArbol(libro, hoja, config, profundidad + 1, row, span, periodos, colIdx + 1);
-      children = sub.nodos;
-      filasConDatos += sub.filasConDatos;
-    }
-
-    nodos.push({ value, children });
-    row += span;
+    const celda = letra ? libro.celda(hoja, `${letra}${fila}`) : undefined;
+    return celda ? valorParaColumna(col.tipo ?? 'texto_corto', celda) : '';
   }
 
-  return { nodos, filasConDatos };
+  // Una celda vacía del Excel conserva lo que el ejemplo ya tenía (los nombres de ítem que vienen
+  // de la estructura base, o lo que el usuario haya tipeado en el editor).
+  function conservando(leido: string | string[], previo: string | string[] | undefined): string | string[] | null {
+    if (Array.isArray(leido)) {
+      if (!leido.some((v) => v !== '')) return null;
+      const antes = Array.isArray(previo) ? previo : [];
+      return leido.map((v, k) => (v !== '' ? v : (antes[k] ?? '')));
+    }
+    return leido !== '' ? leido : null;
+  }
+
+  function recorrer(nodos: TreeNode[], path: number[]): TreeNode[] {
+    return nodos.map((nodo, i) => {
+      const ruta = [...path, i];
+      const pos = posicionDe(posiciones, ruta);
+      let value = nodo.value;
+      const valores: FilaDinamica = { ...(nodo.valores ?? {}) };
+
+      if (pos) {
+        const col = config.columnas[pos.colIdx];
+        const leido = conservando(leerColumna(col, pos.fila), nodo.value);
+        if (leido !== null) {
+          value = leido;
+          filasConDatos++;
+        }
+        // Fila de título de grupo: las columnas libres a su derecha son celdas de datos de esa
+        // misma fila, no de sus hijos.
+        const esGrupo = agrupadorDepth >= 0 && ruta.length - 1 === agrupadorDepth && nodo.children.length > 0;
+        if (esGrupo) {
+          for (const otra of config.columnas) {
+            if (otra.id === col?.id) continue;
+            // Una celda partida (Record) no aplica a una fila de título: solo texto o períodos.
+            const anterior = valores[otra.id];
+            const previo = typeof anterior === 'string' || Array.isArray(anterior) ? anterior : undefined;
+            const l = conservando(leerColumna(otra, pos.fila), previo);
+            if (l !== null) {
+              valores[otra.id] = l;
+              filasConDatos++;
+            }
+          }
+        }
+      }
+
+      return {
+        value,
+        children: recorrer(nodo.children, ruta),
+        ...(Object.keys(valores).length > 0 ? { valores } : {}),
+      };
+    });
+  }
+
+  return { nodos: recorrer(actuales, []), filasConDatos };
 }
 
 // Fusión celda por celda con las filas que el ejemplo ya tenía: el dato del Excel gana solo donde
@@ -478,22 +514,6 @@ function fusionarGrupos(actuales: GrupoFilas[], leidos: GrupoFilas[], config: Co
   return out;
 }
 
-// Misma regla, nodo a nodo: el árbol leído manda en su forma (la que dicta el Excel), y cada valor
-// vacío conserva el que tuviera el nodo equivalente del ejemplo.
-function fusionarArbol(actuales: TreeNode[], leidos: TreeNode[]): TreeNode[] {
-  return leidos.map((leido, i) => {
-    const actual = actuales[i];
-    let value: string | string[];
-    if (Array.isArray(leido.value)) {
-      const previo = Array.isArray(actual?.value) ? actual.value : [];
-      value = leido.value.map((v, k) => (v !== '' ? v : (previo[k] ?? '')));
-    } else {
-      value = leido.value !== '' ? leido.value : (typeof actual?.value === 'string' ? actual.value : '');
-    }
-    return { value, children: fusionarArbol(actual?.children ?? [], leido.children) };
-  });
-}
-
 function parseFilasActuales(raw: string | undefined): FilaDinamica[] {
   if (!raw) return [];
   try {
@@ -509,15 +529,6 @@ function parseGruposActuales(raw: string | undefined): GrupoFilas[] {
     const p = JSON.parse(raw);
     if (Array.isArray(p) && p.length > 0 && 'filas' in p[0]) return p as GrupoFilas[];
   } catch { /* no era JSON de grupos */ }
-  return [];
-}
-
-function parseArbolActual(raw: string | undefined): TreeNode[] {
-  if (!raw) return [];
-  try {
-    const p = JSON.parse(raw);
-    if (Array.isArray(p) && p.length > 0 && 'value' in p[0]) return p as TreeNode[];
-  } catch { /* no era JSON de árbol */ }
   return [];
 }
 
@@ -632,11 +643,12 @@ export async function leerValoresDeExcel(
       const periodos = getPeriodos(config);
       const raw = ops.valoresActuales[campo.identificador] ?? campo.valorEjemplo;
 
-      // Jerárquica: la forma la dictan las fusiones verticales del Excel.
+      // Jerárquica: la forma la dicta la estructura, no el Excel. Solo se rellenan los valores.
       if (esJerarquica(config.subtipo)) {
-        const lectura = leerArbol(libro, hoja, config, 0, filaFisica, config.captura!.filasBase!, periodos);
+        const actuales = parseTree(raw ?? '', config.columnas, config);
+        const lectura = rellenarArbol(libro, hoja, config, actuales, filaFisica, periodos);
         if (lectura.filasConDatos === 0) continue;
-        resultado.valores[campo.identificador] = JSON.stringify(fusionarArbol(parseArbolActual(raw), lectura.nodos));
+        resultado.valores[campo.identificador] = JSON.stringify(lectura.nodos);
         resultado.tablasLeidas++;
         resultado.filasTablaLeidas += lectura.filasConDatos;
         continue;
