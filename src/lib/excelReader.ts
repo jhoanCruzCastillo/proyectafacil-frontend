@@ -30,6 +30,21 @@ import type { Plantilla, Campo, Seccion, ConfigTabla, ColumnaTabla, TipoCampo, T
 // el contenido no es utilizable para ese tipo (se omite el campo en vez de guardar algo inválido).
 // Fechas y años NO se convierten aquí: pasan siempre por lib/conversionesExcel.ts, que es el punto
 // único donde vive la aritmética de seriales de Excel.
+/**
+ * Valor de una celda para el volcado, o undefined si no hay nada que traer.
+ *
+ * Una celda con FÓRMULA nunca se vuelca: su valor lo produce el Excel a partir de otras celdas, no
+ * es un dato que alguien haya escrito. Copiarlo al JSON lo ensucia con un número derivado que
+ * además nunca se reescribe, porque la inserción también respeta las fórmulas.
+ *
+ * La regla la decide LA CELDA, no cómo esté declarado el campo o la columna. Antes el volcado
+ * miraba el tipo declarado (`calculado`, `editable`) mientras la pantalla y la inserción miraban la
+ * fórmula: un campo puesto como "Texto corto" sobre una celda calculada se colaba igual.
+ */
+function celdaVolcable(libro: LibroLeido, hoja: string, ref: string): CeldaLeida | undefined {
+  return libro.formulaDe(hoja, ref) ? undefined : libro.celda(hoja, ref);
+}
+
 function valorParaCampo(campo: Campo, celda: CeldaLeida): string | null {
   const texto = celda.valor.trim();
   if (texto === '') return null;
@@ -150,7 +165,7 @@ function leerCeldaPartida(libro: LibroLeido, hoja: string, col: ColumnaTabla, fi
   const partes: Record<string, string> = {};
   let algunaExtra = false;
   col.subcolumnas!.forEach((sub, i) => {
-    const celda = sub.columnaExcel ? libro.celda(hoja, `${sub.columnaExcel}${filaFisica}`) : undefined;
+    const celda = sub.columnaExcel ? celdaVolcable(libro, hoja, `${sub.columnaExcel}${filaFisica}`) : undefined;
     const v = celda ? valorParaColumna(sub.tipo, celda) : '';
     partes[sub.id] = v;
     if (i > 0 && v !== '') algunaExtra = true;
@@ -171,7 +186,7 @@ function leerCeldasPeriodos(
   const ancho = col.abarcaColumnasExcel ?? 1;
   return periodos.map((_, i) => {
     const letra = sumarColumnas(col.columnaExcel!, i * ancho);
-    const celda = libro.celda(hoja, `${letra}${filaFisica}`);
+    const celda = celdaVolcable(libro, hoja, `${letra}${filaFisica}`);
     return celda ? valorParaColumna(col.tipo, celda) : '';
   });
 }
@@ -204,7 +219,7 @@ function leerFilaTabla(
       continue;
     }
     if (!col.columnaExcel) { valores[col.id] = ''; continue; }
-    const celda = libro.celda(hoja, `${col.columnaExcel}${filaFisica}`);
+    const celda = celdaVolcable(libro, hoja, `${col.columnaExcel}${filaFisica}`);
     const v = celda ? valorParaColumna(col.tipo, celda) : '';
     valores[col.id] = v;
     if (v !== '') tieneDatos = true;
@@ -338,7 +353,7 @@ function leerTablaAgrupada(
     const esTitulo = Boolean(fusion && fusion.columnas >= minAncho);
 
     if (esTitulo) {
-      const celda = libro.celda(hoja, `${columnaInicial}${row}`);
+      const celda = celdaVolcable(libro, hoja, `${columnaInicial}${row}`);
       const titulo = celda ? celda.valor : '';
       // La fila de título también puede traer valores propios a la derecha de la fusión (grupos
       // "resumen" sin filas hijas) — se leen igual que una fila de datos y se guardan aparte.
@@ -399,7 +414,7 @@ function rellenarArbol(
       return leerCeldasPeriodos(libro, hoja, col, fila, periodos);
     }
     const letra = columnasExcelDe(col)[0];
-    const celda = letra ? libro.celda(hoja, `${letra}${fila}`) : undefined;
+    const celda = letra ? celdaVolcable(libro, hoja, `${letra}${fila}`) : undefined;
     return celda ? valorParaColumna(col.tipo ?? 'texto_corto', celda) : '';
   }
 
@@ -711,7 +726,7 @@ export async function leerValoresDeExcel(
       if (!campo.captura?.columna || !campo.captura.fila) continue;
 
       const fila = campo.captura.fila + shift(campo.captura.fila);
-      const celda = libro.celda(hoja, `${campo.captura.columna}${fila}`);
+      const celda = celdaVolcable(libro, hoja, `${campo.captura.columna}${fila}`);
       if (!celda) { resultado.camposVacios++; continue; }
 
       const valor = valorParaCampo(campo, celda);
