@@ -15,7 +15,7 @@
 // identificadores de campo). Aquí el lenguaje es el de Excel y los operandos son celdas.
 
 import type { LibroLeido } from './xlsxXmlReader';
-import { dateASerialExcel } from './conversionesExcel';
+import { aPorcentaje, dateASerialExcel, dePorcentaje } from './conversionesExcel';
 
 export class ErrorExcel {
   codigo: string;
@@ -390,6 +390,10 @@ function comoEscalar(v: string): Escalar {
     const ms = Date.parse(`${t}T00:00:00Z`);
     if (!Number.isNaN(ms)) return dateASerialExcel(new Date(ms));
   }
+  // "1.10%" guardado en el JSON vale 0.011 para cualquier fórmula que lea esa celda, igual que en
+  // Excel. Sin esto, una tasa escrita como porcentaje entraría al cálculo como texto.
+  const pct = dePorcentaje(t);
+  if (pct !== null) return pct;
   if (!Number.isNaN(Number(t))) return Number(t);
   return v;
 }
@@ -705,6 +709,11 @@ export function calcularCelda(
     // Se muestra con los decimales que declara la celda, como lo mostraría Excel. Sin formato
     // declarado se recorta la precisión para no arrastrar la basura del coma flotante.
     const decimales = libro.decimalesDe(hoja, ref);
+    // Una celda con formato de porcentaje guarda la fracción: I10/I9 = 0.147 y en la hoja se lee
+    // 14.7%. Mostrar el 0.1 crudo no es lo que ve quien abre el Excel.
+    if (libro.esPorcentaje(hoja, ref)) {
+      return { texto: aPorcentaje(v, decimales) ?? '', soportado: true };
+    }
     return { texto: decimales !== undefined ? v.toFixed(decimales) : String(Number(v.toPrecision(12))), soportado: true };
   }
   return { texto: texto(v), soportado: true };

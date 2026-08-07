@@ -73,6 +73,37 @@ export function aAnio(valor: string, esSerialDeExcel: boolean): string | null {
   return m ? m[1] : null;
 }
 
+// --- Porcentajes ---
+
+// Excel guarda un porcentaje como la FRACCIÓN (1.10% se almacena como 0.011) y deja el "%" al
+// formato de la celda. Sin traducirlo, el volcado trae 1.0999999999999999E-2 y la pantalla muestra
+// ese número en vez del 1.10% que se ve en la hoja.
+const RE_PORCENTAJE = /^([+-]?[\d.,\s]+)\s*%$/;
+
+/** Fracción de Excel -> el texto que muestra la celda. 0.011 con 2 decimales -> "1.10%". */
+export function aPorcentaje(valor: string | number, decimales?: number): string | null {
+  const n = typeof valor === 'number' ? valor : Number(String(valor).trim());
+  if (!Number.isFinite(n)) return null;
+  // Multiplicar por 100 en coma flotante reintroduce ruido (0.011*100 = 1.0999999999999999), así que
+  // se redondea a los decimales del formato; sin formato declarado, `0%` de Excel = sin decimales.
+  return `${(n * 100).toFixed(decimales ?? 0)}%`;
+}
+
+/**
+ * "1.10%" -> 0.011, o null si el texto no es un porcentaje escrito.
+ *
+ * Es la misma regla que aplica Excel cuando alguien teclea "50%" en una celda: guarda 0.5. Por eso
+ * se puede aplicar a cualquier celda destino, tenga o no formato de porcentaje.
+ */
+export function dePorcentaje(texto: string): number | null {
+  const m = RE_PORCENTAJE.exec(texto.trim());
+  if (!m) return null;
+  const n = Number(m[1].replace(/\s/g, '').replace(',', '.'));
+  if (!Number.isFinite(n)) return null;
+  // Se recorta la precisión al dividir para no devolver 0.010999999999999999 por "1.10%".
+  return Number((n / 100).toPrecision(12));
+}
+
 // --- Booleanos ---
 
 // Reserva de último recurso, para plantillas que no declaran `etiquetas` en el campo. Las palabras

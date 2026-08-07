@@ -1,6 +1,6 @@
 import { leerLibroXlsx, type CeldaLeida, type LibroLeido } from './xlsxXmlReader';
 import { leerImagenesDeHoja, imagenParaFila, type ImagenIncrustada } from './xlsxImageReader';
-import { aFechaISO, aAnio } from './conversionesExcel';
+import { aFechaISO, aAnio, aPorcentaje } from './conversionesExcel';
 import { parseCoords, serializarCoords } from './coords';
 import {
   esCeldaPartida, esJerarquica, getPeriodos, parseTree, posicionesArbol, posicionDe, agrupadorProfundidad,
@@ -31,18 +31,38 @@ import type { Plantilla, Campo, Seccion, ConfigTabla, ColumnaTabla, TipoCampo, T
 // Fechas y años NO se convierten aquí: pasan siempre por lib/conversionesExcel.ts, que es el punto
 // único donde vive la aritmética de seriales de Excel.
 /**
+ * ¿La fórmula es aritmética sobre números escritos a mano, sin leer ninguna otra celda?
+ *
+ * `=1872+1927+1989` no es un valor derivado: es un dato que alguien tecleó como suma por comodidad,
+ * y su resultado no depende de nada más del libro. `=+Brecha!B15` o `=I9/I8` sí lo son.
+ *
+ * La distinción se hace por la presencia de letras: una referencia, un nombre de hoja o una función
+ * siempre traen alguna; una cuenta entre números no.
+ */
+function esCalculoLiteral(formula: string): boolean {
+  const sinTexto = formula.replace(/"[^"]*"/g, '');
+  return /\d/.test(sinTexto) && /^[=+\-\s\d.,*/^()%]+$/.test(sinTexto);
+}
+
+/**
  * Valor de una celda para el volcado, o undefined si no hay nada que traer.
  *
- * Una celda con FÓRMULA nunca se vuelca: su valor lo produce el Excel a partir de otras celdas, no
- * es un dato que alguien haya escrito. Copiarlo al JSON lo ensucia con un número derivado que
- * además nunca se reescribe, porque la inserción también respeta las fórmulas.
+ * Una celda cuya fórmula LEE OTRAS CELDAS no se vuelca: su valor lo produce el Excel, no es un dato
+ * que alguien haya escrito. Copiarlo al JSON lo ensucia con un número derivado que además nunca se
+ * reescribe, porque la inserción respeta las fórmulas.
+ *
+ * La excepción es la cuenta entre números literales (ver `esCalculoLiteral`): ahí el resultado ES el
+ * dato. Se vuelca su valor, pero al insertar la celda se sigue respetando — así no se pierde el
+ * desglose que su autor dejó escrito.
  *
  * La regla la decide LA CELDA, no cómo esté declarado el campo o la columna. Antes el volcado
  * miraba el tipo declarado (`calculado`, `editable`) mientras la pantalla y la inserción miraban la
  * fórmula: un campo puesto como "Texto corto" sobre una celda calculada se colaba igual.
  */
 function celdaVolcable(libro: LibroLeido, hoja: string, ref: string): CeldaLeida | undefined {
-  return libro.formulaDe(hoja, ref) ? undefined : libro.celda(hoja, ref);
+  const formula = libro.formulaDe(hoja, ref);
+  if (formula && !esCalculoLiteral(formula)) return undefined;
+  return libro.celda(hoja, ref);
 }
 
 function valorParaCampo(campo: Campo, celda: CeldaLeida): string | null {
@@ -53,6 +73,9 @@ function valorParaCampo(campo: Campo, celda: CeldaLeida): string | null {
   // serial. Aplica sin importar cómo esté tipado el campo — el formato de la celda manda.
   if (celda.soloAnio) return aAnio(celda.valor, true);
   if (celda.esFecha) return aFechaISO(celda.valor, true);
+  // Porcentaje: la celda guarda la fracción (0.011) y muestra 1.10%. Se guarda lo que se ve, igual
+  // que con las fechas, que tampoco se guardan como el serial que trae el archivo.
+  if (celda.esPorcentaje) return aPorcentaje(celda.valor, celda.decimales) ?? texto;
 
   switch (campo.tipo) {
     // 'booleano' NO se convierte: se guarda la palabra que trae el Excel ("Sí"), que es la misma
@@ -85,6 +108,7 @@ function valorParaColumna(tipo: TipoColumna, celda: CeldaLeida): string {
 
   if (celda.soloAnio) return aAnio(celda.valor, true) ?? '';
   if (celda.esFecha) return aFechaISO(celda.valor, true) ?? '';
+  if (celda.esPorcentaje) return aPorcentaje(celda.valor, celda.decimales) ?? texto;
 
   switch (tipo) {
     // 'booleano': igual que en valorParaCampo, se conserva el texto del Excel.

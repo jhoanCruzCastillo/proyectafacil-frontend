@@ -19,6 +19,10 @@ export interface CeldaLeida {
   esFecha: boolean;
   /** El formato es solo de año ("yyyy") — el serial debe mostrarse como el año, no la fecha completa */
   soloAnio: boolean;
+  /** La celda tiene formato de porcentaje — `valor` es la fracción (0.011 se ve como 1.10%) */
+  esPorcentaje: boolean;
+  /** Decimales que declara el formato, o undefined si no declara ninguno */
+  decimales?: number;
 }
 
 export interface FusionLeida {
@@ -61,6 +65,9 @@ export interface LibroLeido {
   formatoFecha(hoja: string, ref: string): { esFecha: boolean; soloAnio: boolean } | undefined;
   /** Decimales que muestra el formato de la celda, o undefined si no los declara */
   decimalesDe(hoja: string, ref: string): number | undefined;
+  /** La celda tiene formato de porcentaje, aunque esté vacía — para dar forma al resultado de una
+   * fórmula igual que hace `formatoFecha` con las de fecha */
+  esPorcentaje(hoja: string, ref: string): boolean;
 }
 
 function textoDe(el: Element): string {
@@ -101,11 +108,23 @@ function parseEstilos(xml: string | null): { numFmtPorEstilo: number[]; codigoPo
   return { numFmtPorEstilo, codigoPorNumFmt };
 }
 
-// Códigos de los formatos numéricos integrados que declaran decimales (ECMA-376, §18.8.30). El
-// archivo puede redefinirlos en <numFmts>; esta tabla es el respaldo cuando no lo hace.
-const BUILTIN_DECIMALES: Record<number, string> = {
-  2: '0.00', 4: '#,##0.00', 10: '0.00%', 39: '#,##0.00', 40: '#,##0.00', 43: '#,##0.00', 44: '#,##0.00',
+// Códigos de los formatos numéricos integrados que declaran decimales o porcentaje (ECMA-376,
+// §18.8.30). El archivo puede redefinirlos en <numFmts>; esta tabla es el respaldo cuando no lo hace.
+const BUILTIN_CODIGOS: Record<number, string> = {
+  2: '0.00', 4: '#,##0.00', 9: '0%', 10: '0.00%', 39: '#,##0.00', 40: '#,##0.00', 43: '#,##0.00', 44: '#,##0.00',
 };
+
+// El código de formato aplicado a la celda: el que declare el archivo tiene prioridad sobre el
+// integrado, porque un .xlsx puede redefinir cualquier numFmtId en <numFmts>.
+function codigoDeFormato(numFmtId: number, codigoPorNumFmt: Map<number, string>): string | undefined {
+  return codigoPorNumFmt.get(numFmtId) ?? BUILTIN_CODIGOS[numFmtId];
+}
+
+// Los literales entre comillas y las secciones [entre corchetes] no son tokens de formato: un
+// código como `0.00" %"` muestra un "%" pero NO escala el número por 100.
+function tokensDeFormato(code: string): string {
+  return code.replace(/"[^"]*"/g, '').replace(/\[[^\]]*\]/g, '').replace(/\\./g, '');
+}
 
 /**
  * Cuántos decimales muestra el formato de la celda, o undefined si no lo declara.
@@ -114,11 +133,19 @@ const BUILTIN_DECIMALES: Record<number, string> = {
  * 1.4054794520547946, pero si la celda tiene formato `#,##0.00` lo que se ve en el Excel es 1.41.
  */
 function decimalesDeFormato(numFmtId: number, codigoPorNumFmt: Map<number, string>): number | undefined {
-  const code = codigoPorNumFmt.get(numFmtId) ?? BUILTIN_DECIMALES[numFmtId];
+  const code = codigoDeFormato(numFmtId, codigoPorNumFmt);
   if (!code) return undefined;
-  const limpio = code.replace(/"[^"]*"/g, '').replace(/\[[^\]]*\]/g, '');
-  const m = limpio.split(';')[0].match(/\.(0+)/);
+  const m = tokensDeFormato(code).split(';')[0].match(/\.(0+)/);
   return m ? m[1].length : undefined;
+}
+
+/**
+ * ¿El formato es de porcentaje? Un "%" entre los tokens del código hace que Excel muestre el número
+ * multiplicado por 100: la celda guarda 0.011 y en la hoja se lee 1.10%.
+ */
+function esPorcentajeFormato(numFmtId: number, codigoPorNumFmt: Map<number, string>): boolean {
+  const code = codigoDeFormato(numFmtId, codigoPorNumFmt);
+  return code ? tokensDeFormato(code).split(';')[0].includes('%') : false;
 }
 
 // Un formato es de fecha si es uno de los integrados, o si su código contiene tokens de fecha
@@ -128,7 +155,7 @@ function analizarFormato(numFmtId: number, codigoPorNumFmt: Map<number, string>)
   const code = codigoPorNumFmt.get(numFmtId);
   if (!code) return { esFecha: false, soloAnio: false };
 
-  const limpio = code.replace(/"[^"]*"/g, '').replace(/\[[^\]]*\]/g, '');
+  const limpio = tokensDeFormato(code);
   const esFecha = /[dmy]/i.test(limpio);
   if (!esFecha) return { esFecha: false, soloAnio: false };
 
@@ -172,7 +199,7 @@ interface HojaParseada {
   formulas: Map<string, string>;
   /** Formato por celda, incluso si está vacía — `celdas` solo trae las que tienen valor, y una
    * celda con fórmula sin calcular está vacía pero conserva su formato. */
-  formatos: Map<string, { esFecha: boolean; soloAnio: boolean; decimales?: number }>;
+  formatos: Map<string, { esFecha: boolean; soloAnio: boolean; esPorcentaje: boolean; decimales?: number }>;
   /** Estilo de TODA celda presente en el XML, tenga valor o no — base de la detección por formato */
   estilos: Map<string, number>;
   /** Fusiones indexadas por su celda ancla (esquina superior-izquierda del rango) */
@@ -321,7 +348,7 @@ function parseHoja(
   const celdas = new Map<string, CeldaLeida>();
   const estilos = new Map<string, number>();
   const formulas = new Map<string, string>();
-  const formatos = new Map<string, { esFecha: boolean; soloAnio: boolean }>();
+  const formatos = new Map<string, { esFecha: boolean; soloAnio: boolean; esPorcentaje: boolean; decimales?: number }>();
   // Fórmulas compartidas: `si` -> celda que sí trae el texto, y las que solo la referencian.
   const maestras = new Map<string, { formula: string; ref: string }>();
   const pendientes: { ref: string; si: string }[] = [];
@@ -340,8 +367,9 @@ function parseHoja(
     // con formato "yyyy;@" se ve como el año, no como una fecha completa).
     const numFmtCelda = estiloAttr !== null ? (numFmtPorEstilo[Number(estiloAttr)] ?? 0) : 0;
     const decimales = decimalesDeFormato(numFmtCelda, codigoPorNumFmt);
-    const formatoCelda = { ...analizarFormato(numFmtCelda, codigoPorNumFmt), decimales };
-    if (formatoCelda.esFecha || decimales !== undefined) formatos.set(ref, formatoCelda);
+    const esPorcentaje = esPorcentajeFormato(numFmtCelda, codigoPorNumFmt);
+    const formatoCelda = { ...analizarFormato(numFmtCelda, codigoPorNumFmt), esPorcentaje, decimales };
+    if (formatoCelda.esFecha || esPorcentaje || decimales !== undefined) formatos.set(ref, formatoCelda);
 
     const f = c.getElementsByTagName('f')[0];
     if (f) {
@@ -372,12 +400,14 @@ function parseHoja(
 
     if (valor === null || valor === '') continue;
 
-    // Solo tiene sentido interpretar el formato de fecha sobre un número: una celda de texto con
-    // formato de fecha heredado seguiría siendo texto.
+    // Solo tiene sentido interpretar el formato de fecha o de porcentaje sobre un número: una celda
+    // de texto con ese formato heredado seguiría siendo texto.
     const esNumero = tipo == null || tipo === 'n';
-    const { esFecha, soloAnio } = esNumero ? formatoCelda : { esFecha: false, soloAnio: false };
+    const { esFecha, soloAnio, esPorcentaje: pct } = esNumero
+      ? formatoCelda
+      : { esFecha: false, soloAnio: false, esPorcentaje: false };
 
-    celdas.set(ref, { valor, esFecha, soloAnio });
+    celdas.set(ref, { valor, esFecha, soloAnio, esPorcentaje: pct, decimales: formatoCelda.decimales });
   }
   // Expansión de las fórmulas compartidas: cada celda recibe la fórmula de su maestra trasladada
   // por la diferencia de fila y columna entre ambas, que es exactamente lo que hace Excel.
@@ -464,6 +494,9 @@ export async function leerLibroXlsx(fuente: string): Promise<LibroLeido> {
     },
     decimalesDe(hoja: string, ref: string): number | undefined {
       return hojaParseada(hoja)?.formatos.get(ref)?.decimales;
+    },
+    esPorcentaje(hoja: string, ref: string): boolean {
+      return hojaParseada(hoja)?.formatos.get(ref)?.esPorcentaje ?? false;
     },
     validacionLista(hoja: string, ref: string): string | undefined {
       const m = ref.match(/^\$?([A-Z]+)\$?(\d+)$/i);

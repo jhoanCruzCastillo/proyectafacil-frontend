@@ -146,6 +146,65 @@ export function parseTree(value: string, columns: ColumnaTabla[], config: Config
  */
 export type AltoDeBloque = (hoja: string, columna: string | undefined, fila: number) => number | undefined;
 
+/**
+ * ¿La fila de título de este grupo ocupa una fila del Excel?
+ *
+ * Un bloque sin título y sin valores propios NO es "un grupo con el nombre en blanco": son filas
+ * sueltas antes del primer grupo real y no consumen fila. Y un objeto de valores TODOS vacíos es el
+ * molde de la estructura, no datos.
+ *
+ * ES LA ÚNICA DEFINICIÓN de la regla: la consultan el conteo de filas, la escritura al Excel y el
+ * editor. Cuando estaban duplicadas se desfasaron —el escritor aceptaba cualquier objeto de valores
+ * y el editor exigía contenido—, y ese desfase desalinea la tabla entera sin avisar.
+ */
+export function grupoOcupaFila(grupo: GrupoFilas): boolean {
+  if (grupo.grupo !== '') return true;
+  const propios = grupo.valoresGrupo;
+  if (!propios) return false;
+  return Object.values(propios).some((v) => (Array.isArray(v) ? v.some((x) => x !== '') : v !== '' && v != null));
+}
+
+/** Filas de Excel que ocupa un grupo: la de su título (si la tiene) y una por cada fila de datos. */
+export interface PosicionGrupo {
+  /** Fila del título, o null si el bloque no consume una */
+  filaTitulo: number | null;
+  /** Fila de Excel de cada fila de datos, en orden */
+  filas: number[];
+}
+
+/**
+ * Fila de Excel de cada parte de una tabla plana con agrupador.
+ *
+ * Misma intención que `posicionesArbol` para las jerárquicas: una sola aritmética que consultan el
+ * escritor (para saber dónde escribir) y el editor (para saber a qué celda pedirle sus opciones o
+ * su fórmula). Con una sola definición, la celda que se le muestra al usuario y la celda donde
+ * termina el dato no pueden desincronizarse.
+ *
+ * `altoDeFila` permite que una fila ocupe un bloque de varias filas ya fusionado en la plantilla;
+ * sin él, una fila del Excel por cada fila de la tabla.
+ */
+export function posicionesGrupos(
+  grupos: GrupoFilas[],
+  filaInicial: number,
+  altoDeFila?: (fila: number) => number,
+): PosicionGrupo[] {
+  const alto = (fila: number) => Math.max(altoDeFila?.(fila) ?? 1, 1);
+  let row = filaInicial;
+  return grupos.map((grupo) => {
+    let filaTitulo: number | null = null;
+    if (grupoOcupaFila(grupo)) {
+      filaTitulo = row;
+      row += alto(row);
+    }
+    const filas = grupo.filas.map(() => {
+      const f = row;
+      row += alto(f);
+      return f;
+    });
+    return { filaTitulo, filas };
+  });
+}
+
 /** Dónde cae un nodo del árbol dentro de la hoja de Excel. */
 export interface PosicionNodo {
   /** Fila real de Excel donde arranca el nodo */

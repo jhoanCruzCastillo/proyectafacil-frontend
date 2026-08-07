@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, inject, ref, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faPlus, faTrash } from '@/lib/icons';
+import { faPlus, faTrash, fieldTypeIcons } from '@/lib/icons';
 import TableHeaderRow from './TableHeaderRow.vue';
 import TableRow from './TableRow.vue';
-import { parseGroupedRows, newEmptyRow, getPeriodos, esCeldaPartida, valorPlano, type GrupoFilas } from '@/lib/tableRowHelpers';
+import CampoListaInput from '@/components/CampoListaInput.vue';
+import { EXCEL_VIVO } from '@/composables/useListasExcel';
+import { etiquetaDeValor } from '@/lib/conversionesExcel';
+import { parseGroupedRows, newEmptyRow, getPeriodos, esCeldaPartida, valorPlano, posicionesGrupos, grupoOcupaFila, type GrupoFilas } from '@/lib/tableRowHelpers';
 import type { ConfigTabla, ColumnaTabla } from '@/types';
 
 // Filas planas agrupadas bajo un encabezado de grupo (config.agrupador === true). Una sola tabla:
@@ -15,6 +18,8 @@ const props = defineProps<{
   modelValue: string;
   /** true = permite agregar/renombrar columnas dinámicas (solo tab Estructura) */
   puedeEditarPeriodos?: boolean;
+  /** Hoja de Excel de la sección — habilita desplegables y cálculo en vivo por celda */
+  hoja?: string;
 }>();
 
 const emit = defineEmits<{ 'update:modelValue': [string]; 'update:config': [ConfigTabla] }>();
@@ -88,10 +93,17 @@ function updatePeriodo(gi: number, ri: number, colId: string, pi: number, val: s
   }));
 }
 function addRow(gi: number) { persist(grupos.value.map((g, i) => (i === gi ? { ...g, filas: [...g.filas, newEmptyRow(props.config)] } : g))); }
+// Un grupo puede quedarse en cero filas: su fila de título ya es una fila del Excel y a menudo los
+// datos van ahí mismo. Borrar la última fila NO borra el grupo — el grupo se elimina solo con la
+// papelera de su fila de título, y su botón "Agregar fila" sigue disponible para recuperarla.
 function removeRow(gi: number, ri: number) {
-  persist(grupos.value.map((g, i) => (i !== gi ? g : { ...g, filas: g.filas.length > 1 ? g.filas.filter((_, j) => j !== ri) : g.filas })));
+  persist(grupos.value.map((g, i) => (i !== gi ? g : { ...g, filas: g.filas.filter((_, j) => j !== ri) })));
 }
-function addGrupo() { persist([...grupos.value, { grupo: `Grupo ${grupos.value.length + 1}`, filas: [newEmptyRow(props.config)] }]); }
+// Un grupo nuevo nace SIN filas hijas: su propia fila de título ya es una fila del Excel y suele
+// llevar los datos ahí mismo (ej. "Tasa de crecimiento…", que ocupa una única fila que abarca el
+// ancho y tiene sus valores a la derecha). Crearlo con una fila de cortesía obligaba a borrarla y,
+// si no te dabas cuenta, la tabla ocupaba una fila de más y empujaba todo lo de abajo.
+function addGrupo() { persist([...grupos.value, { grupo: `Grupo ${grupos.value.length + 1}`, filas: [] }]); }
 function removeGrupo(gi: number) { if (grupos.value.length > 1) persist(grupos.value.filter((_, i) => i !== gi)); }
 
 function addPeriodo() {
@@ -123,11 +135,47 @@ function columnasResto(cols: ColumnaTabla[], abarcaN: number, dinamicaId: string
 }
 const restColumnas = computed(() => columnasResto(props.config.columnas, abarca.value, props.config.columnaDinamicaId, periodos.value.length));
 
-// ¿Este bloque dibuja fila de título? Mismo criterio que el escritor de Excel: un bloque sin nombre
-// y sin valores propios no es un grupo, son filas sueltas antes del primer grupo real — y no ocupa
-// ninguna fila en el Excel. Dibujarle un título aquí mostraba una fila que no existe en el archivo.
-function tieneFilaTitulo(g: GrupoFilas): boolean {
-  return g.grupo !== '' || Boolean(g.valoresGrupo && Object.values(g.valoresGrupo).some((v) => v !== '' && v != null));
+// --- Ayudas del Excel, celda a celda ---
+// La fila de cada parte sale de `posicionesGrupos`, la misma aritmética que usa el escritor: así la
+// celda que se le consulta al Excel y la celda donde acabará el dato son la misma por construcción.
+const excel = inject(EXCEL_VIVO, undefined);
+
+const posiciones = computed(() => {
+  const filaInicial = props.config.captura?.filaInicial;
+  if (!props.hoja || !filaInicial) return null;
+  return posicionesGrupos(grupos.value, filaInicial, (fila) => {
+    const primera = props.config.columnas.find((c) => c.columnaExcel)?.columnaExcel;
+    return Math.max(excel?.value?.altoDeBloque(props.hoja!, primera, fila) ?? 1, 1);
+  });
+});
+
+/** Fila de Excel de una fila de datos, o undefined si no se puede resolver. */
+function filaExcelDe(gi: number, ri: number): number | undefined {
+  return posiciones.value?.[gi]?.filas[ri];
+}
+
+/** Celda de la fila de título del grupo en una de sus columnas libres. */
+function refGrupo(gi: number, col: ColumnaTabla): string | null {
+  const fila = posiciones.value?.[gi]?.filaTitulo;
+  if (!fila || !col.columnaExcel || !props.hoja) return null;
+  return `${col.columnaExcel}${fila}`;
+}
+
+function calculoGrupo(gi: number, col: ColumnaTabla) {
+  const ref = refGrupo(gi, col);
+  return ref && props.hoja ? (excel?.value?.calculado(props.hoja, ref) ?? null) : null;
+}
+
+function opcionesGrupo(gi: number, col: ColumnaTabla): string[] | null {
+  const ref = refGrupo(gi, col);
+  if (!ref || !props.hoja) return null;
+  const ops = excel?.value?.opcionesDe(props.hoja, ref);
+  return ops && ops.length > 0 ? ops : null;
+}
+
+function valorGrupoMostrado(gi: number, col: ColumnaTabla, opciones: string[] | null): string {
+  const bruto = (grupos.value[gi]?.valoresGrupo?.[col.id] as string) || '';
+  return etiquetaDeValor(bruto, opciones, col.etiquetasBooleano);
 }
 </script>
 
@@ -149,7 +197,7 @@ function tieneFilaTitulo(g: GrupoFilas): boolean {
         </thead>
         <tbody>
           <template v-for="(grupo, gi) in grupos" :key="gi">
-            <tr v-if="tieneFilaTitulo(grupo)" class="bg-brand-50/60 border-t-2 border-brand-200">
+            <tr v-if="grupoOcupaFila(grupo)" class="bg-brand-50/60 border-t-2 border-brand-200">
               <td :colspan="abarca" class="px-2 py-1.5">
                 <div class="flex items-center gap-2">
                   <input
@@ -179,8 +227,26 @@ function tieneFilaTitulo(g: GrupoFilas): boolean {
                     />
                   </td>
                 </template>
+                <!-- Columna libre de la fila de título: en el Excel es una celda como cualquier
+                     otra, así que recibe el mismo trato (cálculo en vivo o desplegable). -->
                 <td v-else class="px-1 py-0.5 bg-brand-50/60 align-top">
+                  <div v-if="calculoGrupo(gi, col)" class="flex items-start gap-1 px-1 py-1">
+                    <FontAwesomeIcon :icon="fieldTypeIcons.calculado" class="w-2.5 h-2.5 text-sky-500 shrink-0 mt-0.5" title="Lo calcula el Excel" />
+                    <span v-if="!calculoGrupo(gi, col)!.soportado" class="text-[11px] text-sky-800/60 italic">Lo calcula el Excel</span>
+                    <span v-else-if="calculoGrupo(gi, col)!.error" class="text-[11px] text-amber-700 font-mono">{{ calculoGrupo(gi, col)!.error }}</span>
+                    <span v-else-if="calculoGrupo(gi, col)!.texto" class="text-xs font-semibold text-heading break-words">{{ calculoGrupo(gi, col)!.texto }}</span>
+                    <span v-else class="text-[11px] text-muted">—</span>
+                  </div>
+                  <CampoListaInput
+                    v-else-if="opcionesGrupo(gi, col)"
+                    :value="valorGrupoMostrado(gi, col, opcionesGrupo(gi, col))"
+                    :opciones="opcionesGrupo(gi, col) ?? []"
+                    compacto
+                    @change="updateValorGrupo(gi, col.id, $event)"
+                    @click.stop
+                  />
                   <textarea
+                    v-else
                     :value="(grupo.valoresGrupo?.[col.id] as string) || ''"
                     @input="updateValorGrupo(gi, col.id, ($event.target as HTMLTextAreaElement).value)"
                     @click.stop
@@ -200,6 +266,8 @@ function tieneFilaTitulo(g: GrupoFilas): boolean {
               :row-index="ri"
               :periodos="periodos"
               :columna-dinamica-id="config.columnaDinamicaId"
+              :hoja="hoja"
+              :fila-excel="filaExcelDe(gi, ri)"
               @cell-change="(colId, val) => updateCell(gi, ri, colId, val)"
               @periodo-change="(colId, pi, val) => updatePeriodo(gi, ri, colId, pi, val)"
               @subcelda-change="(colId, subId, val) => updateSubcelda(gi, ri, colId, subId, val)"

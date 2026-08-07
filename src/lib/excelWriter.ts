@@ -1,7 +1,7 @@
-import { parseDynamicRows, parseGroupedRows, parseTree, getPeriodos, esJerarquica, esCeldaPartida, agrupadorProfundidad, posicionesArbol, posicionDe, type FilaDinamica, type ValorCelda, type PosicionNodo } from './tableRowHelpers';
+import { parseDynamicRows, parseGroupedRows, parseTree, getPeriodos, esJerarquica, esCeldaPartida, agrupadorProfundidad, posicionesArbol, posicionDe, posicionesGrupos, grupoOcupaFila, type FilaDinamica, type ValorCelda, type PosicionNodo } from './tableRowHelpers';
 import { LibroEdits, aplicarEdicionesXlsx } from './xlsxXmlPatcher';
 import { crearResolver, esFormula, evaluarFormula, traducirFormulaAExcel, type ResolucionToken, type ResolucionCelda } from './formula';
-import { booleanoATexto, dateASerialExcel, type EtiquetasBooleano } from './conversionesExcel';
+import { booleanoATexto, dateASerialExcel, dePorcentaje, type EtiquetasBooleano } from './conversionesExcel';
 import { parseCoords, coordsATexto } from './coords';
 import { leerLibroXlsx } from './xlsxXmlReader';
 import { catalogoDeListas, normalizarOpcion, type AvisoLista } from './xlsxListas';
@@ -43,6 +43,12 @@ function coerceValor(
   etiquetasBooleano?: EtiquetasBooleano,
 ): string | number | boolean {
   if (raw == null || raw === '') return '';
+  // "1.10%" -> 0.011. Una celda con formato de porcentaje guarda la fracción y el "%" lo pone el
+  // formato, así que escribir el texto la dejaría rota para toda fórmula que la lea. Se decide por
+  // la FORMA DEL VALOR y no por el tipo declarado, igual que hace el volcado al leerla: es la misma
+  // lectura que hace Excel cuando alguien teclea "1.10%" en cualquier celda.
+  const porcentaje = dePorcentaje(raw);
+  if (porcentaje !== null) return porcentaje;
   if (tipo === 'numero' || tipo === 'decimal') {
     const n = Number(raw);
     return Number.isNaN(n) ? '' : n;
@@ -193,20 +199,6 @@ function writeFilaColumnas(ediciones: LibroEdits, hoja: string | undefined, conf
 
 // Cuántas filas físicas ocupará la tabla con los datos actuales — usado tanto para registrar el
 // crecimiento (antes de escribir nada) como, indirectamente, al escribir (mismo recorrido).
-/**
- * ¿La fila de título de este grupo ocupa una fila del Excel?
- *
- * Un bloque sin título ni valores propios NO es "un grupo con el nombre en blanco": son filas
- * sueltas antes del primer grupo real y no consumen fila. ES LA ÚNICA DEFINICIÓN de esa regla — la
- * consultan tanto el conteo de filas (para decidir si la tabla crece) como la escritura. Cuando
- * estaban duplicadas se desfasaron: el conteo sumaba una fila de título por cada grupo y la
- * escritura no, así que una tabla que cabía justo "crecía" una fila, se insertaba una fila vacía en
- * la hoja y todo lo de abajo se desplazaba de más.
- */
-function grupoOcupaFila(grupo: { grupo: string; valoresGrupo?: unknown }): boolean {
-  return grupo.grupo !== '' || Boolean(grupo.valoresGrupo);
-}
-
 function filasNecesariasTabla(config: ConfigTabla, raw: string): number {
   if (esJerarquica(config.subtipo)) {
     const roots = parseTree(raw, config.columnas, config);
@@ -369,32 +361,32 @@ function writeCampoTabla(ediciones: LibroEdits, hoja: string | undefined, config
     const abarcaCabeceras = Math.min(config.agrupadorAbarcaColumnas ?? config.columnas.length, config.columnas.length);
     const abarcaFisico = anchoFisicoPrimerasColumnas(config, abarcaCabeceras, periodos);
 
-    let row = filaInicial + shift;
-    for (const grupo of grupos) {
-      // Un bloque sin título ni valores propios NO son "un grupo con el nombre en blanco": son
-      // filas sueltas antes del primer grupo real, y no ocupan ninguna fila del Excel. Reservarles
-      // una desalineaba toda la tabla y, peor, rompía la simetría con el lector — que nunca produce
-      // una fila de título vacía, porque las reconoce por su fusión horizontal.
-      const tieneTitulo = grupo.grupo !== '';
-      const ocupaFila = grupoOcupaFila(grupo);
+    // La aritmética de filas la resuelve `posicionesGrupos` (tableRowHelpers), la MISMA que consulta
+    // el editor para saber a qué celda pedirle sus opciones o su fórmula. Con una sola definición es
+    // imposible que la celda que ve el usuario y la celda donde acaba el dato se desincronicen.
+    const posiciones = posicionesGrupos(grupos, filaInicial + shift, (fila) =>
+      altoDeFila(config, hoja, fila, altoDeBloque));
 
-      if (columnaInicial && tieneTitulo) {
-        ediciones.escribirCelda(hoja, columnaInicial, row, grupo.grupo);
-        if (abarcaFisico > 1) ediciones.fusionar(hoja, `${columnaInicial}${row}:${addCols(columnaInicial, abarcaFisico - 1)}${row}`);
+    grupos.forEach((grupo, gi) => {
+      const pos = posiciones[gi];
+      if (pos.filaTitulo !== null) {
+        if (columnaInicial && grupo.grupo !== '') {
+          ediciones.escribirCelda(hoja, columnaInicial, pos.filaTitulo, grupo.grupo);
+          if (abarcaFisico > 1) {
+            ediciones.fusionar(hoja, `${columnaInicial}${pos.filaTitulo}:${addCols(columnaInicial, abarcaFisico - 1)}${pos.filaTitulo}`);
+          }
+        }
+        // Valores propios de la fila de título (`agrupador.valores`, punto 4.2): las columnas a la
+        // derecha del título son celdas de datos como cualquier otra — ej. la fila "Nivel de
+        // cobertura…" de 7.03, con un porcentaje por año.
+        if (grupo.valoresGrupo) {
+          writeFilaColumnas(ediciones, hoja, config, grupo.valoresGrupo, pos.filaTitulo, periodos, altoDeBloque);
+        }
       }
-      // Valores propios de la fila de título (`agrupador.valores`, punto 4.2): las columnas a la
-      // derecha del título son celdas de datos como cualquier otra — ej. la fila "Nivel de
-      // cobertura…" de 7.03, con un porcentaje por año. El lector ya las leía; sin esto, el viaje
-      // de vuelta a Excel las perdía.
-      if (grupo.valoresGrupo) {
-        writeFilaColumnas(ediciones, hoja, config, grupo.valoresGrupo, row, periodos, altoDeBloque);
-      }
-      if (ocupaFila) row += altoDeFila(config, hoja, row, altoDeBloque);
-      for (const fila of grupo.filas) {
-        writeFilaColumnas(ediciones, hoja, config, fila, row, periodos, altoDeBloque);
-        row += altoDeFila(config, hoja, row, altoDeBloque);
-      }
-    }
+      grupo.filas.forEach((fila, fi) => {
+        writeFilaColumnas(ediciones, hoja, config, fila, pos.filas[fi], periodos, altoDeBloque);
+      });
+    });
     return;
   }
 
