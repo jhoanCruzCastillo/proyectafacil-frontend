@@ -66,12 +66,26 @@ export function newEmptyRow(config: ConfigTabla): FilaDinamica {
   return emptyRow(config);
 }
 
+/**
+ * Filas en blanco que se muestran cuando la tabla todavía no tiene datos: las que la plantilla
+ * oficial reserva (`filas_base`).
+ *
+ * Antes esto era un campo aparte del editor (`filas_iniciales`) que había que llenar a mano. Se
+ * quitó porque no describía nada del Excel y se confundía con `filas_base`: dejarlo en un número
+ * distinto sembraba filas de cortesía que, al guardar, contaban como datos y hacían crecer la tabla
+ * con filas vacías. Tomándolo de `filas_base` el editor muestra exactamente la forma del archivo y
+ * las dos cosas no pueden desalinearse.
+ */
+function filasEnBlanco(config: ConfigTabla): number {
+  return Math.max(config.captura?.filasBase ?? 1, 1);
+}
+
 export function parseDynamicRows(value: string, config: ConfigTabla): FilaDinamica[] {
   try {
     const p = JSON.parse(value);
     if (Array.isArray(p) && (p.length === 0 || (!('value' in p[0]) && !('filas' in p[0])))) return p;
   } catch { /* valor previo no es JSON (placeholder viejo) */ }
-  return Array.from({ length: config.filasIniciales ?? 3 }, () => emptyRow(config));
+  return Array.from({ length: filasEnBlanco(config) }, () => emptyRow(config));
 }
 
 export function parseGroupedRows(value: string, config: ConfigTabla): GrupoFilas[] {
@@ -79,7 +93,9 @@ export function parseGroupedRows(value: string, config: ConfigTabla): GrupoFilas
     const p = JSON.parse(value);
     if (Array.isArray(p) && p.length > 0 && 'filas' in p[0]) return p;
   } catch { /* valor previo no es JSON (placeholder viejo) */ }
-  return [{ grupo: 'Grupo 1', filas: Array.from({ length: config.filasIniciales ?? 3 }, () => emptyRow(config)) }];
+  // La fila de título del grupo también ocupa una de las filas base.
+  const filas = Math.max(filasEnBlanco(config) - 1, 1);
+  return [{ grupo: 'Grupo 1', filas: Array.from({ length: filas }, () => emptyRow(config)) }];
 }
 
 function valorInicialNivel(columns: ColumnaTabla[], config: ConfigTabla, depth: number): string | string[] {

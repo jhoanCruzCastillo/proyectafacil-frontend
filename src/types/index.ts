@@ -94,7 +94,6 @@ export interface CabeceraGrupo {
 export interface ConfigTabla {
   subtipo: SubtipoTabla;
   columnas: ColumnaTabla[];
-  filasIniciales?: number;
   maxFilas?: number;
   /** Lista editable de nombres de las columnas dinámicas generadas, cada una insertable/editable individualmente (solo subtipo matriz_por_periodos) */
   periodos?: string[];

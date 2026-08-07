@@ -262,7 +262,6 @@ function campoFromDoc(rawCampo: unknown): Campo {
       columnaDinamicaId,
       periodos,
       cabeceras: cabecerasFromDoc(raw.cabecera, columnaDinamicaId),
-      filasIniciales: 3,
       captura: {
         columnaInicial: typeof rawCaptura.columna_inicial === 'string' && rawCaptura.columna_inicial ? rawCaptura.columna_inicial : undefined,
         filaInicial: typeof rawCaptura.fila_inicial === 'number' ? rawCaptura.fila_inicial : undefined,

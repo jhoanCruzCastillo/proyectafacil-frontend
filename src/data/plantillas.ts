@@ -147,7 +147,6 @@ export const plantillas: Plantilla[] = [
                 descripcion: 'Si el área de influencia abarca más de una localización, se podrán añadir más localizaciones.',
                 configTabla: {
                   subtipo: 'filas_dinamicas',
-                  filasIniciales: 3,
                   columnas: [
                     { id: 'col-n', nombre: 'N°', tipo: 'auto_numerico', ancho: 8 },
                     { id: 'col-dep', nombre: 'Departamento', tipo: 'catalogo_encadenado', fuenteCatalogo: 'UBIGEO — Departamentos', encadenaA: 'col-prov', requerido: true },

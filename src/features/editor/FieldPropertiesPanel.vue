@@ -20,7 +20,7 @@ const emit = defineEmits<{ update: [campoId: string, updates: Partial<Campo>] }>
 const allowedFieldTypes: TipoCampo[] = ['texto_corto', 'texto_largo', 'numero', 'decimal', 'fecha', 'booleano', 'mapa_coordenadas', 'tabla'];
 const allFieldTypes = allowedFieldTypes.map((k) => [k, fieldTypeLabels[k]] as [TipoCampo, string]);
 
-const defaultTableConfig: ConfigTabla = { subtipo: 'filas_dinamicas', columnas: [], filasIniciales: 3 };
+const defaultTableConfig: ConfigTabla = { subtipo: 'filas_dinamicas', columnas: [] };
 
 const icon = computed(() => fieldTypeIcons[props.campo.tipo]);
 const typeLabel = computed(() => fieldTypeLabels[props.campo.tipo]);

@@ -118,18 +118,6 @@ const cabecerasDisponibles = computed(() => Math.max(props.config.columnas.lengt
 
     <div v-if="config.subtipo === 'filas_dinamicas'" class="grid grid-cols-2 gap-3">
       <CampoConAyuda
-        etiqueta="Filas iniciales"
-        ayuda="Cuántas filas vacías se ven en el editor cuando la tabla todavía no tiene datos. Es solo comodidad para llenarla: no cambia nada en el Excel."
-      >
-        <input
-          :value="config.filasIniciales ?? 3"
-          @input="emit('update', { ...config, filasIniciales: Number(($event.target as HTMLInputElement).value) })"
-          type="number"
-          min="1"
-          class="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30"
-        />
-      </CampoConAyuda>
-      <CampoConAyuda
         etiqueta="Máx. filas"
         ayuda="Tope de filas que se pueden agregar a esta tabla. Déjalo vacío si no quieres límite."
       >

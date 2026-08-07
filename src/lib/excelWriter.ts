@@ -193,6 +193,20 @@ function writeFilaColumnas(ediciones: LibroEdits, hoja: string | undefined, conf
 
 // Cuántas filas físicas ocupará la tabla con los datos actuales — usado tanto para registrar el
 // crecimiento (antes de escribir nada) como, indirectamente, al escribir (mismo recorrido).
+/**
+ * ¿La fila de título de este grupo ocupa una fila del Excel?
+ *
+ * Un bloque sin título ni valores propios NO es "un grupo con el nombre en blanco": son filas
+ * sueltas antes del primer grupo real y no consumen fila. ES LA ÚNICA DEFINICIÓN de esa regla — la
+ * consultan tanto el conteo de filas (para decidir si la tabla crece) como la escritura. Cuando
+ * estaban duplicadas se desfasaron: el conteo sumaba una fila de título por cada grupo y la
+ * escritura no, así que una tabla que cabía justo "crecía" una fila, se insertaba una fila vacía en
+ * la hoja y todo lo de abajo se desplazaba de más.
+ */
+function grupoOcupaFila(grupo: { grupo: string; valoresGrupo?: unknown }): boolean {
+  return grupo.grupo !== '' || Boolean(grupo.valoresGrupo);
+}
+
 function filasNecesariasTabla(config: ConfigTabla, raw: string): number {
   if (esJerarquica(config.subtipo)) {
     const roots = parseTree(raw, config.columnas, config);
@@ -206,7 +220,7 @@ function filasNecesariasTabla(config: ConfigTabla, raw: string): number {
   }
   if (config.agrupador) {
     const grupos = parseGroupedRows(raw, config);
-    return grupos.reduce((sum, g) => sum + 1 + g.filas.length, 0);
+    return grupos.reduce((sum, g) => sum + (grupoOcupaFila(g) ? 1 : 0) + g.filas.length, 0);
   }
   return parseDynamicRows(raw, config).length;
 }
@@ -220,7 +234,7 @@ function registrarCrecimientoTabla(ediciones: LibroEdits, hoja: string | undefin
   const filasBase = config.captura?.filasBase;
   if (!hoja || !filaInicial || !filasBase) return;
   // Una tabla sin datos no crece. Sin esta guarda, `parseDynamicRows('')` devuelve las filas en
-  // blanco que la UI muestra por cortesía (`filasIniciales`, 3 por defecto) y se contaban como si
+  // blanco que la UI muestra por cortesía y se contaban como si
   // fueran datos: una tabla vacía con filas_base 1 "crecía" 2 filas e insertaba dos filas físicas,
   // desplazando hacia abajo TODO lo que venía después en la hoja. Nada se escribe en ellas, así que
   // el desplazamiento era puro daño.
@@ -362,7 +376,7 @@ function writeCampoTabla(ediciones: LibroEdits, hoja: string | undefined, config
       // una desalineaba toda la tabla y, peor, rompía la simetría con el lector — que nunca produce
       // una fila de título vacía, porque las reconoce por su fusión horizontal.
       const tieneTitulo = grupo.grupo !== '';
-      const ocupaFila = tieneTitulo || Boolean(grupo.valoresGrupo);
+      const ocupaFila = grupoOcupaFila(grupo);
 
       if (columnaInicial && tieneTitulo) {
         ediciones.escribirCelda(hoja, columnaInicial, row, grupo.grupo);
