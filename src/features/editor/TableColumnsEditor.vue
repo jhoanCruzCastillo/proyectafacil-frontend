@@ -116,22 +116,6 @@ const cabecerasDisponibles = computed(() => Math.max(props.config.columnas.lengt
       </div>
     </div>
 
-    <div v-if="config.subtipo === 'filas_dinamicas'" class="grid grid-cols-2 gap-3">
-      <CampoConAyuda
-        etiqueta="Máx. filas"
-        ayuda="Tope de filas que se pueden agregar a esta tabla. Déjalo vacío si no quieres límite."
-      >
-        <input
-          :value="config.maxFilas ?? ''"
-          @input="emit('update', { ...config, maxFilas: ($event.target as HTMLInputElement).value ? Number(($event.target as HTMLInputElement).value) : undefined })"
-          type="number"
-          placeholder="Sin límite"
-          min="1"
-          class="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30"
-        />
-      </CampoConAyuda>
-    </div>
-
     <MatrizPeriodosEditor v-if="config.subtipo === 'matriz_por_periodos'" v-model:config="config" />
     <JerarquicaColumnsEditor v-else-if="esJerarquica(config.subtipo)" v-model:config="config" />
     <FilasDinamicasColumnsEditor v-else v-model:config="config" />
