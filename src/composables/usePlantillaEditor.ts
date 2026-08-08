@@ -203,6 +203,9 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
   const showNuevoEjemplo = ref(false);
   const deleteTarget = ref<Ejemplo | null>(null) as Ref<Ejemplo | null>;
   const volcarTarget = ref<Ejemplo | null>(null) as Ref<Ejemplo | null>;
+  /** Volcado en la versión Estructura: el origen es el Excel asignado y el destino son los valores
+   * por defecto de la plantilla, no los de un ejemplo. */
+  const volcarEstructura = ref(false);
   const showExcelCatalogModal = ref(false);
   const showPreview = ref(false);
   const showInsertConfirm = ref(false);
@@ -334,13 +337,52 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     volcarTarget.value = ejemplo;
   }
 
+  // Volcado de la versión Estructura: no hay archivo que elegir — se lee el Excel que la ficha tiene
+  // asignado desde el principio, que es el mismo que define qué celdas son de teclear. Al leerse a sí
+  // mismo, toda celda con fórmula queda fuera por la regla de siempre: el molde no debe guardar
+  // números que el Excel calcula.
+  function handleVolcarEstructura() {
+    if (!archivoExcelAsignado.value) return;
+    volcarEstructura.value = true;
+  }
+
   // Los valores leídos del Excel se fusionan sobre los actuales, no los reemplazan: lo que el Excel
   // no trae (celdas vacías, y todas las tablas) conserva lo que el ejemplo ya tenía. Queda como
   // edición pendiente igual que cualquier cambio manual — se persiste al guardar.
   function handleConfirmarVolcado(valores: Record<string, string>) {
-    editedValores.value = { ...editedValores.value, ...valores };
+    const aEstructura = volcarEstructura.value;
     volcarTarget.value = null;
+    volcarEstructura.value = false;
     const n = Object.keys(valores).length;
+
+    // En Estructura el destino es el VALOR POR DEFECTO de cada campo (`valorEjemplo`), que es el
+    // molde de la plantilla; en Ejemplos, los valores del ejemplo activo. La lectura del Excel es la
+    // misma en ambos casos: solo cambia dónde aterriza.
+    if (aEstructura) {
+      mutate((p) => {
+        for (const sec of p.secciones) {
+          for (const sub of sec.subsecciones) {
+            for (const campo of sub.campos) {
+              const valor = valores[campo.identificador];
+              if (valor !== undefined) campo.valorEjemplo = valor;
+            }
+          }
+        }
+      });
+      // El panel de propiedades muestra una copia del campo seleccionado: sin refrescarla seguiría
+      // enseñando el valor anterior hasta volver a seleccionarlo.
+      if (selectedCampo.value) {
+        const actualizado = editData.value?.secciones
+          .flatMap((s) => s.subsecciones)
+          .flatMap((s) => s.campos)
+          .find((c) => c.id === selectedCampo.value!.id);
+        if (actualizado) selectedCampo.value = { ...actualizado };
+      }
+      ui.toast(`${n} ${n === 1 ? 'campo volcado' : 'campos volcados'} al valor por defecto — recuerda guardar`);
+      return;
+    }
+
+    editedValores.value = { ...editedValores.value, ...valores };
     ui.toast(`${n} ${n === 1 ? 'campo volcado' : 'campos volcados'} desde el Excel — recuerda guardar`);
   }
 
@@ -579,7 +621,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     leftWidth, rightWidth, examplesWidth, highlightMissingCaptura, ejemplosCount, jsonPreview,
     showImportEstructura,
     secciones, safeIdx, seccionActiva, isFirst, isLast, showExamples,
-    ejemplos, activeEjemplo, editedValores, showNuevoEjemplo, deleteTarget, volcarTarget,
+    ejemplos, activeEjemplo, editedValores, showNuevoEjemplo, deleteTarget, volcarTarget, volcarEstructura,
     archivoExcelAsignado, showExcelCatalogModal, showPreview, showInsertConfirm, isInserting, insertProgress,
     previewFileUrl, previewFileName,
     handleLeftResize, handleRightResize, handleExamplesResize, handleTabChange, handleSectionSelect,
@@ -588,7 +630,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     handleSubseccionAyudaChange, handleAddSubsection, handleDeleteSubsection, handleAddSection,
     handleExampleValueChange, handleCreateExample, handleDeleteEjemplo, handleToggleEjemploEstado,
     handleDownloadExcel, handlePreviewExample, handleInsertExcel,
-    handleVolcarExcel, handleConfirmarVolcado,
+    handleVolcarExcel, handleVolcarEstructura, handleConfirmarVolcado, getDefaultValores,
     handleImportEstructura,
     handleSave, handleViewJson,
   };

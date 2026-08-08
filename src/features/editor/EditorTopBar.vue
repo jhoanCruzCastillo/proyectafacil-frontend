@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faEye, faSave, faArrowLeft, faFileCode, faFileExport, faWandMagicSparkles } from '@/lib/icons';
+import { faEye, faSave, faArrowLeft, faFileCode, faFileExport, faFileImport, faWandMagicSparkles } from '@/lib/icons';
 import VersionTabs from '@/components/VersionTabs.vue';
 import { useSessionStore } from '@/stores/session';
 import { puedeAccederGestionUsuarios } from '@/lib/permisos';
@@ -14,9 +14,19 @@ const props = defineProps<{
   activeTab: VersionTab;
   /** true = se está viendo el panel de Contextos IA en vez del editor */
   contextosIA?: boolean;
+  /** Sin Excel asignado no hay nada que volcar a la estructura */
+  tieneExcelAsignado?: boolean;
 }>();
 
-const emit = defineEmits<{ 'change-tab': [VersionTab]; save: []; 'view-json': []; 'preview-excel': []; 'insert-excel': []; 'toggle-contextos-ia': [] }>();
+const emit = defineEmits<{
+  'change-tab': [VersionTab];
+  save: [];
+  'view-json': [];
+  'preview-excel': [];
+  'insert-excel': [];
+  'volcar-estructura': [];
+  'toggle-contextos-ia': [];
+}>();
 
 const session = useSessionStore();
 const esSuperusuario = computed(() => session.sesion?.rol === 'superusuario');
@@ -64,6 +74,19 @@ const showInsert = computed(() => props.activeTab === 'ejemplos');
         >
           <FontAwesomeIcon :icon="faFileCode" class="w-3.5 h-3.5" />
           Ver JSON
+        </button>
+        <!-- Volcar existía solo en Ejemplos (desde la tarjeta del ejemplo). En Estructura el origen
+             no se elige: siempre es el Excel asignado, así que vive aquí arriba. -->
+        <button
+          v-if="!showInsert"
+          @click="emit('volcar-estructura')"
+          :disabled="!tieneExcelAsignado"
+          type="button"
+          :title="tieneExcelAsignado ? 'Volcar los datos del Excel asignado a los valores por defecto' : 'Asigna un Excel a la ficha para poder volcar sus datos'"
+          class="px-4 py-2 rounded-lg border border-white/15 text-sm font-medium text-white/80 hover:bg-white/10 hover:text-white transition-colors flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+        >
+          <FontAwesomeIcon :icon="faFileImport" class="w-3.5 h-3.5" />
+          Volcar
         </button>
         <button
           v-if="showInsert"

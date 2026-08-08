@@ -29,7 +29,7 @@ const {
   leftWidth, rightWidth, examplesWidth, highlightMissingCaptura, ejemplosCount, jsonPreview,
   showImportEstructura,
   secciones, safeIdx, seccionActiva, isFirst, isLast, showExamples,
-  ejemplos, activeEjemplo, editedValores, showNuevoEjemplo, deleteTarget, volcarTarget,
+  ejemplos, activeEjemplo, editedValores, showNuevoEjemplo, deleteTarget, volcarTarget, volcarEstructura,
   archivoExcelAsignado, showExcelCatalogModal, showPreview, showInsertConfirm, isInserting, insertProgress,
   previewFileUrl, previewFileName,
   handleLeftResize, handleRightResize, handleExamplesResize, handleTabChange, handleSectionSelect,
@@ -38,7 +38,7 @@ const {
   handleSubseccionAyudaChange, handleAddSubsection, handleDeleteSubsection, handleAddSection,
   handleExampleValueChange, handleCreateExample, handleDeleteEjemplo, handleToggleEjemploEstado,
   handleDownloadExcel, handlePreviewExample, handleInsertExcel,
-  handleVolcarExcel, handleConfirmarVolcado,
+  handleVolcarExcel, handleVolcarEstructura, handleConfirmarVolcado, getDefaultValores,
   handleImportEstructura,
   handleSave, handleViewJson,
 } = usePlantillaEditor(plantillaId);
@@ -59,12 +59,14 @@ const verContextosIA = ref(false);
       :plantilla-id="plantillaId"
       :active-tab="activeTab"
       :contextos-i-a="verContextosIA"
+      :tiene-excel-asignado="!!archivoExcelAsignado"
       @change-tab="(t) => { verContextosIA = false; handleTabChange(t); }"
       @toggle-contextos-ia="verContextosIA = !verContextosIA"
       @save="handleSave"
       @view-json="handleViewJson"
       @preview-excel="showPreview = true"
       @insert-excel="showInsertConfirm = true"
+      @volcar-estructura="handleVolcarEstructura"
     />
 
     <ContextosIAPanel v-if="verContextosIA" :plantilla="editData" :plantilla-id="plantillaId" />
@@ -225,13 +227,17 @@ const verContextosIA = ref(false);
       @close="jsonPreview = null"
     />
 
+    <!-- Un solo modal para los dos destinos: en Estructura lee el Excel asignado y llena los valores
+         por defecto; en Ejemplos se elige archivo y llena el ejemplo activo. -->
     <VolcarExcelModal
-      :is-open="!!volcarTarget"
+      :is-open="!!volcarTarget || volcarEstructura"
       :ejemplo="volcarTarget"
       :plantilla="editData"
-      :valores-actuales="editedValores"
+      :destino="volcarEstructura ? 'estructura' : 'ejemplo'"
+      :valores-actuales="volcarEstructura ? getDefaultValores() : editedValores"
       :excel-estructura="archivoExcelAsignado?.dataUrl"
-      @close="volcarTarget = null"
+      :nombre-excel-estructura="archivoExcelAsignado?.nombre"
+      @close="volcarTarget = null; volcarEstructura = false"
       @confirmar="handleConfirmarVolcado"
     />
   </div>
