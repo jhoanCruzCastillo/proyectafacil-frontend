@@ -230,6 +230,7 @@ const verContextosIA = ref(false);
       :ejemplo="volcarTarget"
       :plantilla="editData"
       :valores-actuales="editedValores"
+      :excel-estructura="archivoExcelAsignado?.dataUrl"
       @close="volcarTarget = null"
       @confirmar="handleConfirmarVolcado"
     />

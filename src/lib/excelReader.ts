@@ -1,4 +1,4 @@
-import { leerLibroXlsx, type CeldaLeida, type LibroLeido } from './xlsxXmlReader';
+﻿import { leerLibroXlsx, type CeldaLeida, type LibroLeido } from './xlsxXmlReader';
 import { leerImagenesDeHoja, imagenParaFila, type ImagenIncrustada } from './xlsxImageReader';
 import { aFechaISO, aAnio, aPorcentaje } from './conversionesExcel';
 import { parseCoords, serializarCoords } from './coords';
@@ -45,24 +45,66 @@ function esCalculoLiteral(formula: string): boolean {
 }
 
 /**
+ * Los dos libros que intervienen en un volcado, más el contador del resumen.
+ *
+ * Se pasa en lugar del libro a secas por todo el recorrido para que `celdaVolcable` tenga siempre
+ * los dos a mano; el resto de consultas (celdas, fusiones, estilos) siguen yendo al de origen.
+ */
+interface LibroVolcado extends LibroLeido {
+  /** Fórmula de esa celda EN EL EXCEL ASIGNADO a la ficha — la que decide si es de teclear */
+  formulaEstructura(hoja: string, ref: string): string | undefined;
+  /** Celdas de teclear que el origen trae con fórmula pero sin resultado calculado */
+  sinCalcular: { total: number };
+}
+
+/**
+ * Une el archivo del que se leen los datos con el Excel asignado a la ficha, que es quien manda
+ * sobre qué celdas son de teclear.
+ *
+ * Sin `estructura` se cae al propio origen, con lo que la regla queda como estaba: hoy no debería
+ * ocurrir —no se entra al editor sin Excel asignado—, pero un archivo asignado puede no traer una
+ * hoja concreta, y entonces "sin fórmula" es la respuesta correcta.
+ */
+function vistaDeVolcado(origen: LibroLeido, estructura: LibroLeido | null): LibroVolcado {
+  return {
+    ...origen,
+    formulaEstructura: (hoja, ref) => (estructura ?? origen).formulaDe(hoja, ref),
+    sinCalcular: { total: 0 },
+  };
+}
+
+/**
  * Valor de una celda para el volcado, o undefined si no hay nada que traer.
  *
- * Una celda cuya fórmula LEE OTRAS CELDAS no se vuelca: su valor lo produce el Excel, no es un dato
- * que alguien haya escrito. Copiarlo al JSON lo ensucia con un número derivado que además nunca se
- * reescribe, porque la inserción respeta las fórmulas.
+ * Manda el EXCEL ASIGNADO a la ficha, no el archivo del que se leen los datos. Si allí la celda
+ * tiene una fórmula, su valor lo produce el Excel: al insertar nunca la reescribimos, así que
+ * guardarla en el JSON dejaría un número muerto que además puede acabar contradiciendo lo que la
+ * hoja calcula. No se vuelca, venga como venga en el origen.
  *
- * La excepción es la cuenta entre números literales (ver `esCalculoLiteral`): ahí el resultado ES el
- * dato. Se vuelca su valor, pero al insertar la celda se sigue respetando — así no se pierde el
- * desglose que su autor dejó escrito.
+ * Y al revés: si en la plantilla es una casilla de teclear, el dato entra aunque en el origen
+ * alguien la haya resuelto con una fórmula. Lo que se copia es su RESULTADO, nunca la fórmula. Este
+ * es el caso que dejaba fuera las fechas de la sección 6: en la plantilla son casillas vacías, pero
+ * el anexo las traía calculadas y se descartaban en silencio.
  *
- * La regla la decide LA CELDA, no cómo esté declarado el campo o la columna. Antes el volcado
- * miraba el tipo declarado (`calculado`, `editable`) mientras la pantalla y la inserción miraban la
- * fórmula: un campo puesto como "Texto corto" sobre una celda calculada se colaba igual.
+ * Con eso la lectura y la escritura pasan a mirar el mismo archivo: el volcado trae exactamente el
+ * conjunto de celdas que la inserción es capaz de escribir. Antes no coincidían.
+ *
+ * La excepción sigue siendo la cuenta entre números literales de la plantilla (ver
+ * `esCalculoLiteral`): ahí el resultado ES el dato.
+ *
+ * La regla la decide LA CELDA, no cómo esté declarado el campo o la columna. El tipo declarado
+ * (`calculado`, `Texto corto`) es una etiqueta del JSON que puede no coincidir con el archivo.
  */
-function celdaVolcable(libro: LibroLeido, hoja: string, ref: string): CeldaLeida | undefined {
-  const formula = libro.formulaDe(hoja, ref);
-  if (formula && !esCalculoLiteral(formula)) return undefined;
-  return libro.celda(hoja, ref);
+function celdaVolcable(libro: LibroVolcado, hoja: string, ref: string): CeldaLeida | undefined {
+  const formulaPlantilla = libro.formulaEstructura(hoja, ref);
+  if (formulaPlantilla && !esCalculoLiteral(formulaPlantilla)) return undefined;
+
+  const celda = libro.celda(hoja, ref);
+  // Fórmula en el origen sin resultado guardado (archivos generados por herramientas que no
+  // calculan): no hay nada que traer. Se cuenta para poder decirlo en el resumen en vez de que
+  // desaparezca en silencio, que es como costó tanto ver lo de la sección 6.
+  if (!celda && libro.formulaDe(hoja, ref)) libro.sinCalcular.total++;
+  return celda;
 }
 
 function valorParaCampo(campo: Campo, celda: CeldaLeida): string | null {
@@ -185,7 +227,7 @@ function columnasExcelDe(col: ColumnaTabla): string[] {
 // Lee una columna partida (4.8): cada parte desde su propia celda. La FORMA del resultado la decide
 // el dato, igual que en el documento — si solo la primera parte trae algo, el Excel tenía la celda
 // fusionada y devolvemos texto plano; si hay dato en otra parte, estaba partida y devolvemos objeto.
-function leerCeldaPartida(libro: LibroLeido, hoja: string, col: ColumnaTabla, filaFisica: number): string | Record<string, string> {
+function leerCeldaPartida(libro: LibroVolcado, hoja: string, col: ColumnaTabla, filaFisica: number): string | Record<string, string> {
   const partes: Record<string, string> = {};
   let algunaExtra = false;
   col.subcolumnas!.forEach((sub, i) => {
@@ -201,7 +243,7 @@ function leerCeldaPartida(libro: LibroLeido, hoja: string, col: ColumnaTabla, fi
 // Columna que se repite por período: N celdas horizontales desde `columnaExcel`, cada una del ancho
 // declarado — espejo exacto del bucle de writeFilaColumnas.
 function leerCeldasPeriodos(
-  libro: LibroLeido,
+  libro: LibroVolcado,
   hoja: string,
   col: ColumnaTabla,
   filaFisica: number,
@@ -216,7 +258,7 @@ function leerCeldasPeriodos(
 }
 
 function leerFilaTabla(
-  libro: LibroLeido,
+  libro: LibroVolcado,
   hoja: string,
   config: ConfigTabla,
   filaFisica: number,
@@ -257,7 +299,7 @@ function leerFilaTabla(
 // título de la siguiente subsección) rompe el patrón y corta la lectura. Verificado contra el
 // Excel real: las filas de datos comparten estilos por columna; la Nota usa otros.
 function esDeLaMismaTabla(
-  libro: LibroLeido,
+  libro: LibroVolcado,
   hoja: string,
   cols: ColumnaTabla[],
   filaFisica: number,
@@ -285,7 +327,7 @@ interface TablaLeida {
 }
 
 function leerTablaSimple(
-  libro: LibroLeido,
+  libro: LibroVolcado,
   hoja: string,
   config: ConfigTabla,
   filaFisicaInicial: number,
@@ -357,7 +399,7 @@ interface TablaAgrupadaLeida {
 // de varias columnas. Una fila de datos normal no lo hace. Leer la fusión real (y no adivinar por
 // "las demás celdas están vacías") es lo que hace determinista la separación grupo/dato.
 function leerTablaAgrupada(
-  libro: LibroLeido,
+  libro: LibroVolcado,
   hoja: string,
   config: ConfigTabla,
   filaFisicaInicial: number,
@@ -419,7 +461,7 @@ interface ArbolLeido {
  * reordena filas ni grupos.
  */
 function rellenarArbol(
-  libro: LibroLeido,
+  libro: LibroVolcado,
   hoja: string,
   config: ConfigTabla,
   actuales: TreeNode[],
@@ -588,6 +630,12 @@ export interface OpcionesVolcado {
   seccionesIds: Set<string>;
   /** Valores actuales del ejemplo — base de la fusión celda a celda en tablas */
   valoresActuales: Record<string, string>;
+  /**
+   * Excel ASIGNADO a la ficha. Es quien decide qué celdas son de teclear y cuáles las calcula el
+   * Excel (ver `celdaVolcable`), independientemente de lo que traiga el archivo que se vuelca.
+   * Sin él, esa decisión la toma el propio archivo de origen, como antes.
+   */
+  excelEstructura?: string;
 }
 
 export interface ResultadoVolcado {
@@ -611,6 +659,9 @@ export interface ResultadoVolcado {
   imagenesLeidas: number;
   /** Imágenes encontradas que no se pudieron traer, con el motivo (ej. "2.03.01 (emf)") */
   imagenesOmitidas: string[];
+  /** Celdas de teclear que el archivo traía con fórmula pero sin resultado calculado — no había
+   * valor que copiar. Se informa para que no desaparezcan en silencio. */
+  celdasSinCalcular: number;
 }
 
 const TIPOS_TABLA: TipoCampo[] = ['tabla', 'tabla_jerarquica'];
@@ -629,9 +680,15 @@ export async function leerValoresDeExcel(
     subirImagen: opciones?.subirImagen,
     seccionesIds: opciones?.seccionesIds ?? new Set(plantilla.secciones.map((s) => s.id)),
     valoresActuales: opciones?.valoresActuales ?? {},
+    excelEstructura: opciones?.excelEstructura,
   };
 
-  const libro = await leerLibroXlsx(dataUrl);
+  const origen = await leerLibroXlsx(dataUrl);
+  // Volcar desde el propio archivo asignado es lo normal en la versión Estructura: ahí no hace falta
+  // abrirlo dos veces.
+  const estructura =
+    ops.excelEstructura && ops.excelEstructura !== dataUrl ? await leerLibroXlsx(ops.excelEstructura) : origen;
+  const libro = vistaDeVolcado(origen, estructura);
   const hojasDelLibro = new Set(libro.hojas);
 
   const resultado: ResultadoVolcado = {
@@ -645,6 +702,7 @@ export async function leerValoresDeExcel(
     hojasFaltantes: [],
     imagenesLeidas: 0,
     imagenesOmitidas: [],
+    celdasSinCalcular: 0,
   };
 
   // Tareas de las secciones seleccionadas, agrupadas por hoja: las tablas de una hoja se procesan
@@ -761,5 +819,6 @@ export async function leerValoresDeExcel(
     }
   }
 
+  resultado.celdasSinCalcular = libro.sinCalcular.total;
   return resultado;
 }

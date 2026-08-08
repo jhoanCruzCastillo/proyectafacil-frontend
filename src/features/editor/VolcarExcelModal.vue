@@ -17,6 +17,9 @@ const props = defineProps<{
   /** Valores vigentes del ejemplo en el editor (incluye ediciones sin guardar) — base del conteo
    * de sobrescritura y de la fusión celda a celda en tablas */
   valoresActuales?: Record<string, string>;
+  /** Excel asignado a la ficha: manda sobre qué celdas son de teclear, aunque el archivo que se
+   * vuelca las traiga resueltas con una fórmula (ver celdaVolcable en excelReader) */
+  excelEstructura?: string;
 }>();
 
 const emit = defineEmits<{ close: []; confirmar: [valores: Record<string, string>] }>();
@@ -109,6 +112,7 @@ async function analizar(file: File) {
       imagenes: incluirImagenes.value,
       seccionesIds: seccionesElegidas.value,
       valoresActuales: props.valoresActuales ?? props.ejemplo?.valores ?? {},
+      excelEstructura: props.excelEstructura,
       // El binario incrustado se sube a Cloudinary y en el JSON queda su URL, nunca la imagen.
       // Si el backend no puede con el formato (EMF sin conversor) devuelve null y el volcado la
       // reporta como omitida en vez de abortar el resto.
@@ -318,6 +322,12 @@ function confirmar() {
                   <div v-if="resultado.tablasOmitidas > 0" class="px-4 py-2.5 flex items-center justify-between">
                     <span class="text-muted">Tablas de otros subtipos <span class="text-gray-400">(fuera de alcance)</span></span>
                     <span class="font-medium text-gray-500">{{ resultado.tablasOmitidas }}</span>
+                  </div>
+                  <!-- Fórmula sin resultado guardado en el archivo: no hay valor que copiar. Se
+                       muestra para que la ausencia del dato no pase desapercibida. -->
+                  <div v-if="resultado.celdasSinCalcular > 0" class="px-4 py-2.5 flex items-center justify-between">
+                    <span class="text-muted">Celdas con fórmula sin calcular <span class="text-gray-400">(sin valor que traer)</span></span>
+                    <span class="font-medium text-amber-600">{{ resultado.celdasSinCalcular }}</span>
                   </div>
                 </div>
               </div>
