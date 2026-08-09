@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, inject, ref } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { fieldTypeIcons, fieldTypeLabels, subtipoTablaLabels, columnTypeLabels, faTriangleExclamation, faEllipsisVertical, faTrash, faLightbulb, faWandMagicSparkles, faSpinner } from '@/lib/icons';
+import { fieldTypeIcons, fieldTypeLabels, subtipoTablaLabels, columnTypeLabels, faTriangleExclamation, faClone, faTrash, faLightbulb, faWandMagicSparkles, faSpinner } from '@/lib/icons';
 import { campoFaltaCaptura } from '@/lib/campoValidation';
 import { mejorarTexto } from '@/lib/mejoraTexto';
 import ExampleTableEditor from './ExampleTableEditor.vue';
@@ -23,7 +23,8 @@ const props = defineProps<{
   editableExample?: boolean;
   clickable?: boolean;
   deletable?: boolean;
-  showMenuButton?: boolean;
+  /** true = muestra el botón de duplicar (solo tab Estructura, donde se edita el molde) */
+  duplicable?: boolean;
   highlightWarning?: boolean;
   /** Mensaje de validación del valor de ejemplo/cliente (solo modo cliente) */
   error?: string;
@@ -39,6 +40,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   click: [];
   delete: [];
+  duplicate: [];
   'update-default-value': [value: string];
   'update-example-value': [value: string];
   'update-config-tabla': [config: ConfigTabla];
@@ -335,9 +337,15 @@ function handleClick() {
           </div>
         </div>
       </div>
-      <div v-if="showMenuButton || deletable" class="flex flex-col gap-1 shrink-0">
-        <button v-if="showMenuButton" type="button" class="text-gray-300 hover:text-gray-500 transition-colors p-1">
-          <FontAwesomeIcon :icon="faEllipsisVertical" class="w-3.5 h-3.5" />
+      <div v-if="duplicable || deletable" class="flex flex-col gap-1 shrink-0">
+        <button
+          v-if="duplicable"
+          @click.stop="emit('duplicate')"
+          type="button"
+          class="text-gray-300 hover:text-brand-600 transition-colors p-1"
+          title="Duplicar campo"
+        >
+          <FontAwesomeIcon :icon="faClone" class="w-3 h-3" />
         </button>
         <button
           v-if="deletable"

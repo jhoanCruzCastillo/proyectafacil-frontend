@@ -25,6 +25,7 @@ const sectorId = computed(() => route.params.sectorId as string);
 const plantillaId = computed(() => route.params.plantillaId as string);
 
 const {
+  estadoGuardado,
   editData, activeTab, selectedCampo, isNewCampo, editingHojaSeccionId,
   leftWidth, rightWidth, examplesWidth, highlightMissingCaptura, ejemplosCount, jsonPreview,
   showImportEstructura,
@@ -33,7 +34,7 @@ const {
   archivoExcelAsignado, showExcelCatalogModal, showPreview, showInsertConfirm, isInserting, insertProgress,
   previewFileUrl, previewFileName,
   handleLeftResize, handleRightResize, handleExamplesResize, handleTabChange, handleSectionSelect,
-  goToPrevSection, goToNextSection, handleFieldUpdate, handleAddCampo, handleDeleteCampo,
+  goToPrevSection, goToNextSection, handleFieldUpdate, handleAddCampo, handleDuplicarCampo, handleDeleteCampo,
   handleSectionNameChange, handleSectionHojaChange, handleSubsectionNameChange,
   handleSubseccionAyudaChange, handleAddSubsection, handleDeleteSubsection, handleAddSection,
   handleExampleValueChange, handleCreateExample, handleDeleteEjemplo, handleToggleEjemploEstado,
@@ -60,6 +61,7 @@ const verContextosIA = ref(false);
       :active-tab="activeTab"
       :contextos-i-a="verContextosIA"
       :tiene-excel-asignado="!!archivoExcelAsignado"
+      :estado-guardado="estadoGuardado"
       @change-tab="(t) => { verContextosIA = false; handleTabChange(t); }"
       @toggle-contextos-ia="verContextosIA = !verContextosIA"
       @save="handleSave"
@@ -119,6 +121,7 @@ const verContextosIA = ref(false);
             @select-campo="(c) => { selectedCampo = c; isNewCampo = false; }"
             @add-campo="handleAddCampo"
             @delete-campo="handleDeleteCampo"
+            @duplicate-campo="handleDuplicarCampo"
             @section-name-change="handleSectionNameChange"
             @section-hoja-change="handleSectionHojaChange"
             @subsection-name-change="handleSubsectionNameChange"

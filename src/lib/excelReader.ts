@@ -3,7 +3,7 @@ import { leerImagenesDeHoja, imagenParaFila, type ImagenIncrustada } from './xls
 import { aFechaISO, aAnio, aPorcentaje } from './conversionesExcel';
 import { parseCoords, serializarCoords } from './coords';
 import {
-  esCeldaPartida, esJerarquica, getPeriodos, parseTree, posicionesArbol, posicionDe, agrupadorProfundidad,
+  esCeldaPartida, esJerarquica, getPeriodos, parseTree, posicionesArbol, posicionDe, agrupadorProfundidad, posicionesGrupos,
   type FilaDinamica, type GrupoFilas, type TreeNode,
 } from './tableRowHelpers';
 import type { Plantilla, Campo, Seccion, ConfigTabla, ColumnaTabla, TipoCampo, TipoColumna } from '@/types';
@@ -377,64 +377,58 @@ function leerTablaSimple(
 
 // --- Tablas agrupadas (config.agrupador) ---
 
-// Ancho físico en columnas de Excel que ocupan las primeras `n` columnas lógicas — espejo de
-// anchoFisicoPrimerasColumnas en excelWriter, y con eso sabemos cuánto abarca la fila de título.
-function anchoFisico(config: ConfigTabla, n: number, periodos: string[]): number {
-  let total = 0;
-  for (let i = 0; i < n && i < config.columnas.length; i++) {
-    const col = config.columnas[i];
-    const ancho = col.abarcaColumnasExcel ?? 1;
-    total += col.id === config.columnaDinamicaId && periodos.length > 0 ? periodos.length * ancho : ancho;
-  }
-  return total;
-}
-
 interface TablaAgrupadaLeida {
   grupos: GrupoFilas[];
   filasConDatos: number;
 }
 
-// La fila de TÍTULO de un grupo se reconoce por su fusión horizontal: el escritor la fusiona sobre
-// las primeras `agrupadorAbarcaColumnas` columnas, así que en el Excel esa celda arranca un rango
-// de varias columnas. Una fila de datos normal no lo hace. Leer la fusión real (y no adivinar por
-// "las demás celdas están vacías") es lo que hace determinista la separación grupo/dato.
-function leerTablaAgrupada(
+/**
+ * Rellena los grupos DECLARADOS con los valores del Excel — no reconstruye su forma.
+ *
+ * Antes la forma se deducía de las fusiones: se daba por hecho que la fila de título fusionaba
+ * varias columnas y las de datos no. En el formato oficial pasa **justo lo contrario**: en 9.03 los
+ * títulos ("a. Personal", "b. Servicios") son celdas sueltas sin fusionar y las filas de datos van
+ * fusionadas B:E. La detección se invertía —tomaba las filas de datos por títulos— y la tabla
+ * entera salía desordenada. Con un agrupador de una sola columna esa detección no puede funcionar,
+ * porque una celda de ancho 1 nunca está fusionada.
+ *
+ * La forma la declara la estructura; el Excel solo aporta valores. La fila de cada parte sale de
+ * `posicionesGrupos`, la misma aritmética que usan el escritor y el editor — igual que hace
+ * `rellenarArbol` con las jerárquicas.
+ */
+function rellenarGrupos(
   libro: LibroVolcado,
   hoja: string,
   config: ConfigTabla,
+  actuales: GrupoFilas[],
   filaFisicaInicial: number,
   periodos: string[],
 ): TablaAgrupadaLeida {
-  const filasBase = config.captura!.filasBase!;
-  const columnaInicial = config.captura?.columnaInicial ?? config.columnas[0]?.columnaExcel;
-  const abarcaCabeceras = Math.min(config.agrupadorAbarcaColumnas ?? config.columnas.length, config.columnas.length);
-  const minAncho = Math.max(anchoFisico(config, abarcaCabeceras, periodos), 2);
+  const primera = config.columnas.find((c) => c.columnaExcel)?.columnaExcel;
+  const posiciones = posicionesGrupos(actuales, filaFisicaInicial, (fila) =>
+    primera ? libro.fusion(hoja, `${primera}${fila}`)?.filas ?? 1 : 1,
+  );
 
-  const grupos: GrupoFilas[] = [];
   let filasConDatos = 0;
+  const grupos = actuales.map((g, gi) => {
+    const pos = posiciones[gi];
+    const salida: GrupoFilas = { grupo: g.grupo, filas: [] };
 
-  for (let i = 0; i < filasBase; i++) {
-    const row = filaFisicaInicial + i;
-    const fusion = columnaInicial ? libro.fusion(hoja, `${columnaInicial}${row}`) : undefined;
-    const esTitulo = Boolean(fusion && fusion.columnas >= minAncho);
-
-    if (esTitulo) {
-      const celda = celdaVolcable(libro, hoja, `${columnaInicial}${row}`);
-      const titulo = celda ? celda.valor : '';
-      // La fila de título también puede traer valores propios a la derecha de la fusión (grupos
-      // "resumen" sin filas hijas) — se leen igual que una fila de datos y se guardan aparte.
-      const propios = leerFilaTabla(libro, hoja, config, row, periodos);
-      grupos.push({ grupo: titulo, filas: [], ...(propios.tieneDatos ? { valoresGrupo: propios.valores } : {}) });
-      if (titulo !== '' || propios.tieneDatos) filasConDatos++;
-      continue;
+    // Fila de título: puede traer valores propios en las columnas libres a su derecha.
+    if (pos?.filaTitulo != null) {
+      const propios = leerFilaTabla(libro, hoja, config, pos.filaTitulo, periodos);
+      if (propios.tieneDatos) { salida.valoresGrupo = propios.valores; filasConDatos++; }
     }
 
-    const fila = leerFilaTabla(libro, hoja, config, row, periodos);
-    // Filas de datos antes de cualquier título: van a un grupo sin nombre, para no perderlas.
-    if (grupos.length === 0) grupos.push({ grupo: '', filas: [] });
-    grupos[grupos.length - 1].filas.push(fila.valores);
-    if (fila.tieneDatos) filasConDatos++;
-  }
+    salida.filas = g.filas.map((fila, fi) => {
+      const f = pos?.filas[fi];
+      if (f === undefined) return fila;
+      const leida = leerFilaTabla(libro, hoja, config, f, periodos);
+      if (leida.tieneDatos) filasConDatos++;
+      return leida.valores;
+    });
+    return salida;
+  });
 
   return { grupos, filasConDatos };
 }
@@ -751,9 +745,9 @@ export async function leerValoresDeExcel(
         continue;
       }
 
-      // Agrupada: las filas de título se reconocen por su fusión horizontal.
+      // Agrupada: la forma la declara la estructura y el Excel solo aporta valores (ver rellenarGrupos).
       if (config.agrupador) {
-        const lectura = leerTablaAgrupada(libro, hoja, config, filaFisica, periodos);
+        const lectura = rellenarGrupos(libro, hoja, config, parseGruposActuales(raw), filaFisica, periodos);
         if (lectura.filasConDatos === 0) continue;
         resultado.valores[campo.identificador] = JSON.stringify(fusionarGrupos(parseGruposActuales(raw), lectura.grupos, config));
         resultado.tablasLeidas++;

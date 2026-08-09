@@ -1,4 +1,4 @@
-import { parseDynamicRows, parseGroupedRows, parseTree, getPeriodos, esJerarquica, esCeldaPartida, agrupadorProfundidad, posicionesArbol, posicionDe, posicionesGrupos, grupoOcupaFila, type FilaDinamica, type ValorCelda, type PosicionNodo } from './tableRowHelpers';
+import { parseDynamicRows, parseGroupedRows, parseTree, getPeriodos, esJerarquica, esCeldaPartida, agrupadorProfundidad, posicionesArbol, posicionDe, posicionesGrupos, grupoOcupaFila, repartoAgrupador, type FilaDinamica, type ValorCelda, type PosicionNodo } from './tableRowHelpers';
 import { LibroEdits, aplicarEdicionesXlsx } from './xlsxXmlPatcher';
 import { crearResolver, esFormula, evaluarFormula, traducirFormulaAExcel, type ResolucionToken, type ResolucionCelda } from './formula';
 import { booleanoATexto, dateASerialExcel, dePorcentaje, type EtiquetasBooleano } from './conversionesExcel';
@@ -110,24 +110,6 @@ function writeCellSpan(
     const endRow = fila + Math.max(abarcaFilas, 1) - 1;
     ediciones.fusionar(hoja, `${columna}${fila}:${endCol}${endRow}`);
   }
-}
-
-// Cantidad de columnas físicas de Excel que ocupan las primeras `n` cabeceras/columnas lógicas de
-// la tabla — cada una puede abarcar más de una columna física (`abarcaColumnasExcel`), y la columna
-// dinámica cuenta una vez por período. Así, "abarca 2 columnas" en el agrupador significa "las
-// primeras 2 cabeceras", no "2 columnas físicas": si la primera cabecera ya abarca 2 columnas y la
-// segunda 1, el resultado físico real es 3.
-function anchoFisicoPrimerasColumnas(config: ConfigTabla, n: number, periodos: string[], desde = 0): number {
-  let total = 0;
-  for (let i = desde; i < desde + n && i < config.columnas.length; i++) {
-    const col = config.columnas[i];
-    if (col.id === config.columnaDinamicaId && periodos.length > 0) {
-      total += periodos.length * (col.abarcaColumnasExcel ?? 1);
-    } else {
-      total += col.abarcaColumnasExcel ?? 1;
-    }
-  }
-  return total;
 }
 
 // Escribe una columna con subcolumnas (4.8). La FORMA del valor manda, igual que al leer:
@@ -277,19 +259,22 @@ function writeArbol(
     writeArbol(ediciones, hoja, config, periodos, hijo, profundidad + 1, [...path, ci], posiciones, agrupadorDepth);
   });
 
-  // El título de grupo no se fusiona verticalmente: vive en su propia fila, y se extiende a lo ancho
-  // de las cabeceras configuradas en el engranaje del agrupador (por defecto, hasta la última).
+  // El título de grupo no se fusiona verticalmente: vive en su propia fila y se extiende sobre las
+  // columnas de Excel configuradas en el engranaje del agrupador (por defecto, hasta la última).
   if (esNivelAgrupador) {
-    const disponibles = config.columnas.length - colIdx;
-    const cabeceras = Math.min(Math.max(config.agrupadorAbarcaColumnas ?? disponibles, 1), disponibles);
+    const reparto = repartoAgrupador(config, periodos, colIdx);
     if (col?.columnaExcel && typeof node.value === 'string' && node.value !== '') {
-      const ancho = anchoFisicoPrimerasColumnas(config, cabeceras, periodos, colIdx);
-      writeCellSpan(ediciones, hoja, col.columnaExcel, filaInicio, valorDeColumna(col, node.value as string), Math.max(ancho, 1));
+      writeCellSpan(ediciones, hoja, col.columnaExcel, filaInicio, valorDeColumna(col, node.value as string), Math.max(reparto.anchoTitulo, 1));
+      // Sobrante de la cabecera partida por el corte: celda propia, sin valor (ver repartoAgrupador).
+      if (reparto.anchoResto > 1) {
+        const inicioResto = addCols(col.columnaExcel, reparto.anchoTitulo);
+        ediciones.fusionar(hoja, `${inicioResto}${filaInicio}:${addCols(inicioResto, reparto.anchoResto - 1)}${filaInicio}`);
+      }
     }
     // Valores propios del grupo en las columnas libres a la derecha del título (fila-resumen).
     const valores = (node as { valores?: FilaDinamica }).valores;
     if (valores) {
-      for (let i = colIdx + cabeceras; i < config.columnas.length; i++) {
+      for (let i = reparto.primeraCabeceraLibre; i < config.columnas.length; i++) {
         const libre = config.columnas[i];
         if (!libre?.columnaExcel) continue;
         const v = valores[libre.id];
@@ -358,8 +343,7 @@ function writeCampoTabla(ediciones: LibroEdits, hoja: string | undefined, config
   if (config.agrupador) {
     const grupos = parseGroupedRows(raw, config);
     const columnaInicial = config.captura?.columnaInicial ?? config.columnas[0]?.columnaExcel;
-    const abarcaCabeceras = Math.min(config.agrupadorAbarcaColumnas ?? config.columnas.length, config.columnas.length);
-    const abarcaFisico = anchoFisicoPrimerasColumnas(config, abarcaCabeceras, periodos);
+    const reparto = repartoAgrupador(config, periodos);
 
     // La aritmética de filas la resuelve `posicionesGrupos` (tableRowHelpers), la MISMA que consulta
     // el editor para saber a qué celda pedirle sus opciones o su fórmula. Con una sola definición es
@@ -372,8 +356,14 @@ function writeCampoTabla(ediciones: LibroEdits, hoja: string | undefined, config
       if (pos.filaTitulo !== null) {
         if (columnaInicial && grupo.grupo !== '') {
           ediciones.escribirCelda(hoja, columnaInicial, pos.filaTitulo, grupo.grupo);
-          if (abarcaFisico > 1) {
-            ediciones.fusionar(hoja, `${columnaInicial}${pos.filaTitulo}:${addCols(columnaInicial, abarcaFisico - 1)}${pos.filaTitulo}`);
+          if (reparto.anchoTitulo > 1) {
+            ediciones.fusionar(hoja, `${columnaInicial}${pos.filaTitulo}:${addCols(columnaInicial, reparto.anchoTitulo - 1)}${pos.filaTitulo}`);
+          }
+          // El corte parte una cabecera: lo que sobra de ella se fusiona como celda propia, para que
+          // la fila de título siga cubriendo el ancho completo de la tabla sin celdas sueltas.
+          if (reparto.anchoResto > 1) {
+            const inicioResto = addCols(columnaInicial, reparto.anchoTitulo);
+            ediciones.fusionar(hoja, `${inicioResto}${pos.filaTitulo}:${addCols(inicioResto, reparto.anchoResto - 1)}${pos.filaTitulo}`);
           }
         }
         // Valores propios de la fila de título (`agrupador.valores`, punto 4.2): las columnas a la

@@ -5,7 +5,7 @@ import { faGear, fieldTypeIcons } from '@/lib/icons';
 import CampoListaInput from '@/components/CampoListaInput.vue';
 import { EXCEL_VIVO } from '@/composables/useListasExcel';
 import { etiquetaDeValor } from '@/lib/conversionesExcel';
-import { valorSubcolumna } from '@/lib/tableRowHelpers';
+import { valorSubcolumna, type ValorCelda } from '@/lib/tableRowHelpers';
 import type { ColumnaTabla, SubcolumnaTabla } from '@/types';
 
 // Una columna partida (convención 4.8) dibujada como una celda por parte.
@@ -19,7 +19,7 @@ import type { ColumnaTabla, SubcolumnaTabla } from '@/types';
 const props = defineProps<{
   col: ColumnaTabla;
   /** Valor de la celda completa — objeto {subId: texto} cuando la fila está partida */
-  valor: unknown;
+  valor: ValorCelda | undefined;
   /** Hoja de Excel de la sección */
   hoja?: string;
   /** Fila de Excel que ocupa esta fila de la tabla */

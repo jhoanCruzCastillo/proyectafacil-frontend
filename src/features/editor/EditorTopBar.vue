@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faEye, faSave, faArrowLeft, faFileCode, faFileExport, faFileImport, faWandMagicSparkles } from '@/lib/icons';
+import { faEye, faSave, faArrowLeft, faFileCode, faFileExport, faFileImport, faSpinner, faWandMagicSparkles } from '@/lib/icons';
 import VersionTabs from '@/components/VersionTabs.vue';
 import { useSessionStore } from '@/stores/session';
 import { puedeAccederGestionUsuarios } from '@/lib/permisos';
+import type { EstadoAutoguardado } from '@/composables/useAutoguardado';
 import type { VersionTab, Plantilla } from '@/types';
 
 const props = defineProps<{
@@ -16,6 +17,8 @@ const props = defineProps<{
   contextosIA?: boolean;
   /** Sin Excel asignado no hay nada que volcar a la estructura */
   tieneExcelAsignado?: boolean;
+  /** Estado del autoguardado — se enseña en pequeño, no como toast: a esta frecuencia molestaría */
+  estadoGuardado?: EstadoAutoguardado;
 }>();
 
 const emit = defineEmits<{
@@ -34,6 +37,18 @@ const esSuperusuario = computed(() => session.sesion?.rol === 'superusuario');
 // una ficha — mismo criterio que la gestión de usuarios (superusuario + administrador).
 const puedeEditarContextos = computed(() => !!session.sesion && puedeAccederGestionUsuarios(session.sesion.rol));
 const showInsert = computed(() => props.activeTab === 'ejemplos');
+
+// 'inactivo' no se enseña: al abrir la ficha no hay nada que contar todavía.
+const textoGuardado = computed(() => {
+  switch (props.estadoGuardado) {
+    case 'pendiente': return 'Cambios sin guardar';
+    case 'guardando': return 'Guardando…';
+    case 'guardado': return 'Guardado';
+    case 'error': return 'No se pudo guardar';
+    default: return '';
+  }
+});
+const colorGuardado = computed(() => (props.estadoGuardado === 'error' ? 'text-red-300' : 'text-white/45'));
 </script>
 
 <template>
@@ -55,6 +70,10 @@ const showInsert = computed(() => props.activeTab === 'ejemplos');
         <span class="text-xs text-white/50">{{ plantilla.cantidadSecciones }} secciones</span>
       </div>
       <div class="flex items-center gap-3">
+        <span v-if="textoGuardado" class="text-xs shrink-0 flex items-center gap-1.5" :class="colorGuardado">
+          <FontAwesomeIcon v-if="estadoGuardado === 'guardando'" :icon="faSpinner" class="w-3 h-3 animate-spin" />
+          {{ textoGuardado }}
+        </span>
         <VersionTabs :active-tab="activeTab" disable-proyecto dark @change="emit('change-tab', $event)" />
         <button
           v-if="puedeEditarContextos"

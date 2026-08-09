@@ -7,7 +7,7 @@ import TableRow from './TableRow.vue';
 import CampoListaInput from '@/components/CampoListaInput.vue';
 import { EXCEL_VIVO } from '@/composables/useListasExcel';
 import { etiquetaDeValor } from '@/lib/conversionesExcel';
-import { parseGroupedRows, newEmptyRow, getPeriodos, esCeldaPartida, valorPlano, posicionesGrupos, grupoOcupaFila, type GrupoFilas } from '@/lib/tableRowHelpers';
+import { parseGroupedRows, newEmptyRow, getPeriodos, esCeldaPartida, valorPlano, posicionesGrupos, grupoOcupaFila, repartoAgrupador, type GrupoFilas } from '@/lib/tableRowHelpers';
 import type { ConfigTabla, ColumnaTabla } from '@/types';
 
 // Filas planas agrupadas bajo un encabezado de grupo (config.agrupador === true). Una sola tabla:
@@ -119,21 +119,32 @@ const periodos = computed(() => getPeriodos(props.config));
 // Total de columnas realmente renderizadas en el encabezado (la dinámica se expande por período),
 // para calcular cuántas quedan sueltas a la derecha de la fila de grupo.
 const totalCols = computed(() => props.config.columnas.reduce((sum, c) => sum + (c.id === props.config.columnaDinamicaId && periodos.value.length > 0 ? periodos.value.length : 1), 0));
-const abarca = computed(() => Math.min(props.config.agrupadorAbarcaColumnas ?? totalCols.value, totalCols.value));
+// El reparto de la fila de título lo decide `repartoAgrupador`, en columnas REALES de Excel. Aquí
+// se traduce a colspans de la tabla HTML, donde cada cabecera es una celda (la dinámica, una por
+// período). Un corte que parta una cabecera se dibuja como la celda del título + la del sobrante.
+const reparto = computed(() => repartoAgrupador(props.config, periodos.value));
+const anchoHtml = (col: ColumnaTabla) =>
+  col.id === props.config.columnaDinamicaId && periodos.value.length > 0 ? periodos.value.length : 1;
 
-// Columnas reales (sin expandir por período) que quedan a la derecha de `abarca` — ahí se rendiza
-// la fila de título del grupo como si fuera una fila de datos más, para grupos "resumen" que no
-// tienen filas hijas propias (ej. "Nivel de cobertura...": título fusionado + un valor por año).
-function columnasResto(cols: ColumnaTabla[], abarcaN: number, dinamicaId: string | undefined, numPeriodos: number): ColumnaTabla[] {
-  let acc = 0;
-  let i = 0;
-  for (; i < cols.length; i++) {
-    if (acc >= abarcaN) break;
-    acc += cols[i].id === dinamicaId && numPeriodos > 0 ? numPeriodos : 1;
-  }
-  return cols.slice(i);
-}
-const restColumnas = computed(() => columnasResto(props.config.columnas, abarca.value, props.config.columnaDinamicaId, periodos.value.length));
+/** Cabeceras que el título cubre por completo */
+const cabecerasCubiertas = computed(() =>
+  Math.max(reparto.value.primeraCabeceraLibre - (reparto.value.anchoResto > 0 ? 1 : 0), 0),
+);
+const abarca = computed(() =>
+  Math.max(props.config.columnas.slice(0, cabecerasCubiertas.value).reduce((s, c) => s + anchoHtml(c), 0), 1),
+);
+// Solo se dibuja el sobrante si hay al menos una cabecera entera antes: si el corte cae dentro de la
+// PRIMERA, la rejilla HTML no puede partir esa columna y el título ocupa la cabecera completa.
+const hayResto = computed(() => reparto.value.anchoResto > 0 && cabecerasCubiertas.value >= 1);
+const colspanResto = computed(() => {
+  const col = props.config.columnas[cabecerasCubiertas.value];
+  return col ? anchoHtml(col) : 1;
+});
+
+// Columnas que quedan libres a la derecha — ahí la fila de título se renderiza como una fila de
+// datos más, para grupos "resumen" sin filas hijas propias (ej. "Nivel de cobertura...": título
+// fusionado + un valor por año).
+const restColumnas = computed(() => props.config.columnas.slice(reparto.value.primeraCabeceraLibre));
 
 // --- Ayudas del Excel, celda a celda ---
 // La fila de cada parte sale de `posicionesGrupos`, la misma aritmética que usa el escritor: así la
@@ -213,6 +224,9 @@ function valorGrupoMostrado(gi: number, col: ColumnaTabla, opciones: string[] | 
                   </button>
                 </div>
               </td>
+              <!-- Sobrante de la cabecera que el corte parte: en el Excel se fusiona como celda
+                   propia, así que aquí se dibuja igual, vacía. -->
+              <td v-if="hayResto" :colspan="colspanResto" class="bg-brand-50/40 border-l border-brand-200/60" />
               <template v-for="col in restColumnas" :key="col.id">
                 <template v-if="col.id === config.columnaDinamicaId && periodos.length > 0">
                   <td v-for="(p, pi) in periodos" :key="`${col.id}-${pi}`" class="px-1 py-0.5 bg-brand-50/60">

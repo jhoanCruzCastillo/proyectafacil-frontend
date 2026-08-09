@@ -164,6 +164,65 @@ export function grupoOcupaFila(grupo: GrupoFilas): boolean {
   return Object.values(propios).some((v) => (Array.isArray(v) ? v.some((x) => x !== '') : v !== '' && v != null));
 }
 
+/**
+ * Cómo se reparte la FILA DE TÍTULO de un grupo a lo ancho de la tabla.
+ *
+ * `config.agrupadorAbarcaColumnas` cuenta **columnas reales de Excel**, no cabeceras. La fila de
+ * título siempre cubre el ancho completo de la tabla; ese número solo decide dónde se corta el
+ * título:
+ *
+ *   detalle = B:E (4 columnas), cantidad = F, costo = G, total = H
+ *     4 -> [B:E título] [F] [G] [H]
+ *     2 -> [B:C título] [D:E resto] [F] [G] [H]
+ *     1 -> [B   título] [C:E resto] [F] [G] [H]
+ *
+ * Si el corte cae dentro de una cabecera, el sobrante NO queda suelto: se fusiona como una celda
+ * propia. Las cabeceras posteriores aportan una celda completa cada una, y son las que pueden
+ * llevar valores propios del grupo (`valoresGrupo`).
+ *
+ * ES LA ÚNICA DEFINICIÓN del reparto: la consultan el escritor (para fusionar), el lector (para
+ * reconocer una fila de título por su fusión) y el editor (para pintarla).
+ */
+export interface RepartoAgrupador {
+  /** Columnas físicas de Excel que ocupa el título */
+  anchoTitulo: number;
+  /** Columnas físicas del sobrante, o 0 si el corte cae justo en una frontera de cabecera */
+  anchoResto: number;
+  /** Índice de la primera cabecera libre — desde ahí empiezan las celdas completas de la derecha */
+  primeraCabeceraLibre: number;
+}
+
+export function repartoAgrupador(
+  config: ConfigTabla,
+  periodos: string[],
+  desde = 0,
+): RepartoAgrupador {
+  const anchoDe = (col: ColumnaTabla) =>
+    col.id === config.columnaDinamicaId && periodos.length > 0
+      ? periodos.length * (col.abarcaColumnasExcel ?? 1)
+      : col.abarcaColumnasExcel ?? 1;
+
+  let total = 0;
+  for (let i = desde; i < config.columnas.length; i++) total += anchoDe(config.columnas[i]);
+  // Sin valor declarado, el título abarca la tabla entera — el comportamiento de siempre.
+  const anchoTitulo = Math.min(Math.max(config.agrupadorAbarcaColumnas ?? total, 1), Math.max(total, 1));
+
+  let acumulado = 0;
+  for (let i = desde; i < config.columnas.length; i++) {
+    const ancho = anchoDe(config.columnas[i]);
+    if (acumulado + ancho === anchoTitulo) {
+      return { anchoTitulo, anchoResto: 0, primeraCabeceraLibre: i + 1 };
+    }
+    if (acumulado + ancho > anchoTitulo) {
+      // El corte parte esta cabecera: lo que sobra de ella es una celda más, y las libres empiezan
+      // en la siguiente.
+      return { anchoTitulo, anchoResto: acumulado + ancho - anchoTitulo, primeraCabeceraLibre: i + 1 };
+    }
+    acumulado += ancho;
+  }
+  return { anchoTitulo, anchoResto: 0, primeraCabeceraLibre: config.columnas.length };
+}
+
 /** Filas de Excel que ocupa un grupo: la de su título (si la tiene) y una por cada fila de datos. */
 export interface PosicionGrupo {
   /** Fila del título, o null si el bloque no consume una */

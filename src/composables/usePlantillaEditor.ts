@@ -12,6 +12,7 @@ import { usePushActividad } from '@/composables/useActividad';
 import { useExcelVivo, useAltoDeBloqueExcel, EXCEL_VIVO } from '@/composables/useListasExcel';
 import { mensajeAvisoListas } from '@/lib/xlsxListas';
 import { parseDynamicRows, parseGroupedRows, parseTree, esJerarquica, esCeldaPartida, valorSubcolumna, agrupadorProfundidad, posicionesArbol, posicionesGrupos, posicionDe, type AltoDeBloque, type FilaDinamica, type TreeNode } from '@/lib/tableRowHelpers';
+import { useAutoguardado } from '@/composables/useAutoguardado';
 import { useUiStore } from '@/stores/ui';
 import type { VersionTab, Campo, ConfigTabla, Plantilla, Ejemplo, Seccion, TipologiaIoarr } from '@/types';
 
@@ -180,8 +181,12 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
   const ui = useUiStore();
 
   const editData = ref<Plantilla | null>(null) as Ref<Plantilla | null>;
+  // Solo se hidrata al cargar por primera vez o al cambiar de plantilla. Un refetch de la MISMA
+  // plantilla NO puede pisar lo que se está editando: guardar invalida la consulta, así que con
+  // autoguardado la respuesta llegaría a media escritura y borraría lo tecleado entretanto.
   watch(plantillaOriginal, (p) => {
-    if (p) editData.value = deepClone(p);
+    if (!p || (editData.value && editData.value.id === p.id)) return;
+    editData.value = deepClone(p);
   }, { immediate: true });
 
   const activeTab = ref<VersionTab>('estructura');
@@ -277,7 +282,13 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     return defaults;
   }
 
+  // Igual que con la plantilla: recargar los valores solo al CAMBIAR de ejemplo. Guardar reemplaza
+  // `activeEjemplo` por un objeto nuevo con los valores ya persistidos, y sin esta guarda ese
+  // reemplazo devolvería el editor a lo guardado, perdiendo lo escrito durante la petición.
+  let ejemploCargadoId: string | null = null;
   watch(activeEjemplo, (ej) => {
+    if (ej && ej.id === ejemploCargadoId) return;
+    ejemploCargadoId = ej?.id ?? null;
     editedValores.value = ej?.valores && Object.keys(ej.valores).length > 0 ? { ...ej.valores } : getDefaultValores();
   });
   watch(ejemplos, (list) => {
@@ -476,12 +487,33 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
   }
 
   /**
-   * `despuesDeCampoId` coloca el campo nuevo justo detrás de ese; sin él, al final de la subsección.
+   * Siguiente identificador libre de una subsección: el mayor de sus campos más uno.
    *
-   * El identificador se sigue calculando como el siguiente al mayor de la subsección, aunque el
-   * campo se inserte en medio: renumerar los de abajo cambiaría identificadores que ya se usan como
-   * clave de los valores de cada ejemplo y en las fórmulas de los campos calculados.
+   * Nunca se renumera lo que ya existe, aunque el campo entre en medio: los identificadores son la
+   * clave de los valores de cada ejemplo y de las fórmulas de los campos calculados, así que
+   * cambiarlos rompería datos ya guardados.
    */
+  function siguienteIdentificador(campos: Campo[], subseccionCodigo: string): string {
+    let maxN = 0;
+    let ancho = 1;
+    for (const c of campos) {
+      const ultimo = c.identificador.split('.').pop() ?? '';
+      const n = Number(ultimo);
+      if (!Number.isFinite(n)) continue;
+      maxN = Math.max(maxN, n);
+      // Se respeta el cero a la izquierda de los hermanos: un campo nuevo entre 1.01.03 y
+      // 1.01.04 debe ser 1.01.09, no 1.01.9.
+      ancho = Math.max(ancho, ultimo.trim().length);
+    }
+    return `${subseccionCodigo}.${String(maxN + 1).padStart(ancho, '0')}`;
+  }
+
+  /** Código de la subsección a la que pertenece un identificador: "08.06.2" -> "08.06". */
+  function codigoDeSubseccion(identificador: string): string {
+    return identificador.split('.').slice(0, -1).join('.');
+  }
+
+  /** `despuesDeCampoId` coloca el campo nuevo justo detrás de ese; sin él, al final de la subsección. */
   function handleAddCampo(subseccionId: string, subseccionCodigo: string, despuesDeCampoId?: string) {
     const nuevoId = generateId();
     let nuevoCampo: Campo | null = null;
@@ -489,19 +521,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
       for (const sec of p.secciones) {
         const sub = sec.subsecciones.find((s) => s.id === subseccionId);
         if (sub) {
-          let maxN = 0;
-          let ancho = 1;
-          for (const c of sub.campos) {
-            const ultimo = c.identificador.split('.').pop() ?? '';
-            const n = Number(ultimo);
-            if (!Number.isFinite(n)) continue;
-            maxN = Math.max(maxN, n);
-            // Se respeta el cero a la izquierda de los hermanos: un campo nuevo entre 1.01.03 y
-            // 1.01.04 debe ser 1.01.09, no 1.01.9.
-            ancho = Math.max(ancho, ultimo.trim().length);
-          }
-          const numero = String(maxN + 1).padStart(ancho, '0');
-          nuevoCampo = { id: nuevoId, identificador: `${subseccionCodigo}.${numero}`, etiqueta: 'Nuevo campo', tipo: 'texto_corto', editable: true, descripcion: '' };
+          nuevoCampo = { id: nuevoId, identificador: siguienteIdentificador(sub.campos, subseccionCodigo), etiqueta: 'Nuevo campo', tipo: 'texto_corto', editable: true, descripcion: '' };
           const idx = despuesDeCampoId ? sub.campos.findIndex((c) => c.id === despuesDeCampoId) : -1;
           if (idx >= 0) sub.campos.splice(idx + 1, 0, nuevoCampo);
           else sub.campos.push(nuevoCampo);
@@ -512,6 +532,43 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     });
     if (nuevoCampo) { selectedCampo.value = nuevoCampo; isNewCampo.value = true; }
     ui.toast('Campo agregado');
+  }
+
+  /**
+   * Copia exacta de un campo justo debajo del original, con el siguiente identificador libre de su
+   * subsección (duplicar 08.06.2 da 08.06.3).
+   *
+   * Se copia TODO lo demás tal cual: etiqueta, tipo, descripción, captura y —si es tabla— su
+   * configuración completa y su valor por defecto. Los ids internos de las columnas se conservan a
+   * propósito: son claves dentro del propio campo (`columnaDinamicaId`, `encadenaA`, las cabeceras y
+   * las filas del valor), así que regenerarlos obligaría a reescribir el valor entero para no
+   * romperlo. Al vivir dentro de un solo campo, dos campos pueden compartirlos sin interferirse.
+   */
+  function handleDuplicarCampo(campoId: string, subseccionId: string) {
+    const nuevoId = generateId();
+    let copia: Campo | null = null;
+    mutate((p) => {
+      for (const sec of p.secciones) {
+        const sub = sec.subsecciones.find((s) => s.id === subseccionId);
+        if (!sub) continue;
+        const idx = sub.campos.findIndex((c) => c.id === campoId);
+        if (idx < 0) continue;
+        const original = sub.campos[idx];
+        copia = {
+          ...deepClone(original),
+          id: nuevoId,
+          identificador: siguienteIdentificador(sub.campos, sub.codigo || codigoDeSubseccion(original.identificador)),
+        };
+        sub.campos.splice(idx + 1, 0, copia);
+        sec.cantidadCampos += 1;
+        break;
+      }
+    });
+    if (!copia) return;
+    // Se selecciona la copia (no como "campo nuevo": ya viene configurada, no hay nada que rellenar).
+    selectedCampo.value = copia;
+    isNewCampo.value = false;
+    ui.toast(`Campo duplicado como ${(copia as Campo).identificador}`);
   }
 
   function handleDeleteCampo(campoId: string, subseccionId: string) {
@@ -582,16 +639,52 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     ui.toast(`Estructura reemplazada — ${secciones.length} secciones importadas`);
   }
 
-  async function handleSave() {
-    if (!editData.value) return;
-    const fechaActualizacion = new Date().toLocaleDateString('es-PE');
-    await actualizarPlantilla.mutateAsync({ id: editData.value.id, data: { ...editData.value, fechaActualizacion } });
+  // --- Persistencia ---
+  //
+  // La estructura pesa ~95 KB y el ejemplo activo unos pocos; casi nunca cambian a la vez. Por eso
+  // cada parte lleva su propia huella y solo se manda la que de verdad cambió: escribir valores en
+  // un ejemplo no reenvía la plantilla entera cada dos segundos.
+  let estructuraGuardada: string | null = null;
+  let ejemploGuardado: string | null = null;
 
-    if (activeTab.value === 'ejemplos' && activeEjemplo.value) {
+  const huellaEstructura = () => (editData.value ? JSON.stringify(editData.value) : null);
+  const huellaEjemplo = () =>
+    activeTab.value === 'ejemplos' && activeEjemplo.value ? JSON.stringify(editedValores.value) : null;
+
+  /** Manda al servidor lo que haya cambiado. Sin toasts ni registro de actividad: eso es cosa del
+   * botón Guardar, que el autoguardado no debe imitar. */
+  async function persistir() {
+    if (!editData.value) return;
+
+    const estructura = huellaEstructura();
+    if (estructura !== null && estructura !== estructuraGuardada) {
+      const fechaActualizacion = new Date().toLocaleDateString('es-PE');
+      await actualizarPlantilla.mutateAsync({ id: editData.value.id, data: { ...editData.value, fechaActualizacion } });
+      estructuraGuardada = estructura;
+    }
+
+    const ejemplo = huellaEjemplo();
+    if (ejemplo !== null && ejemplo !== ejemploGuardado && activeEjemplo.value) {
       const valores = { ...editedValores.value };
       await actualizarEjemplo.mutateAsync({ id: activeEjemplo.value.id, data: { valores } });
       activeEjemplo.value = { ...activeEjemplo.value, valores };
+      ejemploGuardado = ejemplo;
     }
+  }
+
+  const autoguardado = useAutoguardado({
+    huella: () => {
+      const e = huellaEstructura();
+      if (e === null) return null;
+      return `${e} ${huellaEjemplo() ?? ''}`;
+    },
+    guardar: persistir,
+  });
+
+  async function handleSave() {
+    if (!editData.value) return;
+    await persistir();
+    autoguardado.marcarGuardado();
 
     await pushActividad.mutateAsync({ mensaje: `Se guardó la plantilla ${editData.value.codigo} — ${editData.value.nombre}`, color: 'blue' });
 
@@ -617,6 +710,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
   }
 
   return {
+    estadoGuardado: autoguardado.estado,
     editData, activeTab, activeSectionIndex, selectedCampo, isNewCampo, editingHojaSeccionId,
     leftWidth, rightWidth, examplesWidth, highlightMissingCaptura, ejemplosCount, jsonPreview,
     showImportEstructura,
@@ -625,7 +719,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     archivoExcelAsignado, showExcelCatalogModal, showPreview, showInsertConfirm, isInserting, insertProgress,
     previewFileUrl, previewFileName,
     handleLeftResize, handleRightResize, handleExamplesResize, handleTabChange, handleSectionSelect,
-    goToPrevSection, goToNextSection, handleFieldUpdate, handleAddCampo, handleDeleteCampo,
+    goToPrevSection, goToNextSection, handleFieldUpdate, handleAddCampo, handleDuplicarCampo, handleDeleteCampo,
     handleSectionNameChange, handleSectionHojaChange, handleSubsectionNameChange,
     handleSubseccionAyudaChange, handleAddSubsection, handleDeleteSubsection, handleAddSection,
     handleExampleValueChange, handleCreateExample, handleDeleteEjemplo, handleToggleEjemploEstado,

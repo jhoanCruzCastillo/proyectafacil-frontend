@@ -35,7 +35,18 @@ function updateCaptura(patch: Partial<NonNullable<ConfigTabla['captura']>>) {
 const columnaInicioGrupo = computed(() =>
   esJerarquica(props.config.subtipo) ? agrupadorProfundidad(props.config.columnas, props.config) : 0,
 );
-const cabecerasDisponibles = computed(() => Math.max(props.config.columnas.length - columnaInicioGrupo.value, 1));
+// El modal elige por cabecera pero guarda columnas de Excel, así que necesita el ancho real de cada
+// una (la dinámica se expande por período, igual que en repartoAgrupador).
+const cabecerasAgrupador = computed(() =>
+  props.config.columnas.slice(columnaInicioGrupo.value).map((c) => ({
+    nombre: c.nombre,
+    ancho: c.id === props.config.columnaDinamicaId && (props.config.periodos?.length ?? 0) > 0
+      ? (props.config.periodos!.length) * (c.abarcaColumnasExcel ?? 1)
+      : c.abarcaColumnasExcel ?? 1,
+    columna: c.columnaExcel,
+  })),
+);
+const anchoTotalAgrupador = computed(() => cabecerasAgrupador.value.reduce((s, c) => s + c.ancho, 0));
 </script>
 
 <template>
@@ -127,8 +138,8 @@ const cabecerasDisponibles = computed(() => Math.max(props.config.columnas.lengt
 
     <AgrupadorConfigModal
       :is-open="showAgrupadorConfig"
-      :abarca-columnas="Math.min(config.agrupadorAbarcaColumnas ?? cabecerasDisponibles, cabecerasDisponibles)"
-      :total-columnas="cabecerasDisponibles"
+      :abarca-columnas="Math.min(config.agrupadorAbarcaColumnas ?? anchoTotalAgrupador, anchoTotalAgrupador)"
+      :cabeceras="cabecerasAgrupador"
       :desde-columna="esJerarquica(config.subtipo) ? config.columnas[columnaInicioGrupo]?.nombre : undefined"
       @close="showAgrupadorConfig = false"
       @change="(v) => emit('update', { ...config, agrupadorAbarcaColumnas: v })"

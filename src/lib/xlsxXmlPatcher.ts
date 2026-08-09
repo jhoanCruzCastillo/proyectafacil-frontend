@@ -146,7 +146,65 @@ function limpiarHijos(el: Element) {
   while (el.firstChild) el.removeChild(el.firstChild);
 }
 
-function aplicarValorCelda(doc: Document, celda: Element, valor: string | number | boolean, formula?: string) {
+// Un número "limpio": sin ceros a la izquierda ni separadores de miles. La restricción es
+// deliberada — un código como "08010" (ubigeo) o "0115" (cadena funcional) NO debe convertirse en
+// número, porque perdería el cero delantero. Ante la duda, se queda como texto.
+const RE_NUMERO_LIMPIO = /^-?(?:0|[1-9]\d*)(?:\.\d+)?$/;
+
+/**
+ * Índices de estilo cuyo formato de número es EXPLÍCITAMENTE numérico (declara dígitos con `0`/`#`):
+ * moneda, decimales, porcentaje, miles… Quedan fuera `General` (0) y `Texto` (49), donde no hay
+ * nada que respetar y conviene no tocar el comportamiento de siempre.
+ *
+ * Sirve para no meter texto en una celda que la plantilla formateó como número: Excel no aplica un
+ * formato numérico a una cadena, así que un `3650` escrito como texto en la celda de "Costo
+ * unitario" se ve sin su `S/` por más que el estilo de la celda siga intacto.
+ */
+async function estilosNumericos(zip: JSZip): Promise<Set<number>> {
+  const out = new Set<number>();
+  const xml = await zip.file('xl/styles.xml')?.async('string');
+  if (!xml) return out;
+
+  const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  const codigoPorNumFmt = new Map<number, string>();
+  for (const nf of Array.from(doc.getElementsByTagName('numFmt'))) {
+    const id = Number(nf.getAttribute('numFmtId'));
+    const code = nf.getAttribute('formatCode');
+    if (Number.isFinite(id) && code) codigoPorNumFmt.set(id, code);
+  }
+  // Integrados que declaran dígitos (ECMA-376, §18.8.30): enteros, decimales, miles, moneda y
+  // porcentaje. Los de fecha/hora se excluyen a propósito: ahí el valor ya viaja como serial.
+  const BUILTIN_NUM = new Set([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 37, 38, 39, 40, 43, 44, 48]);
+
+  const cellXfs = doc.getElementsByTagName('cellXfs')[0];
+  if (!cellXfs) return out;
+  Array.from(cellXfs.getElementsByTagName('xf')).forEach((xf, i) => {
+    const numFmtId = Number(xf.getAttribute('numFmtId') ?? 0) || 0;
+    if (numFmtId === 0 || numFmtId === 49) return; // General y Texto
+    const code = codigoPorNumFmt.get(numFmtId);
+    if (code === undefined) { if (BUILTIN_NUM.has(numFmtId)) out.add(i); return; }
+    // Se mira solo la primera sección (positivos) y sin literales entre comillas: el `0` de un
+    // texto literal como "S/ 0 soles" no convierte el formato en numérico.
+    const primera = code.replace(/"[^"]*"/g, '').replace(/\[[^\]]*\]/g, '').replace(/\\./g, '').split(';')[0];
+    if (/[0#]/.test(primera)) out.add(i);
+  });
+  return out;
+}
+
+function aplicarValorCelda(
+  doc: Document,
+  celda: Element,
+  valor: string | number | boolean,
+  formula?: string,
+  destinoNumerico = false,
+) {
+  // La celda destino está formateada como número y lo que llega es un número escrito como texto:
+  // se guarda como número para que el formato de la plantilla (moneda, decimales, miles) se vea.
+  // Lo decide LA CELDA, no el tipo declarado en la estructura — una columna puede estar puesta como
+  // "Texto corto" y apuntar igualmente a una celda de moneda.
+  if (destinoNumerico && typeof valor === 'string' && RE_NUMERO_LIMPIO.test(valor.trim())) {
+    valor = Number(valor.trim());
+  }
   limpiarHijos(celda);
   if (formula) {
     // Fórmula nativa: Excel la recalcula al abrir el archivo. El <v> es solo el caché que se
@@ -444,6 +502,8 @@ export async function aplicarEdicionesXlsx(dataUrl: string, ediciones: LibroEdit
   const mapaHojas = await leerMapaHojas(zip);
   const parser = new DOMParser();
   const serializer = new XMLSerializer();
+  // styles.xml es común a todo el libro: se lee una sola vez para todas las hojas.
+  const numericos = await estilosNumericos(zip);
 
   for (const [nombreHoja, edits] of ediciones.entries()) {
     const path = mapaHojas.get(nombreHoja);
@@ -479,7 +539,8 @@ export async function aplicarEdicionesXlsx(dataUrl: string, ediciones: LibroEdit
         omitidasPorFormula.push(`${nombreHoja}!${columna}${fila}`);
         continue;
       }
-      aplicarValorCelda(doc, celda, valor, formula);
+      const estilo = celda.getAttribute('s');
+      aplicarValorCelda(doc, celda, valor, formula, estilo !== null && numericos.has(Number(estilo)));
     }
     for (const rango of edits.merges) {
       agregarMerge(doc, worksheet, sheetData, rango);
