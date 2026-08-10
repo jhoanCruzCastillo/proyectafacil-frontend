@@ -545,14 +545,27 @@ export async function insertarValoresEnExcel(
   if (avisos.length > 0) onAvisos?.(avisos);
   const valoresFinales = Object.keys(correcciones).length > 0 ? { ...valores, ...correcciones } : valores;
 
-  const resolverFormula = crearResolver(tareas.map((t) => t.campo), (id) => valoresFinales[id]);
+  // Un campo ausente o vacío en el ejemplo guardado (p. ej. uno "calculado" agregado a la estructura
+  // después de la última vez que se guardó ese ejemplo) se completa con el valor por defecto de la
+  // estructura — el mismo fallback que ya usa la vista en pantalla (ver FieldCard/usePlantillaEditor:
+  // `valores[id] ?? campo.valorEjemplo`). Sin esto, `writeCampo` y las fórmulas que referencian ese
+  // campo se saltaban en silencio y la celda quedaba en blanco en el Excel exportado.
+  const conDefaults: Record<string, string> = { ...valoresFinales };
+  for (const { campo } of tareas) {
+    const actual = conDefaults[campo.identificador];
+    if ((actual == null || actual === '') && campo.valorEjemplo) {
+      conDefaults[campo.identificador] = campo.valorEjemplo;
+    }
+  }
+
+  const resolverFormula = crearResolver(tareas.map((t) => t.campo), (id) => conDefaults[id]);
   const tareasPorId = new Map(tareas.map((t) => [t.campo.identificador, t]));
 
   const total = tareas.length || 1;
   const loteSize = Math.max(1, Math.ceil(total / 30)); // ~30 repintados como máximo durante la acumulación
   for (let i = 0; i < tareas.length; i++) {
     const { hoja, campo } = tareas[i];
-    writeCampo(ediciones, hoja, campo, valoresFinales, resolverFormula, tareasPorId, altoDeBloque);
+    writeCampo(ediciones, hoja, campo, conDefaults, resolverFormula, tareasPorId, altoDeBloque);
     if ((i + 1) % loteSize === 0 || i === tareas.length - 1) {
       onProgress?.(((i + 1) / total) * 0.9); // el 10% restante es el parcheo del ZIP
       await new Promise((resolve) => setTimeout(resolve, 0));
