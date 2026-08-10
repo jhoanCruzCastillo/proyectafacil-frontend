@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import {
   faHeading, faBold, faItalic, faListUl, faListOl, faCode, faQuoteLeft, faLink,
-  faEye, faSave, faTrash, faPlus, faCheck, sectorIcons, faWandMagicSparkles,
+  faEye, faSave, faTrash, faCheck, sectorIcons, faWandMagicSparkles,
 } from '@/lib/icons';
 import ContextosIASidebar from './ContextosIASidebar.vue';
 import ConfirmModal from '@/components/ConfirmModal.vue';
@@ -118,9 +118,6 @@ function insertar(marca: string) {
                 class="flex-1 min-w-0 px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm text-heading focus:outline-none"
               />
             </div>
-
-            <label class="block text-xs font-medium text-heading mb-1.5">Descripción</label>
-            <p class="text-sm text-muted leading-snug mb-4">{{ seccionActiva?.descripcion || 'Sin descripción.' }}</p>
 
             <label class="block text-xs font-medium text-heading mb-1.5">Campos</label>
             <span class="inline-flex px-2.5 py-1 rounded-lg bg-gray-100 text-xs font-medium text-gray-600">{{ totalCampos }} campos</span>
