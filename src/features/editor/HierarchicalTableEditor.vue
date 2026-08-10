@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, inject, nextTick, ref, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faPlus, faTrash } from '@/lib/icons';
-import { createNodeChain, parseTree, getPeriodos, agrupadorProfundidad, esJerarquica, type TreeNode } from '@/lib/tableRowHelpers';
+import { faPlus, faTrash, fieldTypeIcons } from '@/lib/icons';
+import CampoListaInput from '@/components/CampoListaInput.vue';
+import { EXCEL_VIVO } from '@/composables/useListasExcel';
+import { etiquetaDeValor } from '@/lib/conversionesExcel';
+import { createNodeChain, parseTree, getPeriodos, agrupadorProfundidad, esJerarquica, posicionesArbol, posicionDe, type TreeNode } from '@/lib/tableRowHelpers';
 import type { ConfigTabla, CabeceraGrupo, ColumnaTabla } from '@/types';
 
 // El componente de mayor riesgo de fidelidad de toda la migración (ver plan): edición de un árbol
@@ -16,6 +19,8 @@ const props = defineProps<{
   modelValue: string;
   /** true = permite agregar/renombrar columnas dinámicas (solo tab Estructura) */
   puedeEditarPeriodos?: boolean;
+  /** Hoja de Excel de la sección — habilita desplegables y cálculo en vivo dentro de las celdas */
+  hoja?: string;
 }>();
 
 const emit = defineEmits<{ 'update:modelValue': [string]; 'update:config': [ConfigTabla] }>();
@@ -307,6 +312,60 @@ function isPathAncestor(path: number[]) {
 
 const flatRows = computed(() => buildFlatRows(roots.value, numCols.value, selectedPath.value, agrupadorDepth.value, props.config.agrupadorAbarcaColumnas, columns.value));
 
+// --- Ayudas del Excel dentro del árbol ---
+// Mismo servicio que ya usaban las tablas de filas dinámicas (TableRow), aquí resuelto a mano
+// porque este editor pinta sus propias celdas. Para preguntarle al Excel por una celda hace falta
+// su fila real, y eso obliga a replicar cómo el escritor aplana el árbol: una fila del Excel por
+// cada fila visual que lleve datos. Las filas de "+" son puro UI y no consumen fila en el archivo
+// — contarlas correría toda la tabla hacia abajo.
+const excel = inject(EXCEL_VIVO, undefined);
+
+// La fila de cada nodo NO se deduce contando filas visuales: se pide a `posicionesArbol`, la misma
+// función que usa el escritor para decidir dónde escribir. Así la celda que la UI consulta y la
+// celda donde el dato acaba en el archivo son siempre la misma por construcción.
+const posiciones = computed(() => {
+  const filaInicial = props.config.captura?.filaInicial;
+  if (!props.hoja || !filaInicial) return null;
+  return posicionesArbol(
+    roots.value,
+    props.config,
+    props.hoja,
+    filaInicial,
+    agrupadorDepth.value,
+    (hoja, columna, fila) => excel?.value?.altoDeBloque(hoja, columna, fila),
+  );
+});
+
+/** Celda de Excel del nodo dibujado en esa columna, o null si no se puede resolver. */
+function refCelda(path: number[], ci: number): string | null {
+  const columna = columns.value[ci]?.columnaExcel;
+  if (!excel?.value || !props.hoja || !columna || !posiciones.value) return null;
+  const pos = posicionDe(posiciones.value, path);
+  return pos ? `${columna}${pos.fila}` : null;
+}
+
+/** Opciones del desplegable declarado en el Excel para esa celda, o null. */
+function opcionesCelda(path: number[], ci: number): string[] | null {
+  const ref = refCelda(path, ci);
+  if (!ref || !props.hoja) return null;
+  const ops = excel?.value?.opcionesDe(props.hoja, ref);
+  return ops && ops.length > 0 ? ops : null;
+}
+
+// El valor guardado ya es la palabra del Excel; la traducción solo entra para los ejemplos
+// anteriores, que guardaron 'true'/'false' (ver etiquetaDeValor).
+function valorMostradoCelda(valor: unknown, ci: number, opciones: string[] | null): string {
+  const bruto = typeof valor === 'string' ? valor : '';
+  return etiquetaDeValor(bruto, opciones, columns.value[ci]?.etiquetasBooleano);
+}
+
+/** Lo que el Excel calcula en esa celda, o null si no lleva fórmula. */
+function calculoCelda(path: number[], ci: number) {
+  const ref = refCelda(path, ci);
+  if (!ref || !props.hoja) return null;
+  return excel?.value?.calculado(props.hoja, ref) ?? null;
+}
+
 const grupos = computed(() => props.config.cabeceras ?? []);
 const hasCabeceras = computed(() => grupos.value.length > 0);
 function grupoForId(id: string): CabeceraGrupo | undefined { return grupos.value.find((g) => g.hijoIds.includes(id)); }
@@ -589,14 +648,32 @@ function renamePeriodo(pi: number, value: string) {
                 </td>
               </template>
 
-              <!-- Columna libre a la derecha del título de grupo: editable, es la fila-resumen del
-                   grupo (ej. el total). Comparte el fondo del título para que se lea como una fila. -->
+              <!-- Columna libre a la derecha del título de grupo: es la fila-resumen del grupo (ej.
+                   el total de sus ítems). Recibe el mismo trato del Excel que cualquier otra celda
+                   —cálculo en vivo o desplegable—, porque en el archivo es una celda como las demás:
+                   la fila del grupo con la columna de esa columna libre. -->
               <td
                 v-else-if="cell.type === 'group-extra'"
                 class="px-1.5 py-1 align-top bg-brand-50/60 border-t-2 border-brand-200"
                 :class="ci < numCols - 1 ? 'border-r border-gray-300' : ''"
               >
+                <div v-if="calculoCelda(cell.path, ci)" class="flex items-start gap-1 px-1 py-1">
+                  <FontAwesomeIcon :icon="fieldTypeIcons.calculado" class="w-2.5 h-2.5 text-sky-500 shrink-0 mt-0.5" title="Lo calcula el Excel" />
+                  <span v-if="!calculoCelda(cell.path, ci)!.soportado" class="text-[11px] text-sky-800/60 italic">Lo calcula el Excel</span>
+                  <span v-else-if="calculoCelda(cell.path, ci)!.error" class="text-[11px] text-amber-700 font-mono">{{ calculoCelda(cell.path, ci)!.error }}</span>
+                  <span v-else-if="calculoCelda(cell.path, ci)!.texto" class="text-xs font-semibold text-heading break-words">{{ calculoCelda(cell.path, ci)!.texto }}</span>
+                  <span v-else class="text-[11px] text-muted">—</span>
+                </div>
+                <CampoListaInput
+                  v-else-if="opcionesCelda(cell.path, ci)"
+                  :value="valorMostradoCelda(cell.value, ci, opcionesCelda(cell.path, ci))"
+                  :opciones="opcionesCelda(cell.path, ci) ?? []"
+                  compacto
+                  @change="updateGrupoValor(cell.path, cell.colId, $event)"
+                  @click.stop
+                />
                 <textarea
+                  v-else
                   :value="typeof cell.value === 'string' ? cell.value : ''"
                   rows="1"
                   :placeholder="`${columns[ci]?.nombre}...`"
@@ -622,7 +699,7 @@ function renamePeriodo(pi: number, value: string) {
                     placeholder="Nombre del grupo..."
                     @input="updateNodeValue(cell.path, ($event.target as HTMLTextAreaElement).value)"
                     @click.stop="() => { if (!(isPathSelected(cell.path) && isEditing)) selectCell(cell.path); }"
-                    class="flex-1 min-w-0 px-1.5 py-1 rounded border text-xs font-semibold uppercase tracking-wide text-heading focus:outline-none resize-none overflow-y-auto max-h-[15lh] [field-sizing:content] bg-transparent"
+                    class="flex-1 min-w-0 px-1.5 py-1 rounded border text-xs font-semibold tracking-wide text-heading focus:outline-none resize-none overflow-y-auto max-h-[15lh] [field-sizing:content] bg-transparent"
                     :class="isPathSelected(cell.path) && isEditing ? 'border-brand-400 bg-white ring-1 ring-brand-500/30' : 'border-transparent cursor-pointer'"
                   />
                   <button
@@ -661,10 +738,28 @@ function renamePeriodo(pi: number, value: string) {
                 @click.stop="selectCell(cell.path)"
               >
                 <div class="flex items-start gap-0.5 group/cell">
+                  <!-- Celda que el Excel calcula: no se edita, se muestra su resultado en vivo -->
+                  <div v-if="calculoCelda(cell.path, ci)" class="flex items-start gap-1 flex-1 min-w-0 px-1 py-1">
+                    <FontAwesomeIcon :icon="fieldTypeIcons.calculado" class="w-2.5 h-2.5 text-sky-500 shrink-0 mt-0.5" title="Lo calcula el Excel" />
+                    <span v-if="!calculoCelda(cell.path, ci)!.soportado" class="text-[11px] text-sky-800/60 italic">Lo calcula el Excel</span>
+                    <span v-else-if="calculoCelda(cell.path, ci)!.error" class="text-[11px] text-amber-700 font-mono">{{ calculoCelda(cell.path, ci)!.error }}</span>
+                    <span v-else-if="calculoCelda(cell.path, ci)!.texto" class="text-xs text-heading break-words">{{ calculoCelda(cell.path, ci)!.texto }}</span>
+                    <span v-else class="text-[11px] text-muted">—</span>
+                  </div>
+                  <!-- Celda con desplegable declarado en el Excel -->
+                  <CampoListaInput
+                    v-else-if="opcionesCelda(cell.path, ci)"
+                    :value="valorMostradoCelda(cell.value, ci, opcionesCelda(cell.path, ci))"
+                    :opciones="opcionesCelda(cell.path, ci) ?? []"
+                    class="flex-1 min-w-0"
+                    @change="updateNodeValue(cell.path, $event)"
+                    @click.stop
+                  />
                   <!-- textarea con field-sizing: crece con el contenido hasta 15 líneas y luego
                        scrollea. Enter sigue confirmando la edición (handleKeyDown lo intercepta
                        con preventDefault antes de que inserte un salto de línea). -->
                   <textarea
+                    v-else
                     :ref="(el) => setInputRef(JSON.stringify(cell.path), el as Element)"
                     :value="typeof cell.value === 'string' ? cell.value : ''"
                     rows="1"

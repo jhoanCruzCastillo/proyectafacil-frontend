@@ -1,4 +1,4 @@
-import { type Ref, computed, ref, watch } from 'vue';
+import { type Ref, computed, provide, ref, watch } from 'vue';
 import { useEjemploQuery, useEjemplosByPlantillaQuery, useActualizarEjemplo } from '@/composables/useEjemplos';
 import { usePlantillaQuery } from '@/composables/usePlantillas';
 import { useExcelEjemploQuery, useSetExcelEjemplo } from '@/composables/useExcelEjemplos';
@@ -6,12 +6,14 @@ import { useRegistrarCambioFicha } from '@/composables/useHistorialCambios';
 import { usePushActividad } from '@/composables/useActividad';
 import { useUsuariosQuery } from '@/composables/useUsuarios';
 import { useEstadoEntrenamiento } from '@/composables/useEstadoEntrenamiento';
+import { useExcelVivo, EXCEL_VIVO } from '@/composables/useListasExcel';
 import { useSessionStore } from '@/stores/session';
 import { useUiStore } from '@/stores/ui';
 import { generateId } from '@/api/mock/_shared';
 import { cuentaEfectivaDe, puedeVerFicha } from '@/lib/permisos';
 import { puedeVerHistorial } from '@/lib/planAcceso';
-import { insertarValoresEnExcel } from '@/lib/excelWriter';
+import { insertarValoresEnExcel, type AvisoLista } from '@/lib/excelWriter';
+import { mensajeAvisoListas } from '@/lib/xlsxListas';
 import { calcularCambios } from '@/lib/historialFicha';
 import { validarValoresPlantilla, calcularProgresoValores } from '@/lib/valorValidation';
 
@@ -33,6 +35,11 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
   const registrarCambioFicha = useRegistrarCambioFicha();
   const pushActividad = usePushActividad();
   const { esNivel0, vencido, diasRestantes, numeroNivel } = useEstadoEntrenamiento();
+
+  // Desplegables leídos del Excel de la ficha, para que el cliente elija la opción exacta en vez de
+  // teclearla. El cálculo en vivo va con `null`: de momento solo está habilitado en el editor de
+  // estructura (ver useExcelVivo).
+  provide(EXCEL_VIVO, useExcelVivo(computed(() => archivoEjemplo.value?.dataUrl ?? null), computed(() => null)));
 
   const soloLectura = computed(() => esNivel0.value && vencido.value);
   const permiteMejoraIA = computed(() => numeroNivel.value >= 1);
@@ -135,12 +142,20 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
       // Se inserta siempre sobre la copia propia de la ficha (tomada al crearla), no sobre el
       // archivo que esté asignado hoy en el catálogo — así el resultado no se rompe si el admin
       // reasigna un Excel distinto a la plantilla después de que el cliente ya empezó a llenarla.
-      const nuevaDataUrl = await insertarValoresEnExcel(archivoEjemplo.value.dataUrl, plantilla.value, editedValores.value, (fraction) => {
-        insertProgress.value = Math.round(fraction * 100);
-      });
+      let avisos: AvisoLista[] = [];
+      const nuevaDataUrl = await insertarValoresEnExcel(
+        archivoEjemplo.value.dataUrl,
+        plantilla.value,
+        editedValores.value,
+        (fraction) => { insertProgress.value = Math.round(fraction * 100); },
+        (a) => { avisos = a; },
+      );
       await setExcelEjemplo.mutateAsync({ ejemploId: ejemplo.value.id, archivo: { ...archivoEjemplo.value, dataUrl: nuevaDataUrl } });
       await pushActividad.mutateAsync({ mensaje: `Se insertaron los valores de "${ejemplo.value.nombre}" en su Excel`, color: 'blue' });
       ui.toast('Valores insertados en el Excel');
+      // El aviso llega aparte y en rojo: la inserción sí se hizo, pero conviene revisar esos valores.
+      const aviso = mensajeAvisoListas(avisos);
+      if (aviso) ui.toast(aviso, 'error');
     } catch (e) {
       ui.toast(e instanceof Error ? e.message : 'No se pudo insertar los valores en el Excel', 'error');
     } finally {

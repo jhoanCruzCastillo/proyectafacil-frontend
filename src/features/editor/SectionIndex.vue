@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faGear, faPlus, faCircleCheck, faFileImport } from '@/lib/icons';
+import { faGear, faPlus, faCircleCheck, faFileImport, faClone } from '@/lib/icons';
 import type { Seccion } from '@/types';
 
 defineProps<{
@@ -9,13 +9,15 @@ defineProps<{
   showAddButton?: boolean;
   /** true = muestra el engranaje para asignar la hoja de Excel de cada sección */
   showEditHoja?: boolean;
+  /** true = muestra el botón para duplicar la sección completa (solo tab Estructura) */
+  showDuplicateSection?: boolean;
   /** Cantidad de campos pendientes/inválidos por sección — si se pasa, se muestra un indicador de avance (solo modo cliente) */
   erroresPorSeccion?: Record<string, number>;
   /** true = muestra el botón sutil para importar/reemplazar toda la estructura desde JSON (solo tab Estructura) */
   showImportEstructura?: boolean;
 }>();
 
-const emit = defineEmits<{ select: [seccionId: string]; 'add-section': []; 'edit-hoja': [seccionId: string]; 'import-estructura': [] }>();
+const emit = defineEmits<{ select: [seccionId: string]; 'add-section': []; 'edit-hoja': [seccionId: string]; 'duplicate-section': [seccionId: string]; 'import-estructura': [] }>();
 </script>
 
 <template>
@@ -59,6 +61,15 @@ const emit = defineEmits<{ select: [seccionId: string]; 'add-section': []; 'edit
           </span>
           <FontAwesomeIcon v-else :icon="faCircleCheck" class="w-3.5 h-3.5 text-brand-500 shrink-0" title="Sección completa" />
         </template>
+        <button
+          v-if="showDuplicateSection"
+          @click.stop="emit('duplicate-section', seccion.id)"
+          type="button"
+          title="Duplicar sección"
+          class="w-6 h-6 rounded flex items-center justify-center text-gray-300 hover:text-brand-500 hover:bg-white transition-colors shrink-0"
+        >
+          <FontAwesomeIcon :icon="faClone" class="w-3 h-3" />
+        </button>
         <button
           v-if="showEditHoja"
           @click.stop="emit('edit-hoja', seccion.id)"

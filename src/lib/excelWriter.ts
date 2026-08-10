@@ -1,10 +1,13 @@
-import { parseDynamicRows, parseGroupedRows, parseTree, getPeriodos, esJerarquica, esCeldaPartida, agrupadorProfundidad, type FilaDinamica, type ValorCelda } from './tableRowHelpers';
+import { parseDynamicRows, parseGroupedRows, parseTree, getPeriodos, esJerarquica, esCeldaPartida, agrupadorProfundidad, posicionesArbol, posicionDe, posicionesGrupos, grupoOcupaFila, repartoAgrupador, type FilaDinamica, type ValorCelda, type PosicionNodo } from './tableRowHelpers';
 import { LibroEdits, aplicarEdicionesXlsx } from './xlsxXmlPatcher';
 import { crearResolver, esFormula, evaluarFormula, traducirFormulaAExcel, type ResolucionToken, type ResolucionCelda } from './formula';
-import { booleanoATexto, type EtiquetasBooleano } from './conversionesExcel';
+import { booleanoATexto, dateASerialExcel, dePorcentaje, type EtiquetasBooleano } from './conversionesExcel';
 import { parseCoords, coordsATexto } from './coords';
 import { leerLibroXlsx } from './xlsxXmlReader';
-import type { Plantilla, Campo, ColumnaTabla, ConfigTabla, TipoCampo } from '@/types';
+import { catalogoDeListas, normalizarOpcion, type AvisoLista } from './xlsxListas';
+
+export type { AvisoLista } from './xlsxListas';
+import type { Plantilla, Campo, ColumnaTabla, ConfigTabla, TipoCampo, TipoColumna } from '@/types';
 
 // --- Aritmética de columnas Excel (A, B, ..., Z, AA, AB, ...) ---
 
@@ -32,20 +35,50 @@ function addCols(letter: string, delta: number): string {
 // `etiquetasBooleano` son las palabras con que la plantilla oficial escribe un booleano en el Excel
 // ("Sí"/"No"). Sin ellas se escribe un booleano nativo (TRUE/FALSE), que es el comportamiento
 // previo — pero una plantilla que las declara debe recuperar su propio texto, no el genérico.
-function coerceValor(tipo: TipoCampo, raw: string | undefined, etiquetasBooleano?: EtiquetasBooleano): string | number | boolean {
+const RE_FECHA_ISO = /^\d{4}-\d{2}-\d{2}$/;
+
+function coerceValor(
+  tipo: TipoCampo | TipoColumna,
+  raw: string | undefined,
+  etiquetasBooleano?: EtiquetasBooleano,
+): string | number | boolean {
   if (raw == null || raw === '') return '';
+  // "1.10%" -> 0.011. Una celda con formato de porcentaje guarda la fracción y el "%" lo pone el
+  // formato, así que escribir el texto la dejaría rota para toda fórmula que la lea. Se decide por
+  // la FORMA DEL VALOR y no por el tipo declarado, igual que hace el volcado al leerla: es la misma
+  // lectura que hace Excel cuando alguien teclea "1.10%" en cualquier celda.
+  const porcentaje = dePorcentaje(raw);
+  if (porcentaje !== null) return porcentaje;
   if (tipo === 'numero' || tipo === 'decimal') {
     const n = Number(raw);
     return Number.isNaN(n) ? '' : n;
   }
+  // Excel guarda las fechas como número de serie. Escribir el texto ISO dejaría la celda como texto:
+  // se vería con el formato roto y cualquier fórmula que opere con ella fallaría.
+  if (tipo === 'fecha' && RE_FECHA_ISO.test(raw.trim())) {
+    const ms = Date.parse(`${raw.trim()}T00:00:00Z`);
+    if (!Number.isNaN(ms)) return dateASerialExcel(new Date(ms));
+  }
   if (tipo === 'booleano') return booleanoATexto(raw, etiquetasBooleano);
   // Coordenadas: en el JSON viajan como objeto {lat,lng}, pero la celda del Excel lleva el par en
   // texto plano. Volcarlas como el JSON crudo dejaría `{"lat":…}` a la vista en la hoja.
-  if (tipo === 'mapa_coordenadas') {
+  if (tipo === 'mapa_coordenadas' || tipo === 'coordenadas') {
     const c = parseCoords(raw);
     return c ? coordsATexto(c) : raw;
   }
   return raw;
+}
+
+/**
+ * Valor de una CELDA DE TABLA, convertido al tipo que espera el Excel según el tipo de su columna.
+ *
+ * Sin esto, las celdas de tabla se escribían siempre como texto: un "60" en una columna numérica
+ * llegaba a la hoja como texto y rompía en silencio cualquier fórmula que lo usara —el
+ * `VLOOKUP` numérico de Análisis Técnico devolvía `#N/A`— además de verse desalineado. Los campos
+ * simples ya pasaban por `coerceValor`; esto lo extiende a las tablas, que son la mayoría de celdas.
+ */
+function valorDeColumna(col: ColumnaTabla | undefined, raw: string): string | number | boolean {
+  return coerceValor(col?.tipo ?? 'texto_corto', raw, col?.etiquetasBooleano);
 }
 
 // Escribe un valor y, si abarca más de una columna o fila, fusiona la celda combinada
@@ -79,24 +112,6 @@ function writeCellSpan(
   }
 }
 
-// Cantidad de columnas físicas de Excel que ocupan las primeras `n` cabeceras/columnas lógicas de
-// la tabla — cada una puede abarcar más de una columna física (`abarcaColumnasExcel`), y la columna
-// dinámica cuenta una vez por período. Así, "abarca 2 columnas" en el agrupador significa "las
-// primeras 2 cabeceras", no "2 columnas físicas": si la primera cabecera ya abarca 2 columnas y la
-// segunda 1, el resultado físico real es 3.
-function anchoFisicoPrimerasColumnas(config: ConfigTabla, n: number, periodos: string[], desde = 0): number {
-  let total = 0;
-  for (let i = desde; i < desde + n && i < config.columnas.length; i++) {
-    const col = config.columnas[i];
-    if (col.id === config.columnaDinamicaId && periodos.length > 0) {
-      total += periodos.length * (col.abarcaColumnasExcel ?? 1);
-    } else {
-      total += col.abarcaColumnasExcel ?? 1;
-    }
-  }
-  return total;
-}
-
 // Escribe una columna con subcolumnas (4.8). La FORMA del valor manda, igual que al leer:
 //  - objeto con alguna parte con dato  -> celda PARTIDA: se rompe la fusión J:K de esa fila y cada
 //    parte va a su propia columna de Excel.
@@ -122,7 +137,7 @@ function writeCeldaPartida(
     for (const sub of subs) {
       const v = valor[sub.id] ?? '';
       if (v === '') continue;
-      writeCellSpan(ediciones, hoja, sub.columnaExcel, row, v, sub.abarcaColumnasExcel ?? 1);
+      writeCellSpan(ediciones, hoja, sub.columnaExcel, row, valorDeColumna(sub, v), sub.abarcaColumnasExcel ?? 1);
     }
     return;
   }
@@ -131,7 +146,7 @@ function writeCeldaPartida(
   for (const sub of subs.slice(1)) {
     if (hoja && sub.columnaExcel) ediciones.escribirCelda(hoja, sub.columnaExcel, row, '');
   }
-  writeCellSpan(ediciones, hoja, col.columnaExcel, row, valor, col.abarcaColumnasExcel ?? subs.length);
+  writeCellSpan(ediciones, hoja, col.columnaExcel, row, valorDeColumna(col, valor), col.abarcaColumnasExcel ?? subs.length);
 }
 
 // Celdas sin dato (vacías) se omiten por completo — no se escribe ni se fusiona nada sobre ellas,
@@ -154,12 +169,12 @@ function writeFilaColumnas(ediciones: LibroEdits, hoja: string | undefined, conf
         const v = arr[i];
         if (v == null || v === '') return;
         const colLetter = addCols(col.columnaExcel!, i * (col.abarcaColumnasExcel ?? 1));
-        writeCellSpan(ediciones, hoja, colLetter, row, v, col.abarcaColumnasExcel ?? 1, alto(col));
+        writeCellSpan(ediciones, hoja, colLetter, row, valorDeColumna(col, v), col.abarcaColumnasExcel ?? 1, alto(col));
       });
     } else {
       const v = fila[col.id];
       if (typeof v !== 'string' || v === '') continue;
-      writeCellSpan(ediciones, hoja, col.columnaExcel, row, v, col.abarcaColumnasExcel ?? 1, alto(col));
+      writeCellSpan(ediciones, hoja, col.columnaExcel, row, valorDeColumna(col, v), col.abarcaColumnasExcel ?? 1, alto(col));
     }
   }
 }
@@ -179,7 +194,7 @@ function filasNecesariasTabla(config: ConfigTabla, raw: string): number {
   }
   if (config.agrupador) {
     const grupos = parseGroupedRows(raw, config);
-    return grupos.reduce((sum, g) => sum + 1 + g.filas.length, 0);
+    return grupos.reduce((sum, g) => sum + (grupoOcupaFila(g) ? 1 : 0) + g.filas.length, 0);
   }
   return parseDynamicRows(raw, config).length;
 }
@@ -193,7 +208,7 @@ function registrarCrecimientoTabla(ediciones: LibroEdits, hoja: string | undefin
   const filasBase = config.captura?.filasBase;
   if (!hoja || !filaInicial || !filasBase) return;
   // Una tabla sin datos no crece. Sin esta guarda, `parseDynamicRows('')` devuelve las filas en
-  // blanco que la UI muestra por cortesía (`filasIniciales`, 3 por defecto) y se contaban como si
+  // blanco que la UI muestra por cortesía y se contaban como si
   // fueran datos: una tabla vacía con filas_base 1 "crecía" 2 filas e insertaba dos filas físicas,
   // desplazando hacia abajo TODO lo que venía después en la hoja. Nada se escribe en ellas, así que
   // el desplazamiento era puro daño.
@@ -221,49 +236,45 @@ function writeArbol(
   periodos: string[],
   node: { value: string | string[]; children: unknown[] },
   profundidad: number,
-  filaInicio: number,
-  colIdx = profundidad,
+  path: number[],
+  posiciones: Map<string, PosicionNodo>,
   agrupadorDepth = -1,
-  altoDeBloque?: AltoDeBloque,
 ): number {
+  // La aritmética de filas ya NO vive aquí: la resuelve `posicionesArbol` (tableRowHelpers), que es
+  // exactamente la misma que consulta el editor de la UI para saber a qué celda pedirle sus opciones
+  // o su fórmula. Con una sola definición es imposible que la celda que se le muestra al usuario y
+  // la celda donde termina el dato se desincronicen — cuando eran dos copias, ese desfase fallaba
+  // en silencio.
+  const pos = posicionDe(posiciones, path);
+  if (!pos) return 0;
+  const { fila: filaInicio, filasConsumidas, colIdx } = pos;
+
   const col = config.columnas[colIdx];
   // Nivel de agrupador: el nodo ocupa una FILA propia (fila de título) y sus hijos siguen en la
   // MISMA columna, debajo — igual que en el Excel oficial, donde "Actores comunales:" y
   // "o Madre cuidadora" comparten la columna B en filas consecutivas.
   const esNivelAgrupador = profundidad === agrupadorDepth && node.children.length > 0;
-  const colDeHijos = esNivelAgrupador ? colIdx : colIdx + 1;
 
-  let filasConsumidas: number;
-  if (node.children.length === 0) {
-    // Una hoja NO ocupa necesariamente una fila: la plantilla oficial suele reservarle un bloque de
-    // varias filas ya fusionadas (en 5.01.03, B19:E21 son 3 filas por cada "Efecto directo"). Se
-    // toma esa altura del propio archivo — suponer 1 desalineaba la tabla y, peor, las fusiones que
-    // escribíamos se solapaban con las del bloque y la deduplicación borraba las originales,
-    // dejando las celdas sueltas. Sin bloque declarado en el Excel, sigue siendo 1.
-    filasConsumidas = Math.max(altoDeBloque?.(hoja, col?.columnaExcel, filaInicio) ?? 1, 1);
-  } else {
-    let fila = filaInicio + (esNivelAgrupador ? 1 : 0);
-    filasConsumidas = esNivelAgrupador ? 1 : 0;
-    for (const hijo of node.children as typeof node[]) {
-      const consumidas = writeArbol(ediciones, hoja, config, periodos, hijo, profundidad + 1, fila, colDeHijos, agrupadorDepth, altoDeBloque);
-      fila += consumidas;
-      filasConsumidas += consumidas;
-    }
-  }
+  (node.children as typeof node[]).forEach((hijo, ci) => {
+    writeArbol(ediciones, hoja, config, periodos, hijo, profundidad + 1, [...path, ci], posiciones, agrupadorDepth);
+  });
 
-  // El título de grupo no se fusiona verticalmente: vive en su propia fila, y se extiende a lo ancho
-  // de las cabeceras configuradas en el engranaje del agrupador (por defecto, hasta la última).
+  // El título de grupo no se fusiona verticalmente: vive en su propia fila y se extiende sobre las
+  // columnas de Excel configuradas en el engranaje del agrupador (por defecto, hasta la última).
   if (esNivelAgrupador) {
-    const disponibles = config.columnas.length - colIdx;
-    const cabeceras = Math.min(Math.max(config.agrupadorAbarcaColumnas ?? disponibles, 1), disponibles);
+    const reparto = repartoAgrupador(config, periodos, colIdx);
     if (col?.columnaExcel && typeof node.value === 'string' && node.value !== '') {
-      const ancho = anchoFisicoPrimerasColumnas(config, cabeceras, periodos, colIdx);
-      writeCellSpan(ediciones, hoja, col.columnaExcel, filaInicio, node.value, Math.max(ancho, 1));
+      writeCellSpan(ediciones, hoja, col.columnaExcel, filaInicio, valorDeColumna(col, node.value as string), Math.max(reparto.anchoTitulo, 1));
+      // Sobrante de la cabecera partida por el corte: celda propia, sin valor (ver repartoAgrupador).
+      if (reparto.anchoResto > 1) {
+        const inicioResto = addCols(col.columnaExcel, reparto.anchoTitulo);
+        ediciones.fusionar(hoja, `${inicioResto}${filaInicio}:${addCols(inicioResto, reparto.anchoResto - 1)}${filaInicio}`);
+      }
     }
     // Valores propios del grupo en las columnas libres a la derecha del título (fila-resumen).
     const valores = (node as { valores?: FilaDinamica }).valores;
     if (valores) {
-      for (let i = colIdx + cabeceras; i < config.columnas.length; i++) {
+      for (let i = reparto.primeraCabeceraLibre; i < config.columnas.length; i++) {
         const libre = config.columnas[i];
         if (!libre?.columnaExcel) continue;
         const v = valores[libre.id];
@@ -272,12 +283,12 @@ function writeArbol(
           periodos.forEach((_, pi) => {
             const celda = v[pi];
             if (celda == null || celda === '') return;
-            writeCellSpan(ediciones, hoja, addCols(libre.columnaExcel!, pi * ancho), filaInicio, celda, ancho);
+            writeCellSpan(ediciones, hoja, addCols(libre.columnaExcel!, pi * ancho), filaInicio, valorDeColumna(libre, celda), ancho);
           });
           continue;
         }
         if (typeof v !== 'string' || v === '') continue;
-        writeCellSpan(ediciones, hoja, libre.columnaExcel, filaInicio, v, libre.abarcaColumnasExcel ?? 1);
+        writeCellSpan(ediciones, hoja, libre.columnaExcel, filaInicio, valorDeColumna(libre, v), libre.abarcaColumnasExcel ?? 1);
       }
     }
     return filasConsumidas;
@@ -291,10 +302,10 @@ function writeArbol(
         const v = arr[i];
         if (v == null || v === '') return;
         const colLetter = addCols(col.columnaExcel!, i * (col.abarcaColumnasExcel ?? 1));
-        writeCellSpan(ediciones, hoja, colLetter, filaInicio, v, col.abarcaColumnasExcel ?? 1, filasConsumidas);
+        writeCellSpan(ediciones, hoja, colLetter, filaInicio, valorDeColumna(col, v), col.abarcaColumnasExcel ?? 1, filasConsumidas);
       });
     } else if (typeof node.value === 'string' && node.value !== '') {
-      writeCellSpan(ediciones, hoja, col.columnaExcel, filaInicio, node.value, col.abarcaColumnasExcel ?? 1, filasConsumidas);
+      writeCellSpan(ediciones, hoja, col.columnaExcel, filaInicio, valorDeColumna(col, node.value as string), col.abarcaColumnasExcel ?? 1, filasConsumidas);
     }
   }
   return filasConsumidas;
@@ -322,45 +333,50 @@ function writeCampoTabla(ediciones: LibroEdits, hoja: string | undefined, config
   if (esJerarquica(config.subtipo)) {
     const roots = parseTree(raw, config.columnas, config);
     const agrupadorDepth = config.agrupador ? agrupadorProfundidad(config.columnas, config) : -1;
-    let row = filaInicial + shift;
-    for (const r of roots) {
-      row += writeArbol(ediciones, hoja, config, periodos, r, 0, row, 0, agrupadorDepth, altoDeBloque);
-    }
+    const posiciones = posicionesArbol(roots, config, hoja, filaInicial + shift, agrupadorDepth, altoDeBloque);
+    roots.forEach((r, i) => {
+      writeArbol(ediciones, hoja, config, periodos, r, 0, [i], posiciones, agrupadorDepth);
+    });
     return;
   }
 
   if (config.agrupador) {
     const grupos = parseGroupedRows(raw, config);
     const columnaInicial = config.captura?.columnaInicial ?? config.columnas[0]?.columnaExcel;
-    const abarcaCabeceras = Math.min(config.agrupadorAbarcaColumnas ?? config.columnas.length, config.columnas.length);
-    const abarcaFisico = anchoFisicoPrimerasColumnas(config, abarcaCabeceras, periodos);
+    const reparto = repartoAgrupador(config, periodos);
 
-    let row = filaInicial + shift;
-    for (const grupo of grupos) {
-      // Un bloque sin título ni valores propios NO son "un grupo con el nombre en blanco": son
-      // filas sueltas antes del primer grupo real, y no ocupan ninguna fila del Excel. Reservarles
-      // una desalineaba toda la tabla y, peor, rompía la simetría con el lector — que nunca produce
-      // una fila de título vacía, porque las reconoce por su fusión horizontal.
-      const tieneTitulo = grupo.grupo !== '';
-      const ocupaFila = tieneTitulo || Boolean(grupo.valoresGrupo);
+    // La aritmética de filas la resuelve `posicionesGrupos` (tableRowHelpers), la MISMA que consulta
+    // el editor para saber a qué celda pedirle sus opciones o su fórmula. Con una sola definición es
+    // imposible que la celda que ve el usuario y la celda donde acaba el dato se desincronicen.
+    const posiciones = posicionesGrupos(grupos, filaInicial + shift, (fila) =>
+      altoDeFila(config, hoja, fila, altoDeBloque));
 
-      if (columnaInicial && tieneTitulo) {
-        ediciones.escribirCelda(hoja, columnaInicial, row, grupo.grupo);
-        if (abarcaFisico > 1) ediciones.fusionar(hoja, `${columnaInicial}${row}:${addCols(columnaInicial, abarcaFisico - 1)}${row}`);
+    grupos.forEach((grupo, gi) => {
+      const pos = posiciones[gi];
+      if (pos.filaTitulo !== null) {
+        if (columnaInicial && grupo.grupo !== '') {
+          ediciones.escribirCelda(hoja, columnaInicial, pos.filaTitulo, grupo.grupo);
+          if (reparto.anchoTitulo > 1) {
+            ediciones.fusionar(hoja, `${columnaInicial}${pos.filaTitulo}:${addCols(columnaInicial, reparto.anchoTitulo - 1)}${pos.filaTitulo}`);
+          }
+          // El corte parte una cabecera: lo que sobra de ella se fusiona como celda propia, para que
+          // la fila de título siga cubriendo el ancho completo de la tabla sin celdas sueltas.
+          if (reparto.anchoResto > 1) {
+            const inicioResto = addCols(columnaInicial, reparto.anchoTitulo);
+            ediciones.fusionar(hoja, `${inicioResto}${pos.filaTitulo}:${addCols(inicioResto, reparto.anchoResto - 1)}${pos.filaTitulo}`);
+          }
+        }
+        // Valores propios de la fila de título (`agrupador.valores`, punto 4.2): las columnas a la
+        // derecha del título son celdas de datos como cualquier otra — ej. la fila "Nivel de
+        // cobertura…" de 7.03, con un porcentaje por año.
+        if (grupo.valoresGrupo) {
+          writeFilaColumnas(ediciones, hoja, config, grupo.valoresGrupo, pos.filaTitulo, periodos, altoDeBloque);
+        }
       }
-      // Valores propios de la fila de título (`agrupador.valores`, punto 4.2): las columnas a la
-      // derecha del título son celdas de datos como cualquier otra — ej. la fila "Nivel de
-      // cobertura…" de 7.03, con un porcentaje por año. El lector ya las leía; sin esto, el viaje
-      // de vuelta a Excel las perdía.
-      if (grupo.valoresGrupo) {
-        writeFilaColumnas(ediciones, hoja, config, grupo.valoresGrupo, row, periodos, altoDeBloque);
-      }
-      if (ocupaFila) row += altoDeFila(config, hoja, row, altoDeBloque);
-      for (const fila of grupo.filas) {
-        writeFilaColumnas(ediciones, hoja, config, fila, row, periodos, altoDeBloque);
-        row += altoDeFila(config, hoja, row, altoDeBloque);
-      }
-    }
+      grupo.filas.forEach((fila, fi) => {
+        writeFilaColumnas(ediciones, hoja, config, fila, pos.filas[fi], periodos, altoDeBloque);
+      });
+    });
     return;
   }
 
@@ -445,11 +461,44 @@ function writeCampo(
 // celda que cambian — el resto del archivo (estilos, colores, macros) queda intacto.
 // `onProgress` (0 a 1) se reporta a medida que se acumulan los cambios de cada campo, cediendo el
 // hilo principal entre lotes para que la barra de carga se repinte con progreso real.
+// Un valor fuera de lista se escribe igual (Excel no lo rechaza al escribir el XML), pero rompe las
+// fórmulas que dependen de esa celda — en el formato oficial los desplegables de Problema-Objetivo
+// se resuelven con INDIRECT sobre lo que haya en su celda padre.
+function revisarListas(
+  libro: ReturnType<typeof catalogoDeListas>,
+  tareas: { hoja: string | undefined; campo: Campo }[],
+  valores: Record<string, string>,
+): { avisos: AvisoLista[]; correcciones: Record<string, string> } {
+  const avisos: AvisoLista[] = [];
+  // Cuando el valor del JSON coincide con una opción salvo por mayúsculas o tildes, se escribe el
+  // texto EXACTO del Excel: escribir "gobierno local" donde la opción es "Gobierno Local" rompería
+  // igualmente el INDIRECT que cuelga de esa celda, y avisar de una diferencia de tildes sería ruido.
+  const correcciones: Record<string, string> = {};
+
+  for (const { hoja, campo } of tareas) {
+    const captura = campo.captura;
+    if (!hoja || !captura?.columna || !captura.fila) continue;
+    const valor = (valores[campo.identificador] ?? '').trim();
+    if (valor === '') continue;
+    const ref = `${captura.columna}${captura.fila}`;
+    // Solo las listas resueltas: de las dependientes (INDIRECT) no sabemos las opciones, así que no
+    // se puede afirmar que el valor sea inválido.
+    const opciones = libro.opcionesDe(hoja, ref);
+    if (!opciones) continue;
+
+    const exacta = opciones.find((o) => normalizarOpcion(o) === normalizarOpcion(valor));
+    if (!exacta) avisos.push({ campo: campo.identificador, celda: `${hoja}!${ref}`, valor, opciones });
+    else if (exacta !== valores[campo.identificador]) correcciones[campo.identificador] = exacta;
+  }
+  return { avisos, correcciones };
+}
+
 export async function insertarValoresEnExcel(
   dataUrl: string,
   plantilla: Plantilla,
   valores: Record<string, string>,
   onProgress?: (fraction: number) => void,
+  onAvisos?: (avisos: AvisoLista[]) => void,
 ): Promise<string> {
   const ediciones = new LibroEdits();
 
@@ -479,14 +528,29 @@ export async function insertarValoresEnExcel(
   const altoDeBloque = (hoja: string, columna: string | undefined, fila: number): number | undefined =>
     (columna ? libroOrigen.fusion(hoja, `${columna}${fila}`)?.filas : undefined);
 
-  const resolverFormula = crearResolver(tareas.map((t) => t.campo), (id) => valores[id]);
+  // Celdas con lista desplegable: se ajusta el valor al texto exacto de la opción cuando solo
+  // difiere en mayúsculas/tildes, y se avisa (sin bloquear) de los que no están en la lista.
+  // Los valores indexados por celda: los necesitan las listas dependientes (`INDIRECT`) para saber
+  // qué opciones ofrece cada una. Solo campos simples — basta para resolver las del formato oficial.
+  const valoresPorCelda = new Map<string, string>();
+  for (const { hoja, campo } of tareas) {
+    const cap = campo.captura;
+    const valor = valores[campo.identificador];
+    if (hoja && cap?.columna && cap.fila && valor) valoresPorCelda.set(`${hoja}!${cap.columna}${cap.fila}`, valor);
+  }
+
+  const { avisos, correcciones } = revisarListas(catalogoDeListas(libroOrigen, valoresPorCelda), tareas, valores);
+  if (avisos.length > 0) onAvisos?.(avisos);
+  const valoresFinales = Object.keys(correcciones).length > 0 ? { ...valores, ...correcciones } : valores;
+
+  const resolverFormula = crearResolver(tareas.map((t) => t.campo), (id) => valoresFinales[id]);
   const tareasPorId = new Map(tareas.map((t) => [t.campo.identificador, t]));
 
   const total = tareas.length || 1;
   const loteSize = Math.max(1, Math.ceil(total / 30)); // ~30 repintados como máximo durante la acumulación
   for (let i = 0; i < tareas.length; i++) {
     const { hoja, campo } = tareas[i];
-    writeCampo(ediciones, hoja, campo, valores, resolverFormula, tareasPorId, altoDeBloque);
+    writeCampo(ediciones, hoja, campo, valoresFinales, resolverFormula, tareasPorId, altoDeBloque);
     if ((i + 1) % loteSize === 0 || i === tareas.length - 1) {
       onProgress?.(((i + 1) / total) * 0.9); // el 10% restante es el parcheo del ZIP
       await new Promise((resolve) => setTimeout(resolve, 0));

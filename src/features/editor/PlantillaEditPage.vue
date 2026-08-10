@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faChevronLeft, faChevronRight } from '@/lib/icons';
@@ -9,6 +9,7 @@ import SectionIndex from './SectionIndex.vue';
 import SectionContent from './SectionContent.vue';
 import FieldPropertiesPanel from './FieldPropertiesPanel.vue';
 import EditorTopBar from './EditorTopBar.vue';
+import ContextosIAPanel from './ContextosIAPanel.vue';
 import SeccionHojaModal from './SeccionHojaModal.vue';
 import ImportarEstructuraModal from './ImportarEstructuraModal.vue';
 import ExamplesPanel from './ExamplesPanel.vue';
@@ -24,25 +25,30 @@ const sectorId = computed(() => route.params.sectorId as string);
 const plantillaId = computed(() => route.params.plantillaId as string);
 
 const {
+  estadoGuardado,
   editData, activeTab, selectedCampo, isNewCampo, editingHojaSeccionId,
   leftWidth, rightWidth, examplesWidth, highlightMissingCaptura, ejemplosCount, jsonPreview,
   showImportEstructura,
   secciones, safeIdx, seccionActiva, isFirst, isLast, showExamples,
-  ejemplos, activeEjemplo, editedValores, showNuevoEjemplo, deleteTarget, volcarTarget,
+  ejemplos, activeEjemplo, editedValores, showNuevoEjemplo, deleteTarget, volcarTarget, volcarEstructura,
   archivoExcelAsignado, showExcelCatalogModal, showPreview, showInsertConfirm, isInserting, insertProgress,
   previewFileUrl, previewFileName,
   handleLeftResize, handleRightResize, handleExamplesResize, handleTabChange, handleSectionSelect,
-  goToPrevSection, goToNextSection, handleFieldUpdate, handleAddCampo, handleDeleteCampo,
+  goToPrevSection, goToNextSection, handleFieldUpdate, handleAddCampo, handleDuplicarCampo, handleDeleteCampo,
   handleSectionNameChange, handleSectionHojaChange, handleSubsectionNameChange,
-  handleSubseccionAyudaChange, handleAddSubsection, handleDeleteSubsection, handleAddSection,
+  handleSubseccionAyudaChange, handleAddSubsection, handleDeleteSubsection, handleAddSection, handleDuplicarSeccion,
   handleExampleValueChange, handleCreateExample, handleDeleteEjemplo, handleToggleEjemploEstado,
   handleDownloadExcel, handlePreviewExample, handleInsertExcel,
-  handleVolcarExcel, handleConfirmarVolcado,
+  handleVolcarExcel, handleVolcarEstructura, handleConfirmarVolcado, getDefaultValores,
   handleImportEstructura,
   handleSave, handleViewJson,
 } = usePlantillaEditor(plantillaId);
 
 const mostrarTipologiasIoarr = computed(() => editData.value?.instrumento === 'ioarr');
+
+// Contextos IA reemplaza el cuerpo del editor (no es una versión más de la ficha, así que no entra
+// en `activeTab`): la barra superior se queda y debajo se cambia todo el contenido.
+const verContextosIA = ref(false);
 </script>
 
 <template>
@@ -53,14 +59,21 @@ const mostrarTipologiasIoarr = computed(() => editData.value?.instrumento === 'i
       :sector-id="sectorId"
       :plantilla-id="plantillaId"
       :active-tab="activeTab"
-      @change-tab="handleTabChange"
+      :contextos-i-a="verContextosIA"
+      :tiene-excel-asignado="!!archivoExcelAsignado"
+      :estado-guardado="estadoGuardado"
+      @change-tab="(t) => { verContextosIA = false; handleTabChange(t); }"
+      @toggle-contextos-ia="verContextosIA = !verContextosIA"
       @save="handleSave"
       @view-json="handleViewJson"
       @preview-excel="showPreview = true"
       @insert-excel="showInsertConfirm = true"
+      @volcar-estructura="handleVolcarEstructura"
     />
 
-    <div class="flex flex-1 overflow-hidden">
+    <ContextosIAPanel v-if="verContextosIA" :plantilla="editData" :plantilla-id="plantillaId" />
+
+    <div v-else class="flex flex-1 overflow-hidden">
       <template v-if="showExamples">
         <div class="shrink-0 bg-white overflow-hidden border-r border-gray-100" :style="{ width: `${examplesWidth}px` }">
           <ExamplesPanel
@@ -82,12 +95,14 @@ const mostrarTipologiasIoarr = computed(() => editData.value?.instrumento === 'i
         <SectionIndex
           :secciones="secciones"
           :active-seccion-id="seccionActiva?.id ?? null"
-          show-add-button
+          :show-add-button="!showExamples"
           show-edit-hoja
+          :show-duplicate-section="!showExamples"
           :show-import-estructura="!showExamples"
           @select="handleSectionSelect"
           @add-section="handleAddSection"
           @edit-hoja="editingHojaSeccionId = $event"
+          @duplicate-section="handleDuplicarSeccion"
           @import-estructura="showImportEstructura = true"
         />
       </div>
@@ -108,6 +123,7 @@ const mostrarTipologiasIoarr = computed(() => editData.value?.instrumento === 'i
             @select-campo="(c) => { selectedCampo = c; isNewCampo = false; }"
             @add-campo="handleAddCampo"
             @delete-campo="handleDeleteCampo"
+            @duplicate-campo="handleDuplicarCampo"
             @section-name-change="handleSectionNameChange"
             @section-hoja-change="handleSectionHojaChange"
             @subsection-name-change="handleSubsectionNameChange"
@@ -216,12 +232,17 @@ const mostrarTipologiasIoarr = computed(() => editData.value?.instrumento === 'i
       @close="jsonPreview = null"
     />
 
+    <!-- Un solo modal para los dos destinos: en Estructura lee el Excel asignado y llena los valores
+         por defecto; en Ejemplos se elige archivo y llena el ejemplo activo. -->
     <VolcarExcelModal
-      :is-open="!!volcarTarget"
+      :is-open="!!volcarTarget || volcarEstructura"
       :ejemplo="volcarTarget"
       :plantilla="editData"
-      :valores-actuales="editedValores"
-      @close="volcarTarget = null"
+      :destino="volcarEstructura ? 'estructura' : 'ejemplo'"
+      :valores-actuales="volcarEstructura ? getDefaultValores() : editedValores"
+      :excel-estructura="archivoExcelAsignado?.dataUrl"
+      :nombre-excel-estructura="archivoExcelAsignado?.nombre"
+      @close="volcarTarget = null; volcarEstructura = false"
       @confirmar="handleConfirmarVolcado"
     />
   </div>

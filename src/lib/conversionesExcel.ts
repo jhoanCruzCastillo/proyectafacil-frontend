@@ -73,6 +73,37 @@ export function aAnio(valor: string, esSerialDeExcel: boolean): string | null {
   return m ? m[1] : null;
 }
 
+// --- Porcentajes ---
+
+// Excel guarda un porcentaje como la FRACCIÓN (1.10% se almacena como 0.011) y deja el "%" al
+// formato de la celda. Sin traducirlo, el volcado trae 1.0999999999999999E-2 y la pantalla muestra
+// ese número en vez del 1.10% que se ve en la hoja.
+const RE_PORCENTAJE = /^([+-]?[\d.,\s]+)\s*%$/;
+
+/** Fracción de Excel -> el texto que muestra la celda. 0.011 con 2 decimales -> "1.10%". */
+export function aPorcentaje(valor: string | number, decimales?: number): string | null {
+  const n = typeof valor === 'number' ? valor : Number(String(valor).trim());
+  if (!Number.isFinite(n)) return null;
+  // Multiplicar por 100 en coma flotante reintroduce ruido (0.011*100 = 1.0999999999999999), así que
+  // se redondea a los decimales del formato; sin formato declarado, `0%` de Excel = sin decimales.
+  return `${(n * 100).toFixed(decimales ?? 0)}%`;
+}
+
+/**
+ * "1.10%" -> 0.011, o null si el texto no es un porcentaje escrito.
+ *
+ * Es la misma regla que aplica Excel cuando alguien teclea "50%" en una celda: guarda 0.5. Por eso
+ * se puede aplicar a cualquier celda destino, tenga o no formato de porcentaje.
+ */
+export function dePorcentaje(texto: string): number | null {
+  const m = RE_PORCENTAJE.exec(texto.trim());
+  if (!m) return null;
+  const n = Number(m[1].replace(/\s/g, '').replace(',', '.'));
+  if (!Number.isFinite(n)) return null;
+  // Se recorta la precisión al dividir para no devolver 0.010999999999999999 por "1.10%".
+  return Number((n / 100).toPrecision(12));
+}
+
 // --- Booleanos ---
 
 // Reserva de último recurso, para plantillas que no declaran `etiquetas` en el campo. Las palabras
@@ -109,6 +140,25 @@ export function textoABooleano(texto: string, etiquetas?: EtiquetasBooleano): st
  * Sin `etiquetas` declaradas, se escribe un booleano nativo de Excel (el writer lo resuelve).
  */
 export function booleanoATexto(valor: string, etiquetas?: EtiquetasBooleano): string | boolean {
-  const esVerdadero = valor === 'true';
+  const v = valor.trim();
+  // Desde que el volcado conserva el texto del Excel, lo normal es que el valor YA venga con las
+  // palabras de la plantilla ("Sí"). Solo se traduce la forma canónica, que es lo que guardaron los
+  // ejemplos anteriores. Sin esta guarda, un "Sí" acabaría escrito como "No" en el Excel.
+  if (v !== 'true' && v !== 'false') return v;
+  const esVerdadero = v === 'true';
   return etiquetas ? (esVerdadero ? etiquetas.true : etiquetas.false) : esVerdadero;
+}
+
+/**
+ * Texto que debe VERSE para un valor guardado, dadas las opciones que ofrece el Excel para esa
+ * celda. Existe solo por los ejemplos que ya se guardaron con la forma canónica 'true'/'false':
+ * se muestran con la palabra equivalente del Excel en vez de con el literal. Un valor que ya venga
+ * con las palabras del Excel se devuelve intacto.
+ */
+export function etiquetaDeValor(valor: string, opciones?: string[] | null, etiquetas?: EtiquetasBooleano): string {
+  if (valor !== 'true' && valor !== 'false') return valor;
+  const equivalente = opciones?.find((o) => textoABooleano(o, etiquetas) === valor);
+  if (equivalente) return equivalente;
+  if (etiquetas) return valor === 'true' ? etiquetas.true : etiquetas.false;
+  return valor;
 }

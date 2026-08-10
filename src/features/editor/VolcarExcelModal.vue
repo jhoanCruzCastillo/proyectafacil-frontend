@@ -17,7 +17,21 @@ const props = defineProps<{
   /** Valores vigentes del ejemplo en el editor (incluye ediciones sin guardar) — base del conteo
    * de sobrescritura y de la fusión celda a celda en tablas */
   valoresActuales?: Record<string, string>;
+  /** Excel asignado a la ficha: manda sobre qué celdas son de teclear, aunque el archivo que se
+   * vuelca las traiga resueltas con una fórmula (ver celdaVolcable en excelReader) */
+  excelEstructura?: string;
+  /** Nombre del Excel asignado — para enseñarlo en el modo estructura */
+  nombreExcelEstructura?: string;
+  /**
+   * A dónde van los valores leídos:
+   *  - 'ejemplo' (por defecto): se elige un archivo y se vuelca al ejemplo activo.
+   *  - 'estructura': se lee el Excel ASIGNADO y se vuelca a los valores por defecto de la plantilla.
+   *    No hay archivo que elegir, así que el paso 1 solo pregunta qué leer.
+   */
+  destino?: 'ejemplo' | 'estructura';
 }>();
+
+const aEstructura = computed(() => props.destino === 'estructura');
 
 const emit = defineEmits<{ close: []; confirmar: [valores: Record<string, string>] }>();
 
@@ -91,24 +105,34 @@ function leerComoDataUrl(file: File): Promise<string> {
 }
 
 async function analizar(file: File) {
-  if (!props.plantilla || nadaQueLeer.value) return;
   if (!/\.(xlsx|xlsm)$/i.test(file.name)) {
     error.value = 'El archivo debe ser un Excel (.xlsx o .xlsm).';
     return;
   }
+  await analizarFuente(await leerComoDataUrl(file), file.name);
+}
+
+/** Lee el Excel que la ficha tiene asignado — el modo estructura no elige archivo. */
+async function analizarAsignado() {
+  if (!props.excelEstructura) return;
+  await analizarFuente(props.excelEstructura, props.nombreExcelEstructura ?? 'Excel asignado');
+}
+
+async function analizarFuente(dataUrl: string, nombre: string) {
+  if (!props.plantilla || nadaQueLeer.value) return;
 
   error.value = '';
   resultado.value = null;
-  nombreArchivo.value = file.name;
+  nombreArchivo.value = nombre;
   analizando.value = true;
   try {
-    const dataUrl = await leerComoDataUrl(file);
     resultado.value = await leerValoresDeExcel(dataUrl, props.plantilla, {
       camposSimples: incluirCamposSimples.value,
       tablas: incluirTablas.value,
       imagenes: incluirImagenes.value,
       seccionesIds: seccionesElegidas.value,
       valoresActuales: props.valoresActuales ?? props.ejemplo?.valores ?? {},
+      excelEstructura: props.excelEstructura,
       // El binario incrustado se sube a Cloudinary y en el JSON queda su URL, nunca la imagen.
       // Si el backend no puede con el formato (EMF sin conversor) devuelve null y el volcado la
       // reporta como omitida en vez de abortar el resto.
@@ -164,7 +188,11 @@ function confirmar() {
               </div>
               <div>
                 <h2 class="text-lg font-bold text-heading">Volcar datos desde Excel</h2>
-                <p class="text-sm text-muted">
+                <p v-if="aEstructura" class="text-sm text-muted">
+                  Lee el Excel asignado a la ficha y copia sus valores a los
+                  <strong class="text-heading">valores por defecto</strong> de la estructura
+                </p>
+                <p v-else class="text-sm text-muted">
                   Lee un Excel ya llenado y copia sus valores al ejemplo
                   <strong v-if="ejemplo" class="text-heading">{{ ejemplo.nombre }}</strong>
                 </p>
@@ -251,7 +279,35 @@ function confirmar() {
                 </div>
               </div>
 
-              <div>
+              <!-- Modo estructura: el origen ya está decidido (el Excel asignado), así que en vez de
+                   pedir un archivo se confirma la lectura. -->
+              <div v-if="aEstructura">
+                <button
+                  @click="analizarAsignado"
+                  :disabled="analizando || nadaQueLeer || !excelEstructura"
+                  type="button"
+                  class="w-full py-4 rounded-xl bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-75 flex items-center justify-center gap-2"
+                >
+                  <FontAwesomeIcon :icon="analizando ? faSpinner : faFileExcel" class="w-4 h-4" :class="analizando ? 'animate-spin' : ''" />
+                  <template v-if="analizando">Leyendo {{ nombreArchivo }}…</template>
+                  <template v-else-if="nadaQueLeer">Elige al menos un tipo de dato y una sección</template>
+                  <template v-else>Leer el Excel asignado</template>
+                </button>
+                <p v-if="excelEstructura" class="mt-2 text-xs text-muted text-center flex items-center justify-center gap-1.5">
+                  <FontAwesomeIcon :icon="faFileExcel" class="w-3 h-3 text-emerald-600" />
+                  {{ nombreExcelEstructura }}
+                </p>
+                <p class="mt-3 text-xs text-muted">
+                  Las celdas que el Excel calcula con una fórmula no se copian: su valor lo produce la
+                  hoja y se sigue viendo en tiempo real en el editor.
+                </p>
+                <div v-if="error" class="mt-3 flex items-start gap-2 text-sm text-red-600">
+                  <FontAwesomeIcon :icon="faTriangleExclamation" class="w-4 h-4 mt-0.5 shrink-0" />
+                  <span>{{ error }}</span>
+                </div>
+              </div>
+
+              <div v-else>
                 <input ref="fileInput" type="file" accept=".xlsx,.xlsm" class="hidden" @change="handleFileInput" />
                 <button
                   @click="fileInput?.click()"
@@ -318,6 +374,12 @@ function confirmar() {
                   <div v-if="resultado.tablasOmitidas > 0" class="px-4 py-2.5 flex items-center justify-between">
                     <span class="text-muted">Tablas de otros subtipos <span class="text-gray-400">(fuera de alcance)</span></span>
                     <span class="font-medium text-gray-500">{{ resultado.tablasOmitidas }}</span>
+                  </div>
+                  <!-- Fórmula sin resultado guardado en el archivo: no hay valor que copiar. Se
+                       muestra para que la ausencia del dato no pase desapercibida. -->
+                  <div v-if="resultado.celdasSinCalcular > 0" class="px-4 py-2.5 flex items-center justify-between">
+                    <span class="text-muted">Celdas con fórmula sin calcular <span class="text-gray-400">(sin valor que traer)</span></span>
+                    <span class="font-medium text-amber-600">{{ resultado.celdasSinCalcular }}</span>
                   </div>
                 </div>
               </div>

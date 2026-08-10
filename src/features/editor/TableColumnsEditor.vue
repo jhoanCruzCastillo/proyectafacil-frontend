@@ -7,6 +7,7 @@ import FilasDinamicasColumnsEditor from './FilasDinamicasColumnsEditor.vue';
 import MatrizPeriodosEditor from './MatrizPeriodosEditor.vue';
 import JerarquicaColumnsEditor from './JerarquicaColumnsEditor.vue';
 import AgrupadorConfigModal from './AgrupadorConfigModal.vue';
+import CampoConAyuda from '@/components/CampoConAyuda.vue';
 import { esJerarquica, agrupadorProfundidad } from '@/lib/tableRowHelpers';
 import type { ConfigTabla, SubtipoTabla } from '@/types';
 
@@ -34,7 +35,18 @@ function updateCaptura(patch: Partial<NonNullable<ConfigTabla['captura']>>) {
 const columnaInicioGrupo = computed(() =>
   esJerarquica(props.config.subtipo) ? agrupadorProfundidad(props.config.columnas, props.config) : 0,
 );
-const cabecerasDisponibles = computed(() => Math.max(props.config.columnas.length - columnaInicioGrupo.value, 1));
+// El modal elige por cabecera pero guarda columnas de Excel, así que necesita el ancho real de cada
+// una (la dinámica se expande por período, igual que en repartoAgrupador).
+const cabecerasAgrupador = computed(() =>
+  props.config.columnas.slice(columnaInicioGrupo.value).map((c) => ({
+    nombre: c.nombre,
+    ancho: c.id === props.config.columnaDinamicaId && (props.config.periodos?.length ?? 0) > 0
+      ? (props.config.periodos!.length) * (c.abarcaColumnasExcel ?? 1)
+      : c.abarcaColumnasExcel ?? 1,
+    columna: c.columnaExcel,
+  })),
+);
+const anchoTotalAgrupador = computed(() => cabecerasAgrupador.value.reduce((s, c) => s + c.ancho, 0));
 </script>
 
 <template>
@@ -51,8 +63,10 @@ const cabecerasDisponibles = computed(() => Math.max(props.config.columnas.lengt
     </div>
 
     <div class="grid grid-cols-3 gap-3">
-      <div>
-        <label class="block text-xs font-medium text-heading mb-1">Columna inicial</label>
+      <CampoConAyuda
+        etiqueta="Columna inicial"
+        ayuda="Letra de la columna del Excel donde arranca la tabla. Es solo una referencia: cada columna puede indicar la suya propia con el engranaje."
+      >
         <input
           :value="config.captura?.columnaInicial ?? ''"
           @input="updateCaptura({ columnaInicial: ($event.target as HTMLInputElement).value })"
@@ -60,9 +74,11 @@ const cabecerasDisponibles = computed(() => Math.max(props.config.columnas.lengt
           placeholder="Ej. B"
           class="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500/30"
         />
-      </div>
-      <div>
-        <label class="block text-xs font-medium text-heading mb-1">Fila inicial (Excel)</label>
+      </CampoConAyuda>
+      <CampoConAyuda
+        etiqueta="Fila inicial (Excel)"
+        ayuda="Número de la fila del Excel donde está el PRIMER dato de la tabla, no la fila de los títulos. Si te equivocas, los datos se leen y se escriben corridos."
+      >
         <input
           :value="config.captura?.filaInicial ?? ''"
           @input="updateCaptura({ filaInicial: ($event.target as HTMLInputElement).value ? Number(($event.target as HTMLInputElement).value) : undefined })"
@@ -72,9 +88,11 @@ const cabecerasDisponibles = computed(() => Math.max(props.config.columnas.lengt
           class="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30"
           :class="config.captura?.filaInicial ? 'border-gray-200' : 'border-amber-300'"
         />
-      </div>
-      <div>
-        <label class="block text-xs font-medium text-heading mb-1">Filas base</label>
+      </CampoConAyuda>
+      <CampoConAyuda
+        etiqueta="Filas base"
+        ayuda="Cuántas filas del Excel ocupa la tabla tal como viene en la plantilla. Si va de la fila 94 a la 104, son 11. Es lo que se lee al volcar datos."
+      >
         <input
           :value="config.captura?.filasBase ?? ''"
           @input="updateCaptura({ filasBase: ($event.target as HTMLInputElement).value ? Number(($event.target as HTMLInputElement).value) : undefined })"
@@ -83,7 +101,7 @@ const cabecerasDisponibles = computed(() => Math.max(props.config.columnas.lengt
           min="0"
           class="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30"
         />
-      </div>
+      </CampoConAyuda>
     </div>
 
     <div class="flex items-center justify-between">
@@ -109,30 +127,6 @@ const cabecerasDisponibles = computed(() => Math.max(props.config.columnas.lengt
       </div>
     </div>
 
-    <div v-if="config.subtipo === 'filas_dinamicas'" class="grid grid-cols-2 gap-3">
-      <div>
-        <label class="block text-xs font-medium text-heading mb-1">Filas iniciales</label>
-        <input
-          :value="config.filasIniciales ?? 3"
-          @input="emit('update', { ...config, filasIniciales: Number(($event.target as HTMLInputElement).value) })"
-          type="number"
-          min="1"
-          class="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30"
-        />
-      </div>
-      <div>
-        <label class="block text-xs font-medium text-heading mb-1">Máx. filas</label>
-        <input
-          :value="config.maxFilas ?? ''"
-          @input="emit('update', { ...config, maxFilas: ($event.target as HTMLInputElement).value ? Number(($event.target as HTMLInputElement).value) : undefined })"
-          type="number"
-          placeholder="Sin límite"
-          min="1"
-          class="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30"
-        />
-      </div>
-    </div>
-
     <MatrizPeriodosEditor v-if="config.subtipo === 'matriz_por_periodos'" v-model:config="config" />
     <JerarquicaColumnsEditor v-else-if="esJerarquica(config.subtipo)" v-model:config="config" />
     <FilasDinamicasColumnsEditor v-else v-model:config="config" />
@@ -144,8 +138,8 @@ const cabecerasDisponibles = computed(() => Math.max(props.config.columnas.lengt
 
     <AgrupadorConfigModal
       :is-open="showAgrupadorConfig"
-      :abarca-columnas="Math.min(config.agrupadorAbarcaColumnas ?? cabecerasDisponibles, cabecerasDisponibles)"
-      :total-columnas="cabecerasDisponibles"
+      :abarca-columnas="Math.min(config.agrupadorAbarcaColumnas ?? anchoTotalAgrupador, anchoTotalAgrupador)"
+      :cabeceras="cabecerasAgrupador"
       :desde-columna="esJerarquica(config.subtipo) ? config.columnas[columnaInicioGrupo]?.nombre : undefined"
       @close="showAgrupadorConfig = false"
       @change="(v) => emit('update', { ...config, agrupadorAbarcaColumnas: v })"

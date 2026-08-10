@@ -28,8 +28,11 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'select-campo': [campo: Campo];
-  'add-campo': [subseccionId: string, subseccionCodigo: string];
+  /** `despuesDeCampoId` inserta el campo justo detrás de ese; sin él, al final de la subsección */
+  'add-campo': [subseccionId: string, subseccionCodigo: string, despuesDeCampoId?: string];
   'delete-campo': [campoId: string, subseccionId: string];
+  /** Copia el campo justo debajo, con el siguiente identificador libre de su subsección */
+  'duplicate-campo': [campoId: string, subseccionId: string];
   'section-name-change': [seccionId: string, nombre: string];
   'section-hoja-change': [seccionId: string, hoja: string];
   'subsection-name-change': [subseccionId: string, nombre: string];
@@ -104,10 +107,10 @@ const subseccionAyuda = computed(() => props.seccion.subsecciones.find((s) => s.
         </button>
       </div>
       <div class="space-y-3">
+        <template v-for="campo in sub.campos" :key="campo.id">
         <FieldCard
-          v-for="campo in sub.campos"
-          :key="campo.id"
           :campo="campo"
+          :hoja="seccion.hoja"
           :show-example-value="showExampleValues"
           :example-value="exampleValores?.[campo.identificador]"
           :is-selected="selectedCampoId === campo.id"
@@ -115,19 +118,32 @@ const subseccionAyuda = computed(() => props.seccion.subsecciones.find((s) => s.
           :deletable="editable"
           :editable-default="editable && !showExampleValues"
           :editable-example="showExampleValues && (editable || valuesEditable)"
-          :show-menu-button="editable"
+          :duplicable="editable && !showExampleValues"
           :highlight-warning="highlightMissingCaptura"
           :error="erroresValidacion?.[campo.identificador]"
           :referencia-valor="referenciaValores?.[campo.identificador]"
           :permite-mejora-i-a="permiteMejoraIA"
           @click="emit('select-campo', campo)"
           @delete="emit('delete-campo', campo.id, sub.id)"
+          @duplicate="emit('duplicate-campo', campo.id, sub.id)"
           @update-default-value="emit('update-default-value', campo.id, $event)"
           @update-example-value="emit('update-example-value', campo.identificador, $event)"
           @update-config-tabla="emit('update-config-tabla', campo.id, $event)"
         />
+        <!-- Mismo botón que el del final de la subsección, pero pegado al campo seleccionado: el
+             campo nuevo entra justo detrás de él, no al final. -->
         <button
-          v-if="editable"
+          v-if="editable && selectedCampoId === campo.id"
+          @click="emit('add-campo', sub.id, sub.codigo, campo.id)"
+          type="button"
+          class="w-full py-2.5 rounded-lg border-2 border-dashed border-brand-200 text-sm font-medium text-brand-600 hover:border-brand-400 hover:bg-brand-50/50 transition-colors flex items-center justify-center gap-2"
+        >
+          <FontAwesomeIcon :icon="faPlus" class="w-3 h-3" />
+          Agregar campo aquí
+        </button>
+        </template>
+        <button
+          v-if="editable && !showExampleValues"
           @click="emit('add-campo', sub.id, sub.codigo)"
           type="button"
           class="w-full py-2.5 rounded-lg border-2 border-dashed border-gray-200 text-sm font-medium text-gray-400 hover:border-brand-300 hover:text-brand-600 transition-colors flex items-center justify-center gap-2"
@@ -138,7 +154,7 @@ const subseccionAyuda = computed(() => props.seccion.subsecciones.find((s) => s.
       </div>
     </div>
     <button
-      v-if="editable"
+      v-if="editable && !showExampleValues"
       @click="emit('add-subsection', seccion.id)"
       type="button"
       class="w-full py-2 rounded-lg border border-dashed border-gray-200 text-xs font-medium text-gray-400 hover:border-brand-300 hover:text-brand-600 transition-colors flex items-center justify-center gap-1.5"

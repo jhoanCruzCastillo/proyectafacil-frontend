@@ -43,7 +43,9 @@ function mapTipoColumnaReverse(tipo: unknown): TipoColumna {
 function valorToString(tipo: TipoCampo, valor: unknown): string {
   if (valor == null || valor === '') return '';
   if (tipo === 'mapa_coordenadas') return typeof valor === 'object' ? JSON.stringify(valor) : String(valor);
-  if (tipo === 'booleano') return String(Boolean(valor));
+  // Un booleano solo se normaliza si el JSON trae un booleano de verdad; un texto ("Sí") se
+  // conserva, que es como se guardan ahora estos valores.
+  if (tipo === 'booleano' && typeof valor === 'boolean') return String(valor);
   return String(valor);
 }
 
@@ -260,7 +262,6 @@ function campoFromDoc(rawCampo: unknown): Campo {
       columnaDinamicaId,
       periodos,
       cabeceras: cabecerasFromDoc(raw.cabecera, columnaDinamicaId),
-      filasIniciales: 3,
       captura: {
         columnaInicial: typeof rawCaptura.columna_inicial === 'string' && rawCaptura.columna_inicial ? rawCaptura.columna_inicial : undefined,
         filaInicial: typeof rawCaptura.fila_inicial === 'number' ? rawCaptura.fila_inicial : undefined,

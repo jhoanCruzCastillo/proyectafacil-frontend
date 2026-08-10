@@ -1,12 +1,15 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, inject, ref } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { fieldTypeIcons, fieldTypeLabels, subtipoTablaLabels, columnTypeLabels, faTriangleExclamation, faEllipsisVertical, faTrash, faLightbulb, faWandMagicSparkles, faSpinner } from '@/lib/icons';
+import { fieldTypeIcons, fieldTypeLabels, subtipoTablaLabels, columnTypeLabels, faTriangleExclamation, faClone, faTrash, faLightbulb, faWandMagicSparkles, faSpinner } from '@/lib/icons';
 import { campoFaltaCaptura } from '@/lib/campoValidation';
 import { mejorarTexto } from '@/lib/mejoraTexto';
 import ExampleTableEditor from './ExampleTableEditor.vue';
 import CampoCoordenadasInput from '@/components/CampoCoordenadasInput.vue';
 import CampoImagenInput from '@/components/CampoImagenInput.vue';
+import CampoListaInput from '@/components/CampoListaInput.vue';
+import { EXCEL_VIVO } from '@/composables/useListasExcel';
+import { etiquetaDeValor } from '@/lib/conversionesExcel';
 import type { Campo, ConfigTabla } from '@/types';
 
 const props = defineProps<{
@@ -20,7 +23,8 @@ const props = defineProps<{
   editableExample?: boolean;
   clickable?: boolean;
   deletable?: boolean;
-  showMenuButton?: boolean;
+  /** true = muestra el botón de duplicar (solo tab Estructura, donde se edita el molde) */
+  duplicable?: boolean;
   highlightWarning?: boolean;
   /** Mensaje de validación del valor de ejemplo/cliente (solo modo cliente) */
   error?: string;
@@ -28,11 +32,15 @@ const props = defineProps<{
   referenciaValor?: string;
   /** true = el plan del cliente incluye la ayuda de IA para mejorar títulos/textos (Nivel 1+); undefined = no mostrar el botón (modo admin) */
   permiteMejoraIA?: boolean;
+  /** Hoja de Excel de la sección a la que pertenece el campo — hace falta para localizar su celda
+   * y saber si tiene lista desplegable */
+  hoja?: string;
 }>();
 
 const emit = defineEmits<{
   click: [];
   delete: [];
+  duplicate: [];
   'update-default-value': [value: string];
   'update-example-value': [value: string];
   'update-config-tabla': [config: ConfigTabla];
@@ -46,6 +54,34 @@ const isCoordField = computed(() => props.campo.tipo === 'mapa_coordenadas');
 // Campo tipo imagen: el valor es una URL, pero se edita con vista previa y carga de archivo.
 const isImagenField = computed(() => props.campo.tipo === 'imagen');
 const faltaCaptura = computed(() => campoFaltaCaptura(props.campo));
+
+// Ayudas leídas del Excel asignado (no de la estructura JSON): las opciones del desplegable de esta
+// celda, y —si la celda es una fórmula— el valor que el Excel calcularía ahí con los datos actuales.
+// Si no hay Excel o la celda no aplica, quedan en undefined y el campo se comporta como siempre.
+const excel = inject(EXCEL_VIVO, undefined);
+const celdaExcel = computed(() => {
+  const captura = props.campo.captura;
+  if (!excel?.value || !props.hoja || !captura?.columna || !captura.fila) return null;
+  return { hoja: props.hoja, ref: `${captura.columna}${captura.fila}` };
+});
+
+const opcionesExcel = computed(() =>
+  celdaExcel.value ? excel?.value?.opcionesDe(celdaExcel.value.hoja, celdaExcel.value.ref) : undefined,
+);
+const tieneLista = computed(() => (opcionesExcel.value?.length ?? 0) > 0);
+
+// El valor guardado ya es la palabra del Excel; la traducción solo entra para lo que se guardó
+// antes con la forma canónica 'true'/'false' (ver etiquetaDeValor).
+function mostrado(valor: string | undefined): string {
+  return etiquetaDeValor(valor || '', opcionesExcel.value, props.campo.etiquetasBooleano);
+}
+
+// Celda con fórmula: el Excel manda. No se escribe nunca (el escritor ya respeta las fórmulas del
+// archivo), así que se muestra en solo lectura en vez de un input que no llevaría a nada.
+const calculoExcel = computed(() =>
+  celdaExcel.value ? excel?.value?.calculado(celdaExcel.value.hoja, celdaExcel.value.ref) : undefined,
+);
+const esCalculadaPorExcel = computed(() => calculoExcel.value !== undefined);
 const esCampoTexto = computed(() => props.campo.tipo === 'texto_corto' || props.campo.tipo === 'texto_largo');
 const esTextoLargo = computed(() => props.campo.tipo === 'texto_largo');
 
@@ -145,7 +181,24 @@ function handleClick() {
           </div>
         </div>
 
-        <div v-if="editableDefault" class="mt-2 p-2.5 rounded-lg bg-gray-50 border border-gray-200" @click.stop>
+        <!-- Celda que el Excel calcula solo: no se edita, se muestra el resultado en vivo. Aplica
+             igual en Estructura y en Ejemplos — en Ejemplos reemplaza al input de "Valor de
+             ejemplo", porque teclear ahí no tendría efecto: al insertar en el Excel las fórmulas se
+             respetan y se recalculan solas. -->
+        <div v-if="(editableDefault || showExampleValue) && esCalculadaPorExcel" class="mt-2 p-2.5 rounded-lg bg-sky-50/60 border border-sky-200" @click.stop>
+          <span class="text-[10px] font-bold uppercase tracking-wider text-sky-700 flex items-center gap-1">
+            <FontAwesomeIcon :icon="fieldTypeIcons.calculado" class="w-2.5 h-2.5" />
+            Lo calcula el Excel
+          </span>
+          <p v-if="calculoExcel && !calculoExcel.soportado" class="text-xs text-sky-800/70 italic mt-1">
+            La fórmula de esta celda usa algo que todavía no sabemos calcular — su valor aparecerá al abrir el Excel.
+          </p>
+          <p v-else-if="calculoExcel?.error" class="text-xs text-amber-700 mt-1 font-mono">{{ calculoExcel.error }}</p>
+          <p v-else-if="calculoExcel?.texto" class="text-sm text-heading mt-1 break-words whitespace-pre-wrap">{{ calculoExcel.texto }}</p>
+          <p v-else class="text-xs text-muted italic mt-1">Vacío — depende de otros campos que aún no tienen valor.</p>
+        </div>
+
+        <div v-else-if="editableDefault" class="mt-2 p-2.5 rounded-lg bg-gray-50 border border-gray-200" @click.stop>
           <span class="text-[10px] font-bold uppercase tracking-wider text-gray-500">Valor por defecto</span>
           <div v-if="isCoordField" class="mt-1.5">
             <CampoCoordenadasInput :value="campo.valorEjemplo || ''" @change="emit('update-default-value', $event)" />
@@ -158,8 +211,15 @@ function handleClick() {
             :config="(campo.configTabla as ConfigTabla)"
             :model-value="campo.valorEjemplo || ''"
             :puede-editar-periodos="true"
+            :hoja="hoja"
             @update:model-value="emit('update-default-value', $event)"
             @update:config="emit('update-config-tabla', $event)"
+          />
+          <CampoListaInput
+            v-else-if="tieneLista"
+            :value="mostrado(campo.valorEjemplo)"
+            :opciones="opcionesExcel ?? []"
+            @change="emit('update-default-value', $event)"
           />
           <textarea
             v-else-if="esTextoLargo"
@@ -179,7 +239,7 @@ function handleClick() {
           />
         </div>
 
-        <div v-if="showExampleValue" class="mt-2 p-2.5 rounded-lg bg-brand-100/70 border border-brand-200" @click.stop>
+        <div v-if="showExampleValue && !esCalculadaPorExcel" class="mt-2 p-2.5 rounded-lg bg-brand-100/70 border border-brand-200" @click.stop>
           <div class="flex items-center justify-between">
             <span class="text-[10px] font-bold uppercase tracking-wider text-brand-600">Valor de ejemplo</span>
             <button
@@ -208,11 +268,19 @@ function handleClick() {
             v-else-if="isTableField && campo.configTabla"
             :config="(campo.configTabla as ConfigTabla)"
             :model-value="displayValue || ''"
+            :hoja="hoja"
             @update:model-value="emit('update-example-value', $event)"
           />
           <template v-else>
+            <CampoListaInput
+              v-if="tieneLista"
+              :value="mostrado(displayValue)"
+              :opciones="opcionesExcel ?? []"
+              :editable="editableExample"
+              @change="emit('update-example-value', $event)"
+            />
             <textarea
-              v-if="esTextoLargo"
+              v-else-if="esTextoLargo"
               :value="displayValue || ''"
               @input="emit('update-example-value', ($event.target as HTMLTextAreaElement).value)"
               rows="1"
@@ -269,9 +337,15 @@ function handleClick() {
           </div>
         </div>
       </div>
-      <div v-if="showMenuButton || deletable" class="flex flex-col gap-1 shrink-0">
-        <button v-if="showMenuButton" type="button" class="text-gray-300 hover:text-gray-500 transition-colors p-1">
-          <FontAwesomeIcon :icon="faEllipsisVertical" class="w-3.5 h-3.5" />
+      <div v-if="duplicable || deletable" class="flex flex-col gap-1 shrink-0">
+        <button
+          v-if="duplicable"
+          @click.stop="emit('duplicate')"
+          type="button"
+          class="text-gray-300 hover:text-brand-600 transition-colors p-1"
+          title="Duplicar campo"
+        >
+          <FontAwesomeIcon :icon="faClone" class="w-3 h-3" />
         </button>
         <button
           v-if="deletable"

@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faEye, faSave, faArrowLeft, faFileCode, faFileExport } from '@/lib/icons';
+import { faEye, faSave, faArrowLeft, faFileCode, faFileExport, faFileImport, faSpinner, faWandMagicSparkles } from '@/lib/icons';
 import VersionTabs from '@/components/VersionTabs.vue';
 import { useSessionStore } from '@/stores/session';
+import { puedeAccederGestionUsuarios } from '@/lib/permisos';
+import type { EstadoAutoguardado } from '@/composables/useAutoguardado';
 import type { VersionTab, Plantilla } from '@/types';
 
 const props = defineProps<{
@@ -11,13 +13,42 @@ const props = defineProps<{
   sectorId: string;
   plantillaId: string;
   activeTab: VersionTab;
+  /** true = se está viendo el panel de Contextos IA en vez del editor */
+  contextosIA?: boolean;
+  /** Sin Excel asignado no hay nada que volcar a la estructura */
+  tieneExcelAsignado?: boolean;
+  /** Estado del autoguardado — se enseña en pequeño, no como toast: a esta frecuencia molestaría */
+  estadoGuardado?: EstadoAutoguardado;
 }>();
 
-const emit = defineEmits<{ 'change-tab': [VersionTab]; save: []; 'view-json': []; 'preview-excel': []; 'insert-excel': [] }>();
+const emit = defineEmits<{
+  'change-tab': [VersionTab];
+  save: [];
+  'view-json': [];
+  'preview-excel': [];
+  'insert-excel': [];
+  'volcar-estructura': [];
+  'toggle-contextos-ia': [];
+}>();
 
 const session = useSessionStore();
 const esSuperusuario = computed(() => session.sesion?.rol === 'superusuario');
+// El contexto que consume la IA lo redacta quien administra el catálogo, no cualquiera que edite
+// una ficha — mismo criterio que la gestión de usuarios (superusuario + administrador).
+const puedeEditarContextos = computed(() => !!session.sesion && puedeAccederGestionUsuarios(session.sesion.rol));
 const showInsert = computed(() => props.activeTab === 'ejemplos');
+
+// 'inactivo' no se enseña: al abrir la ficha no hay nada que contar todavía.
+const textoGuardado = computed(() => {
+  switch (props.estadoGuardado) {
+    case 'pendiente': return 'Cambios sin guardar';
+    case 'guardando': return 'Guardando…';
+    case 'guardado': return 'Guardado';
+    case 'error': return 'No se pudo guardar';
+    default: return '';
+  }
+});
+const colorGuardado = computed(() => (props.estadoGuardado === 'error' ? 'text-red-300' : 'text-white/45'));
 </script>
 
 <template>
@@ -39,7 +70,21 @@ const showInsert = computed(() => props.activeTab === 'ejemplos');
         <span class="text-xs text-white/50">{{ plantilla.cantidadSecciones }} secciones</span>
       </div>
       <div class="flex items-center gap-3">
+        <span v-if="textoGuardado" class="text-xs shrink-0 flex items-center gap-1.5" :class="colorGuardado">
+          <FontAwesomeIcon v-if="estadoGuardado === 'guardando'" :icon="faSpinner" class="w-3 h-3 animate-spin" />
+          {{ textoGuardado }}
+        </span>
         <VersionTabs :active-tab="activeTab" disable-proyecto dark @change="emit('change-tab', $event)" />
+        <button
+          v-if="puedeEditarContextos"
+          @click="emit('toggle-contextos-ia')"
+          type="button"
+          class="px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 border transition-colors bg-gradient-to-r from-violet-500/30 to-fuchsia-500/25 hover:from-violet-500/40 hover:to-fuchsia-500/35"
+          :class="contextosIA ? 'border-violet-300/60 text-white shadow-[0_0_0_1px_rgba(167,139,250,0.35)]' : 'border-violet-400/30 text-violet-100'"
+        >
+          <FontAwesomeIcon :icon="faWandMagicSparkles" class="w-3.5 h-3.5" />
+          Contextos IA
+        </button>
         <button
           v-if="esSuperusuario"
           @click="emit('view-json')"
@@ -48,6 +93,19 @@ const showInsert = computed(() => props.activeTab === 'ejemplos');
         >
           <FontAwesomeIcon :icon="faFileCode" class="w-3.5 h-3.5" />
           Ver JSON
+        </button>
+        <!-- Volcar existía solo en Ejemplos (desde la tarjeta del ejemplo). En Estructura el origen
+             no se elige: siempre es el Excel asignado, así que vive aquí arriba. -->
+        <button
+          v-if="!showInsert"
+          @click="emit('volcar-estructura')"
+          :disabled="!tieneExcelAsignado"
+          type="button"
+          :title="tieneExcelAsignado ? 'Volcar los datos del Excel asignado a los valores por defecto' : 'Asigna un Excel a la ficha para poder volcar sus datos'"
+          class="px-4 py-2 rounded-lg border border-white/15 text-sm font-medium text-white/80 hover:bg-white/10 hover:text-white transition-colors flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+        >
+          <FontAwesomeIcon :icon="faFileImport" class="w-3.5 h-3.5" />
+          Volcar
         </button>
         <button
           v-if="showInsert"

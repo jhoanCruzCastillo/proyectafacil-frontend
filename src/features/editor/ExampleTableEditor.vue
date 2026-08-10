@@ -14,6 +14,8 @@ defineProps<{
   modelValue: string;
   /** true = permite agregar/renombrar columnas dinámicas (solo tab Estructura) */
   puedeEditarPeriodos?: boolean;
+  /** Hoja de Excel de la sección — habilita desplegables y cálculo en vivo dentro de las celdas */
+  hoja?: string;
 }>();
 
 defineEmits<{ 'update:modelValue': [string]; 'update:config': [ConfigTabla] }>();
@@ -25,6 +27,7 @@ defineEmits<{ 'update:modelValue': [string]; 'update:config': [ConfigTabla] }>()
     :config="config"
     :model-value="modelValue"
     :puede-editar-periodos="puedeEditarPeriodos"
+    :hoja="hoja"
     @update:model-value="$emit('update:modelValue', $event)"
     @update:config="$emit('update:config', $event)"
   />
@@ -33,6 +36,7 @@ defineEmits<{ 'update:modelValue': [string]; 'update:config': [ConfigTabla] }>()
     :config="config"
     :model-value="modelValue"
     :puede-editar-periodos="puedeEditarPeriodos"
+    :hoja="hoja"
     @update:model-value="$emit('update:modelValue', $event)"
     @update:config="$emit('update:config', $event)"
   />
@@ -41,6 +45,7 @@ defineEmits<{ 'update:modelValue': [string]; 'update:config': [ConfigTabla] }>()
     :config="config"
     :model-value="modelValue"
     :puede-editar-periodos="puedeEditarPeriodos"
+    :hoja="hoja"
     @update:model-value="$emit('update:modelValue', $event)"
     @update:config="$emit('update:config', $event)"
   />

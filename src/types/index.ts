@@ -94,8 +94,6 @@ export interface CabeceraGrupo {
 export interface ConfigTabla {
   subtipo: SubtipoTabla;
   columnas: ColumnaTabla[];
-  filasIniciales?: number;
-  maxFilas?: number;
   /** Lista editable de nombres de las columnas dinámicas generadas, cada una insertable/editable individualmente (solo subtipo matriz_por_periodos) */
   periodos?: string[];
   /** Filas planas agrupadas bajo un encabezado de grupo (no aplica a jerárquica) */
@@ -462,6 +460,34 @@ export interface Docente {
   fotoUrl?: string | null;
   /** Bloques semanales de referencia — no es un calendario de citas, solo indica cuándo suele estar disponible */
   horario: HorarioDocente[];
+}
+
+// --- Contextos IA ---
+
+/** Contexto reutilizable por cualquier ficha (ej. "Invierte.pe", "Finanzas"). */
+export interface ContextoGlobalIA {
+  id: string;
+  nombre: string;
+  /** Clave de `sectorIcons`, o null */
+  icono?: string | null;
+  markdown: string;
+  /** Cuántas secciones lo tienen asociado */
+  usos: number;
+  actualizadoEn?: string | null;
+}
+
+/** Contexto propio de UNA sección de UNA ficha. */
+export interface ContextoSeccionIA {
+  seccionId: string;
+  markdown: string;
+  /** IDs de los contextos globales asociados */
+  globales: string[];
+  actualizadoEn?: string | null;
+}
+
+export interface ContextosIAPlantilla {
+  secciones: ContextoSeccionIA[];
+  globales: ContextoGlobalIA[];
 }
 
 // --- Mi Liquidación (asesor) ---

@@ -1,8 +1,11 @@
-import { leerLibroXlsx, type CeldaLeida, type LibroLeido } from './xlsxXmlReader';
+﻿import { leerLibroXlsx, type CeldaLeida, type LibroLeido } from './xlsxXmlReader';
 import { leerImagenesDeHoja, imagenParaFila, type ImagenIncrustada } from './xlsxImageReader';
-import { aFechaISO, aAnio, textoABooleano } from './conversionesExcel';
+import { aFechaISO, aAnio, aPorcentaje } from './conversionesExcel';
 import { parseCoords, serializarCoords } from './coords';
-import { esCeldaPartida, esJerarquica, getPeriodos, type FilaDinamica, type GrupoFilas, type TreeNode } from './tableRowHelpers';
+import {
+  esCeldaPartida, esJerarquica, getPeriodos, parseTree, posicionesArbol, posicionDe, agrupadorProfundidad, posicionesGrupos,
+  type FilaDinamica, type GrupoFilas, type TreeNode,
+} from './tableRowHelpers';
 import type { Plantilla, Campo, Seccion, ConfigTabla, ColumnaTabla, TipoCampo, TipoColumna } from '@/types';
 
 // Volcado de datos Excel -> valores de un ejemplo: el inverso de excelWriter.ts. Recorre la
@@ -27,6 +30,83 @@ import type { Plantilla, Campo, Seccion, ConfigTabla, ColumnaTabla, TipoCampo, T
 // el contenido no es utilizable para ese tipo (se omite el campo en vez de guardar algo inválido).
 // Fechas y años NO se convierten aquí: pasan siempre por lib/conversionesExcel.ts, que es el punto
 // único donde vive la aritmética de seriales de Excel.
+/**
+ * ¿La fórmula es aritmética sobre números escritos a mano, sin leer ninguna otra celda?
+ *
+ * `=1872+1927+1989` no es un valor derivado: es un dato que alguien tecleó como suma por comodidad,
+ * y su resultado no depende de nada más del libro. `=+Brecha!B15` o `=I9/I8` sí lo son.
+ *
+ * La distinción se hace por la presencia de letras: una referencia, un nombre de hoja o una función
+ * siempre traen alguna; una cuenta entre números no.
+ */
+function esCalculoLiteral(formula: string): boolean {
+  const sinTexto = formula.replace(/"[^"]*"/g, '');
+  return /\d/.test(sinTexto) && /^[=+\-\s\d.,*/^()%]+$/.test(sinTexto);
+}
+
+/**
+ * Los dos libros que intervienen en un volcado, más el contador del resumen.
+ *
+ * Se pasa en lugar del libro a secas por todo el recorrido para que `celdaVolcable` tenga siempre
+ * los dos a mano; el resto de consultas (celdas, fusiones, estilos) siguen yendo al de origen.
+ */
+interface LibroVolcado extends LibroLeido {
+  /** Fórmula de esa celda EN EL EXCEL ASIGNADO a la ficha — la que decide si es de teclear */
+  formulaEstructura(hoja: string, ref: string): string | undefined;
+  /** Celdas de teclear que el origen trae con fórmula pero sin resultado calculado */
+  sinCalcular: { total: number };
+}
+
+/**
+ * Une el archivo del que se leen los datos con el Excel asignado a la ficha, que es quien manda
+ * sobre qué celdas son de teclear.
+ *
+ * Sin `estructura` se cae al propio origen, con lo que la regla queda como estaba: hoy no debería
+ * ocurrir —no se entra al editor sin Excel asignado—, pero un archivo asignado puede no traer una
+ * hoja concreta, y entonces "sin fórmula" es la respuesta correcta.
+ */
+function vistaDeVolcado(origen: LibroLeido, estructura: LibroLeido | null): LibroVolcado {
+  return {
+    ...origen,
+    formulaEstructura: (hoja, ref) => (estructura ?? origen).formulaDe(hoja, ref),
+    sinCalcular: { total: 0 },
+  };
+}
+
+/**
+ * Valor de una celda para el volcado, o undefined si no hay nada que traer.
+ *
+ * Manda el EXCEL ASIGNADO a la ficha, no el archivo del que se leen los datos. Si allí la celda
+ * tiene una fórmula, su valor lo produce el Excel: al insertar nunca la reescribimos, así que
+ * guardarla en el JSON dejaría un número muerto que además puede acabar contradiciendo lo que la
+ * hoja calcula. No se vuelca, venga como venga en el origen.
+ *
+ * Y al revés: si en la plantilla es una casilla de teclear, el dato entra aunque en el origen
+ * alguien la haya resuelto con una fórmula. Lo que se copia es su RESULTADO, nunca la fórmula. Este
+ * es el caso que dejaba fuera las fechas de la sección 6: en la plantilla son casillas vacías, pero
+ * el anexo las traía calculadas y se descartaban en silencio.
+ *
+ * Con eso la lectura y la escritura pasan a mirar el mismo archivo: el volcado trae exactamente el
+ * conjunto de celdas que la inserción es capaz de escribir. Antes no coincidían.
+ *
+ * La excepción sigue siendo la cuenta entre números literales de la plantilla (ver
+ * `esCalculoLiteral`): ahí el resultado ES el dato.
+ *
+ * La regla la decide LA CELDA, no cómo esté declarado el campo o la columna. El tipo declarado
+ * (`calculado`, `Texto corto`) es una etiqueta del JSON que puede no coincidir con el archivo.
+ */
+function celdaVolcable(libro: LibroVolcado, hoja: string, ref: string): CeldaLeida | undefined {
+  const formulaPlantilla = libro.formulaEstructura(hoja, ref);
+  if (formulaPlantilla && !esCalculoLiteral(formulaPlantilla)) return undefined;
+
+  const celda = libro.celda(hoja, ref);
+  // Fórmula en el origen sin resultado guardado (archivos generados por herramientas que no
+  // calculan): no hay nada que traer. Se cuenta para poder decirlo en el resumen en vez de que
+  // desaparezca en silencio, que es como costó tanto ver lo de la sección 6.
+  if (!celda && libro.formulaDe(hoja, ref)) libro.sinCalcular.total++;
+  return celda;
+}
+
 function valorParaCampo(campo: Campo, celda: CeldaLeida): string | null {
   const texto = celda.valor.trim();
   if (texto === '') return null;
@@ -35,10 +115,14 @@ function valorParaCampo(campo: Campo, celda: CeldaLeida): string | null {
   // serial. Aplica sin importar cómo esté tipado el campo — el formato de la celda manda.
   if (celda.soloAnio) return aAnio(celda.valor, true);
   if (celda.esFecha) return aFechaISO(celda.valor, true);
+  // Porcentaje: la celda guarda la fracción (0.011) y muestra 1.10%. Se guarda lo que se ve, igual
+  // que con las fechas, que tampoco se guardan como el serial que trae el archivo.
+  if (celda.esPorcentaje) return aPorcentaje(celda.valor, celda.decimales) ?? texto;
 
   switch (campo.tipo) {
-    case 'booleano':
-      return textoABooleano(texto, campo.etiquetasBooleano);
+    // 'booleano' NO se convierte: se guarda la palabra que trae el Excel ("Sí"), que es la misma
+    // que ofrece su desplegable. Convertirla a 'true'/'false' obligaba a traducir en cada punto de
+    // la UI y hacía que el valor no coincidiera con ninguna opción de la lista.
     case 'fecha':
       return aFechaISO(celda.valor, false) ?? texto;
     case 'numero':
@@ -66,10 +150,10 @@ function valorParaColumna(tipo: TipoColumna, celda: CeldaLeida): string {
 
   if (celda.soloAnio) return aAnio(celda.valor, true) ?? '';
   if (celda.esFecha) return aFechaISO(celda.valor, true) ?? '';
+  if (celda.esPorcentaje) return aPorcentaje(celda.valor, celda.decimales) ?? texto;
 
   switch (tipo) {
-    case 'booleano':
-      return textoABooleano(texto) ?? '';
+    // 'booleano': igual que en valorParaCampo, se conserva el texto del Excel.
     case 'fecha':
       return aFechaISO(celda.valor, false) ?? texto;
     case 'numero':
@@ -143,11 +227,11 @@ function columnasExcelDe(col: ColumnaTabla): string[] {
 // Lee una columna partida (4.8): cada parte desde su propia celda. La FORMA del resultado la decide
 // el dato, igual que en el documento — si solo la primera parte trae algo, el Excel tenía la celda
 // fusionada y devolvemos texto plano; si hay dato en otra parte, estaba partida y devolvemos objeto.
-function leerCeldaPartida(libro: LibroLeido, hoja: string, col: ColumnaTabla, filaFisica: number): string | Record<string, string> {
+function leerCeldaPartida(libro: LibroVolcado, hoja: string, col: ColumnaTabla, filaFisica: number): string | Record<string, string> {
   const partes: Record<string, string> = {};
   let algunaExtra = false;
   col.subcolumnas!.forEach((sub, i) => {
-    const celda = sub.columnaExcel ? libro.celda(hoja, `${sub.columnaExcel}${filaFisica}`) : undefined;
+    const celda = sub.columnaExcel ? celdaVolcable(libro, hoja, `${sub.columnaExcel}${filaFisica}`) : undefined;
     const v = celda ? valorParaColumna(sub.tipo, celda) : '';
     partes[sub.id] = v;
     if (i > 0 && v !== '') algunaExtra = true;
@@ -159,7 +243,7 @@ function leerCeldaPartida(libro: LibroLeido, hoja: string, col: ColumnaTabla, fi
 // Columna que se repite por período: N celdas horizontales desde `columnaExcel`, cada una del ancho
 // declarado — espejo exacto del bucle de writeFilaColumnas.
 function leerCeldasPeriodos(
-  libro: LibroLeido,
+  libro: LibroVolcado,
   hoja: string,
   col: ColumnaTabla,
   filaFisica: number,
@@ -168,13 +252,13 @@ function leerCeldasPeriodos(
   const ancho = col.abarcaColumnasExcel ?? 1;
   return periodos.map((_, i) => {
     const letra = sumarColumnas(col.columnaExcel!, i * ancho);
-    const celda = libro.celda(hoja, `${letra}${filaFisica}`);
+    const celda = celdaVolcable(libro, hoja, `${letra}${filaFisica}`);
     return celda ? valorParaColumna(col.tipo, celda) : '';
   });
 }
 
 function leerFilaTabla(
-  libro: LibroLeido,
+  libro: LibroVolcado,
   hoja: string,
   config: ConfigTabla,
   filaFisica: number,
@@ -201,7 +285,7 @@ function leerFilaTabla(
       continue;
     }
     if (!col.columnaExcel) { valores[col.id] = ''; continue; }
-    const celda = libro.celda(hoja, `${col.columnaExcel}${filaFisica}`);
+    const celda = celdaVolcable(libro, hoja, `${col.columnaExcel}${filaFisica}`);
     const v = celda ? valorParaColumna(col.tipo, celda) : '';
     valores[col.id] = v;
     if (v !== '') tieneDatos = true;
@@ -215,7 +299,7 @@ function leerFilaTabla(
 // título de la siguiente subsección) rompe el patrón y corta la lectura. Verificado contra el
 // Excel real: las filas de datos comparten estilos por columna; la Nota usa otros.
 function esDeLaMismaTabla(
-  libro: LibroLeido,
+  libro: LibroVolcado,
   hoja: string,
   cols: ColumnaTabla[],
   filaFisica: number,
@@ -243,7 +327,7 @@ interface TablaLeida {
 }
 
 function leerTablaSimple(
-  libro: LibroLeido,
+  libro: LibroVolcado,
   hoja: string,
   config: ConfigTabla,
   filaFisicaInicial: number,
@@ -293,64 +377,58 @@ function leerTablaSimple(
 
 // --- Tablas agrupadas (config.agrupador) ---
 
-// Ancho físico en columnas de Excel que ocupan las primeras `n` columnas lógicas — espejo de
-// anchoFisicoPrimerasColumnas en excelWriter, y con eso sabemos cuánto abarca la fila de título.
-function anchoFisico(config: ConfigTabla, n: number, periodos: string[]): number {
-  let total = 0;
-  for (let i = 0; i < n && i < config.columnas.length; i++) {
-    const col = config.columnas[i];
-    const ancho = col.abarcaColumnasExcel ?? 1;
-    total += col.id === config.columnaDinamicaId && periodos.length > 0 ? periodos.length * ancho : ancho;
-  }
-  return total;
-}
-
 interface TablaAgrupadaLeida {
   grupos: GrupoFilas[];
   filasConDatos: number;
 }
 
-// La fila de TÍTULO de un grupo se reconoce por su fusión horizontal: el escritor la fusiona sobre
-// las primeras `agrupadorAbarcaColumnas` columnas, así que en el Excel esa celda arranca un rango
-// de varias columnas. Una fila de datos normal no lo hace. Leer la fusión real (y no adivinar por
-// "las demás celdas están vacías") es lo que hace determinista la separación grupo/dato.
-function leerTablaAgrupada(
-  libro: LibroLeido,
+/**
+ * Rellena los grupos DECLARADOS con los valores del Excel — no reconstruye su forma.
+ *
+ * Antes la forma se deducía de las fusiones: se daba por hecho que la fila de título fusionaba
+ * varias columnas y las de datos no. En el formato oficial pasa **justo lo contrario**: en 9.03 los
+ * títulos ("a. Personal", "b. Servicios") son celdas sueltas sin fusionar y las filas de datos van
+ * fusionadas B:E. La detección se invertía —tomaba las filas de datos por títulos— y la tabla
+ * entera salía desordenada. Con un agrupador de una sola columna esa detección no puede funcionar,
+ * porque una celda de ancho 1 nunca está fusionada.
+ *
+ * La forma la declara la estructura; el Excel solo aporta valores. La fila de cada parte sale de
+ * `posicionesGrupos`, la misma aritmética que usan el escritor y el editor — igual que hace
+ * `rellenarArbol` con las jerárquicas.
+ */
+function rellenarGrupos(
+  libro: LibroVolcado,
   hoja: string,
   config: ConfigTabla,
+  actuales: GrupoFilas[],
   filaFisicaInicial: number,
   periodos: string[],
 ): TablaAgrupadaLeida {
-  const filasBase = config.captura!.filasBase!;
-  const columnaInicial = config.captura?.columnaInicial ?? config.columnas[0]?.columnaExcel;
-  const abarcaCabeceras = Math.min(config.agrupadorAbarcaColumnas ?? config.columnas.length, config.columnas.length);
-  const minAncho = Math.max(anchoFisico(config, abarcaCabeceras, periodos), 2);
+  const primera = config.columnas.find((c) => c.columnaExcel)?.columnaExcel;
+  const posiciones = posicionesGrupos(actuales, filaFisicaInicial, (fila) =>
+    primera ? libro.fusion(hoja, `${primera}${fila}`)?.filas ?? 1 : 1,
+  );
 
-  const grupos: GrupoFilas[] = [];
   let filasConDatos = 0;
+  const grupos = actuales.map((g, gi) => {
+    const pos = posiciones[gi];
+    const salida: GrupoFilas = { grupo: g.grupo, filas: [] };
 
-  for (let i = 0; i < filasBase; i++) {
-    const row = filaFisicaInicial + i;
-    const fusion = columnaInicial ? libro.fusion(hoja, `${columnaInicial}${row}`) : undefined;
-    const esTitulo = Boolean(fusion && fusion.columnas >= minAncho);
-
-    if (esTitulo) {
-      const celda = libro.celda(hoja, `${columnaInicial}${row}`);
-      const titulo = celda ? celda.valor : '';
-      // La fila de título también puede traer valores propios a la derecha de la fusión (grupos
-      // "resumen" sin filas hijas) — se leen igual que una fila de datos y se guardan aparte.
-      const propios = leerFilaTabla(libro, hoja, config, row, periodos);
-      grupos.push({ grupo: titulo, filas: [], ...(propios.tieneDatos ? { valoresGrupo: propios.valores } : {}) });
-      if (titulo !== '' || propios.tieneDatos) filasConDatos++;
-      continue;
+    // Fila de título: puede traer valores propios en las columnas libres a su derecha.
+    if (pos?.filaTitulo != null) {
+      const propios = leerFilaTabla(libro, hoja, config, pos.filaTitulo, periodos);
+      if (propios.tieneDatos) { salida.valoresGrupo = propios.valores; filasConDatos++; }
     }
 
-    const fila = leerFilaTabla(libro, hoja, config, row, periodos);
-    // Filas de datos antes de cualquier título: van a un grupo sin nombre, para no perderlas.
-    if (grupos.length === 0) grupos.push({ grupo: '', filas: [] });
-    grupos[grupos.length - 1].filas.push(fila.valores);
-    if (fila.tieneDatos) filasConDatos++;
-  }
+    salida.filas = g.filas.map((fila, fi) => {
+      const f = pos?.filas[fi];
+      if (f === undefined) return fila;
+      const leida = leerFilaTabla(libro, hoja, config, f, periodos);
+      if (leida.tieneDatos) filasConDatos++;
+      return leida.valores;
+    });
+    return salida;
+  });
 
   return { grupos, filasConDatos };
 }
@@ -362,63 +440,96 @@ interface ArbolLeido {
   filasConDatos: number;
 }
 
-// Reconstruye el árbol desde las fusiones VERTICALES: el escritor pone el valor de un padre una
-// sola vez, en la primera fila de su subárbol, y fusiona esa celda sobre todas las filas que ocupa.
-// Así, la altura de la fusión ES la cantidad de hijos que cuelgan de él. Sin fusión, el nodo ocupa
-// una sola fila (el escritor solo fusiona cuando abarca más de una).
-function leerArbol(
-  libro: LibroLeido,
+/**
+ * Rellena con los datos del Excel el árbol que la estructura YA declara, sin tocar su forma.
+ *
+ * Antes se reconstruía el árbol a partir de las fusiones verticales del Excel. Eso solo funciona
+ * cuando la jerarquía está dibujada con celdas fusionadas; en una tabla con agrupador no lo está —
+ * el título del grupo y sus ítems viven todos en la misma columna, como celdas sueltas, y quien
+ * marca la jerarquía es la estructura, no el archivo. Ahí la lectura devolvía una lista plana de
+ * hermanos y la fusión posicional posterior descolocaba grupos, ítems y datos.
+ *
+ * Ahora se recorre el árbol actual y, para cada nodo, se lee la celda que le toca según
+ * `posicionesArbol` — la misma aritmética que usan el escritor y el editor, así que la celda que se
+ * lee es exactamente la que se escribiría. El volcado solo rellena valores: nunca añade, quita ni
+ * reordena filas ni grupos.
+ */
+function rellenarArbol(
+  libro: LibroVolcado,
   hoja: string,
   config: ConfigTabla,
-  profundidad: number,
-  filaInicio: number,
-  filasDisponibles: number,
+  actuales: TreeNode[],
+  filaInicial: number,
   periodos: string[],
-  colIdx = profundidad,
 ): ArbolLeido {
-  // Un nivel de agrupador no consume columna (ver writeArbol): el índice de columna avanza solo en
-  // los niveles normales, así que no coincide con la profundidad del árbol cuando hay agrupador.
-  const col = config.columnas[colIdx];
-  const nodos: TreeNode[] = [];
+  const agrupadorDepth = config.agrupador ? agrupadorProfundidad(config.columnas, config) : -1;
+  const posiciones = posicionesArbol(actuales, config, hoja, filaInicial, agrupadorDepth, (h, columna, fila) =>
+    (columna ? libro.fusion(h, `${columna}${fila}`)?.filas : undefined));
   let filasConDatos = 0;
-  const fin = filaInicio + filasDisponibles;
 
-  let row = filaInicio;
-  while (row < fin) {
+  // Nivel calculado: su valor lo produce nuestra fórmula, no el número que Excel dejó cacheado.
+  function leerColumna(col: ColumnaTabla | undefined, fila: number): string | string[] {
+    if (!col || col.tipo === 'calculado' || col.formula) return '';
+    if (col.id === config.columnaDinamicaId && col.columnaExcel && periodos.length > 0) {
+      return leerCeldasPeriodos(libro, hoja, col, fila, periodos);
+    }
     const letra = columnasExcelDe(col)[0];
-    const fusion = letra ? libro.fusion(hoja, `${letra}${row}`) : undefined;
-    // La fusión nunca puede exceder el espacio que le cedió el padre: si la plantilla trae un rango
-    // más alto de lo que queda (tabla mal formada, o el padre acortado), se recorta.
-    const span = Math.min(Math.max(fusion?.filas ?? 1, 1), fin - row);
-
-    let value: string | string[];
-    // Nivel calculado: mismo criterio que en las tablas planas y en los campos sueltos — su valor
-    // lo produce nuestra fórmula, no el número que Excel dejó cacheado. Se devuelve vacío para que
-    // la fusión conserve lo que el ejemplo ya tenía.
-    if (col?.tipo === 'calculado' || col?.formula) {
-      value = '';
-    } else if (col?.id === config.columnaDinamicaId && col.columnaExcel && periodos.length > 0) {
-      const arr = leerCeldasPeriodos(libro, hoja, col, row, periodos);
-      value = arr;
-      if (arr.some((v) => v !== '')) filasConDatos++;
-    } else {
-      const celda = letra ? libro.celda(hoja, `${letra}${row}`) : undefined;
-      value = celda ? valorParaColumna(col?.tipo ?? 'texto_corto', celda) : '';
-      if (value !== '') filasConDatos++;
-    }
-
-    let children: TreeNode[] = [];
-    if (colIdx + 1 < config.columnas.length) {
-      const sub = leerArbol(libro, hoja, config, profundidad + 1, row, span, periodos, colIdx + 1);
-      children = sub.nodos;
-      filasConDatos += sub.filasConDatos;
-    }
-
-    nodos.push({ value, children });
-    row += span;
+    const celda = letra ? celdaVolcable(libro, hoja, `${letra}${fila}`) : undefined;
+    return celda ? valorParaColumna(col.tipo ?? 'texto_corto', celda) : '';
   }
 
-  return { nodos, filasConDatos };
+  // Una celda vacía del Excel conserva lo que el ejemplo ya tenía (los nombres de ítem que vienen
+  // de la estructura base, o lo que el usuario haya tipeado en el editor).
+  function conservando(leido: string | string[], previo: string | string[] | undefined): string | string[] | null {
+    if (Array.isArray(leido)) {
+      if (!leido.some((v) => v !== '')) return null;
+      const antes = Array.isArray(previo) ? previo : [];
+      return leido.map((v, k) => (v !== '' ? v : (antes[k] ?? '')));
+    }
+    return leido !== '' ? leido : null;
+  }
+
+  function recorrer(nodos: TreeNode[], path: number[]): TreeNode[] {
+    return nodos.map((nodo, i) => {
+      const ruta = [...path, i];
+      const pos = posicionDe(posiciones, ruta);
+      let value = nodo.value;
+      const valores: FilaDinamica = { ...(nodo.valores ?? {}) };
+
+      if (pos) {
+        const col = config.columnas[pos.colIdx];
+        const leido = conservando(leerColumna(col, pos.fila), nodo.value);
+        if (leido !== null) {
+          value = leido;
+          filasConDatos++;
+        }
+        // Fila de título de grupo: las columnas libres a su derecha son celdas de datos de esa
+        // misma fila, no de sus hijos.
+        const esGrupo = agrupadorDepth >= 0 && ruta.length - 1 === agrupadorDepth && nodo.children.length > 0;
+        if (esGrupo) {
+          for (const otra of config.columnas) {
+            if (otra.id === col?.id) continue;
+            // Una celda partida (Record) no aplica a una fila de título: solo texto o períodos.
+            const anterior = valores[otra.id];
+            const previo = typeof anterior === 'string' || Array.isArray(anterior) ? anterior : undefined;
+            const l = conservando(leerColumna(otra, pos.fila), previo);
+            if (l !== null) {
+              valores[otra.id] = l;
+              filasConDatos++;
+            }
+          }
+        }
+      }
+
+      return {
+        value,
+        children: recorrer(nodo.children, ruta),
+        ...(Object.keys(valores).length > 0 ? { valores } : {}),
+      };
+    });
+  }
+
+  return { nodos: recorrer(actuales, []), filasConDatos };
 }
 
 // Fusión celda por celda con las filas que el ejemplo ya tenía: el dato del Excel gana solo donde
@@ -478,22 +589,6 @@ function fusionarGrupos(actuales: GrupoFilas[], leidos: GrupoFilas[], config: Co
   return out;
 }
 
-// Misma regla, nodo a nodo: el árbol leído manda en su forma (la que dicta el Excel), y cada valor
-// vacío conserva el que tuviera el nodo equivalente del ejemplo.
-function fusionarArbol(actuales: TreeNode[], leidos: TreeNode[]): TreeNode[] {
-  return leidos.map((leido, i) => {
-    const actual = actuales[i];
-    let value: string | string[];
-    if (Array.isArray(leido.value)) {
-      const previo = Array.isArray(actual?.value) ? actual.value : [];
-      value = leido.value.map((v, k) => (v !== '' ? v : (previo[k] ?? '')));
-    } else {
-      value = leido.value !== '' ? leido.value : (typeof actual?.value === 'string' ? actual.value : '');
-    }
-    return { value, children: fusionarArbol(actual?.children ?? [], leido.children) };
-  });
-}
-
 function parseFilasActuales(raw: string | undefined): FilaDinamica[] {
   if (!raw) return [];
   try {
@@ -509,15 +604,6 @@ function parseGruposActuales(raw: string | undefined): GrupoFilas[] {
     const p = JSON.parse(raw);
     if (Array.isArray(p) && p.length > 0 && 'filas' in p[0]) return p as GrupoFilas[];
   } catch { /* no era JSON de grupos */ }
-  return [];
-}
-
-function parseArbolActual(raw: string | undefined): TreeNode[] {
-  if (!raw) return [];
-  try {
-    const p = JSON.parse(raw);
-    if (Array.isArray(p) && p.length > 0 && 'value' in p[0]) return p as TreeNode[];
-  } catch { /* no era JSON de árbol */ }
   return [];
 }
 
@@ -538,6 +624,12 @@ export interface OpcionesVolcado {
   seccionesIds: Set<string>;
   /** Valores actuales del ejemplo — base de la fusión celda a celda en tablas */
   valoresActuales: Record<string, string>;
+  /**
+   * Excel ASIGNADO a la ficha. Es quien decide qué celdas son de teclear y cuáles las calcula el
+   * Excel (ver `celdaVolcable`), independientemente de lo que traiga el archivo que se vuelca.
+   * Sin él, esa decisión la toma el propio archivo de origen, como antes.
+   */
+  excelEstructura?: string;
 }
 
 export interface ResultadoVolcado {
@@ -561,6 +653,9 @@ export interface ResultadoVolcado {
   imagenesLeidas: number;
   /** Imágenes encontradas que no se pudieron traer, con el motivo (ej. "2.03.01 (emf)") */
   imagenesOmitidas: string[];
+  /** Celdas de teclear que el archivo traía con fórmula pero sin resultado calculado — no había
+   * valor que copiar. Se informa para que no desaparezcan en silencio. */
+  celdasSinCalcular: number;
 }
 
 const TIPOS_TABLA: TipoCampo[] = ['tabla', 'tabla_jerarquica'];
@@ -579,9 +674,15 @@ export async function leerValoresDeExcel(
     subirImagen: opciones?.subirImagen,
     seccionesIds: opciones?.seccionesIds ?? new Set(plantilla.secciones.map((s) => s.id)),
     valoresActuales: opciones?.valoresActuales ?? {},
+    excelEstructura: opciones?.excelEstructura,
   };
 
-  const libro = await leerLibroXlsx(dataUrl);
+  const origen = await leerLibroXlsx(dataUrl);
+  // Volcar desde el propio archivo asignado es lo normal en la versión Estructura: ahí no hace falta
+  // abrirlo dos veces.
+  const estructura =
+    ops.excelEstructura && ops.excelEstructura !== dataUrl ? await leerLibroXlsx(ops.excelEstructura) : origen;
+  const libro = vistaDeVolcado(origen, estructura);
   const hojasDelLibro = new Set(libro.hojas);
 
   const resultado: ResultadoVolcado = {
@@ -595,6 +696,7 @@ export async function leerValoresDeExcel(
     hojasFaltantes: [],
     imagenesLeidas: 0,
     imagenesOmitidas: [],
+    celdasSinCalcular: 0,
   };
 
   // Tareas de las secciones seleccionadas, agrupadas por hoja: las tablas de una hoja se procesan
@@ -632,19 +734,20 @@ export async function leerValoresDeExcel(
       const periodos = getPeriodos(config);
       const raw = ops.valoresActuales[campo.identificador] ?? campo.valorEjemplo;
 
-      // Jerárquica: la forma la dictan las fusiones verticales del Excel.
+      // Jerárquica: la forma la dicta la estructura, no el Excel. Solo se rellenan los valores.
       if (esJerarquica(config.subtipo)) {
-        const lectura = leerArbol(libro, hoja, config, 0, filaFisica, config.captura!.filasBase!, periodos);
+        const actuales = parseTree(raw ?? '', config.columnas, config);
+        const lectura = rellenarArbol(libro, hoja, config, actuales, filaFisica, periodos);
         if (lectura.filasConDatos === 0) continue;
-        resultado.valores[campo.identificador] = JSON.stringify(fusionarArbol(parseArbolActual(raw), lectura.nodos));
+        resultado.valores[campo.identificador] = JSON.stringify(lectura.nodos);
         resultado.tablasLeidas++;
         resultado.filasTablaLeidas += lectura.filasConDatos;
         continue;
       }
 
-      // Agrupada: las filas de título se reconocen por su fusión horizontal.
+      // Agrupada: la forma la declara la estructura y el Excel solo aporta valores (ver rellenarGrupos).
       if (config.agrupador) {
-        const lectura = leerTablaAgrupada(libro, hoja, config, filaFisica, periodos);
+        const lectura = rellenarGrupos(libro, hoja, config, parseGruposActuales(raw), filaFisica, periodos);
         if (lectura.filasConDatos === 0) continue;
         resultado.valores[campo.identificador] = JSON.stringify(fusionarGrupos(parseGruposActuales(raw), lectura.grupos, config));
         resultado.tablasLeidas++;
@@ -699,7 +802,7 @@ export async function leerValoresDeExcel(
       if (!campo.captura?.columna || !campo.captura.fila) continue;
 
       const fila = campo.captura.fila + shift(campo.captura.fila);
-      const celda = libro.celda(hoja, `${campo.captura.columna}${fila}`);
+      const celda = celdaVolcable(libro, hoja, `${campo.captura.columna}${fila}`);
       if (!celda) { resultado.camposVacios++; continue; }
 
       const valor = valorParaCampo(campo, celda);
@@ -710,5 +813,6 @@ export async function leerValoresDeExcel(
     }
   }
 
+  resultado.celdasSinCalcular = libro.sinCalcular.total;
   return resultado;
 }
