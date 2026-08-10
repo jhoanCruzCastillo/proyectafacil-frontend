@@ -1,16 +1,24 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faXmark, faCheck } from '@/lib/icons';
 import { instrumentoIcons } from '@/lib/icons';
 import InstrumentoSelector, { instrumentoAccent } from './InstrumentoSelector.vue';
-import type { TipoInstrumento, TipologiaIoarr } from '@/types';
+import type { Plantilla, TipoInstrumento, TipologiaIoarr } from '@/types';
 
-defineProps<{ isOpen: boolean }>();
+const props = defineProps<{
+  isOpen: boolean;
+  /** Si se pasa, el modal abre en modo edición precargado con sus datos (código, nombre,
+   * descripción, instrumento) en vez de en modo creación. */
+  plantilla?: Plantilla | null;
+}>();
 const emit = defineEmits<{
   close: [];
   create: [codigo: string, nombre: string, descripcion: string, instrumento: TipoInstrumento, tipologiasIoarr: TipologiaIoarr[] | undefined];
+  update: [codigo: string, nombre: string, descripcion: string, instrumento: TipoInstrumento, tipologiasIoarr: TipologiaIoarr[] | undefined];
 }>();
+
+const esEdicion = computed(() => !!props.plantilla);
 
 const subtitulos: Record<TipoInstrumento, string> = {
   formato: 'Define la estructura de un formato de registro',
@@ -42,16 +50,36 @@ function reset() {
   tipologias.value = [];
 }
 
+function cargarDesdePlantilla(p: Plantilla) {
+  codigo.value = p.codigo;
+  nombre.value = p.nombre;
+  descripcion.value = p.descripcion;
+  instrumento.value = p.instrumento;
+  tipologias.value = p.tipologiasIoarr ?? [];
+}
+
+// Al abrir, precarga los datos de la plantilla en modo edición o arranca en blanco en modo creación.
+watch(
+  () => props.isOpen,
+  (open) => {
+    if (!open) return;
+    if (props.plantilla) cargarDesdePlantilla(props.plantilla);
+    else reset();
+  },
+  { immediate: true },
+);
+
 function handleSubmit() {
   if (!codigo.value.trim() || !nombre.value.trim()) return;
-  emit(
-    'create',
+  const args = [
     codigo.value.trim(),
     nombre.value.trim(),
     descripcion.value.trim(),
     instrumento.value,
     instrumento.value === 'ioarr' ? tipologias.value : undefined,
-  );
+  ] as const;
+  if (esEdicion.value) emit('update', ...args);
+  else emit('create', ...args);
   reset();
   emit('close');
 }
@@ -68,8 +96,8 @@ function handleSubmit() {
                 <FontAwesomeIcon :icon="instrumentoIcons[instrumento]" class="w-4 h-4" />
               </div>
               <div>
-                <h2 class="text-lg font-bold text-heading">Nueva plantilla</h2>
-                <p class="text-sm text-muted">{{ subtitulos[instrumento] }}</p>
+                <h2 class="text-lg font-bold text-heading">{{ esEdicion ? 'Datos de la plantilla' : 'Nueva plantilla' }}</h2>
+                <p class="text-sm text-muted">{{ esEdicion ? 'Edita código, nombre, tipo y descripción' : subtitulos[instrumento] }}</p>
               </div>
             </div>
             <button @click="emit('close')" class="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400 hover:text-gray-600 transition-colors duration-100">
@@ -135,7 +163,7 @@ function handleSubmit() {
                 :class="accent.btn"
               >
                 <FontAwesomeIcon :icon="faCheck" class="w-3.5 h-3.5" />
-                Crear plantilla
+                {{ esEdicion ? 'Guardar cambios' : 'Crear plantilla' }}
               </button>
             </div>
           </div>

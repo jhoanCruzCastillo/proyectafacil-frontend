@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faEye, faPen, faMagnifyingGlass, faStar, faFilter } from '@/lib/icons';
+import { faPen, faIdCard, faMagnifyingGlass, faStar, faFilter } from '@/lib/icons';
 import { instrumentoLabels } from '@/lib/icons';
 import PracticaToggle from './PracticaToggle.vue';
 import EstadoPlantillaToggle from './EstadoPlantillaToggle.vue';
-import type { Plantilla, Sector, TipoInstrumento } from '@/types';
+import NuevaPlantillaModal from './NuevaPlantillaModal.vue';
+import { useActualizarPlantilla } from '@/composables/usePlantillas';
+import { usePushActividad } from '@/composables/useActividad';
+import { useUiStore } from '@/stores/ui';
+import type { Plantilla, Sector, TipoInstrumento, TipologiaIoarr } from '@/types';
 
 // Listado de plantillas de UN instrumento, agrupadas por sector, con buscador y filtro de sector.
 // Nació como vista exclusiva de fichas técnicas (de ahí el destacado del formato 6A del MEF, que
@@ -62,6 +66,26 @@ const placeholder = computed(() => {
 function rutaEditar(p: Plantilla): string {
   return `/sectores/${p.sectorId}/plantilla/${p.id}/${p.instrumento === 'perfil' ? 'perfil' : 'editar'}`;
 }
+
+const ui = useUiStore();
+const actualizarPlantilla = useActualizarPlantilla();
+const pushActividad = usePushActividad();
+const editandoPlantillaId = ref<string | null>(null);
+const editandoPlantilla = computed(() => props.plantillas.find((p) => p.id === editandoPlantillaId.value) ?? null);
+
+async function handleActualizarDatos(
+  codigo: string,
+  nombre: string,
+  descripcion: string,
+  instrumento: TipoInstrumento,
+  tipologiasIoarr: TipologiaIoarr[] | undefined,
+) {
+  if (!editandoPlantillaId.value) return;
+  await actualizarPlantilla.mutateAsync({ id: editandoPlantillaId.value, data: { codigo, nombre, descripcion, instrumento, tipologiasIoarr } });
+  await pushActividad.mutateAsync({ mensaje: `Se actualizaron los datos de la plantilla ${codigo} — ${nombre}`, color: 'blue' });
+  ui.toast('Datos actualizados');
+  editandoPlantillaId.value = null;
+}
 </script>
 
 <template>
@@ -107,19 +131,21 @@ function rutaEditar(p: Plantilla): string {
           <div class="flex items-center gap-1.5 shrink-0">
             <PracticaToggle :plantilla="mefVisible" />
             <EstadoPlantillaToggle :plantilla="mefVisible" />
-            <RouterLink
-              :to="`/sectores/${mefVisible.sectorId}/plantilla/${mefVisible.id}`"
-              class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-brand-600 hover:bg-brand-50 transition-colors"
+            <button
+              @click="editandoPlantillaId = mefVisible.id"
+              type="button"
+              class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-gray-600 hover:bg-gray-100 transition-colors"
+              title="Editar código, nombre, tipo y descripción"
             >
-              <FontAwesomeIcon :icon="faEye" class="w-3 h-3" />
-              Ver
-            </RouterLink>
+              <FontAwesomeIcon :icon="faIdCard" class="w-3 h-3" />
+              Datos
+            </button>
             <RouterLink
               :to="rutaEditar(mefVisible)"
               class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-white bg-sidebar hover:bg-heading transition-colors"
             >
               <FontAwesomeIcon :icon="faPen" class="w-3 h-3" />
-              Editar
+              Edit. plantilla
             </RouterLink>
           </div>
         </div>
@@ -149,19 +175,21 @@ function rutaEditar(p: Plantilla): string {
             <div class="flex items-center gap-1.5 shrink-0">
               <PracticaToggle :plantilla="p" />
               <EstadoPlantillaToggle :plantilla="p" />
-              <RouterLink
-                :to="`/sectores/${p.sectorId}/plantilla/${p.id}`"
-                class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-brand-600 hover:bg-brand-50 transition-colors"
+              <button
+                @click="editandoPlantillaId = p.id"
+                type="button"
+                class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-gray-600 hover:bg-gray-100 transition-colors"
+                title="Editar código, nombre, tipo y descripción"
               >
-                <FontAwesomeIcon :icon="faEye" class="w-3 h-3" />
-                Ver
-              </RouterLink>
+                <FontAwesomeIcon :icon="faIdCard" class="w-3 h-3" />
+                Datos
+              </button>
               <RouterLink
                 :to="rutaEditar(p)"
                 class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-white bg-sidebar hover:bg-heading transition-colors"
               >
                 <FontAwesomeIcon :icon="faPen" class="w-3 h-3" />
-                Editar
+                Edit. plantilla
               </RouterLink>
             </div>
           </div>
@@ -171,5 +199,12 @@ function rutaEditar(p: Plantilla): string {
         No se encontraron resultados.
       </p>
     </div>
+
+    <NuevaPlantillaModal
+      :is-open="!!editandoPlantilla"
+      :plantilla="editandoPlantilla"
+      @close="editandoPlantillaId = null"
+      @update="handleActualizarDatos"
+    />
   </div>
 </template>
