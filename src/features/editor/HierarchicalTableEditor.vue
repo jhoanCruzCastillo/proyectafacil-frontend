@@ -699,7 +699,7 @@ function renamePeriodo(pi: number, value: string) {
                     placeholder="Nombre del grupo..."
                     @input="updateNodeValue(cell.path, ($event.target as HTMLTextAreaElement).value)"
                     @click.stop="() => { if (!(isPathSelected(cell.path) && isEditing)) selectCell(cell.path); }"
-                    class="flex-1 min-w-0 px-1.5 py-1 rounded border text-xs font-semibold uppercase tracking-wide text-heading focus:outline-none resize-none overflow-y-auto max-h-[15lh] [field-sizing:content] bg-transparent"
+                    class="flex-1 min-w-0 px-1.5 py-1 rounded border text-xs font-semibold tracking-wide text-heading focus:outline-none resize-none overflow-y-auto max-h-[15lh] [field-sizing:content] bg-transparent"
                     :class="isPathSelected(cell.path) && isEditing ? 'border-brand-400 bg-white ring-1 ring-brand-500/30' : 'border-transparent cursor-pointer'"
                   />
                   <button

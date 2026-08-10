@@ -217,7 +217,7 @@ function valorGrupoMostrado(gi: number, col: ColumnaTabla, opciones: string[] | 
                     @click.stop
                     type="text"
                     placeholder="Nombre del grupo…"
-                    class="flex-1 min-w-0 px-1.5 py-0.5 rounded border border-transparent hover:border-gray-200 focus:border-brand-300 text-xs font-semibold uppercase tracking-wide text-heading focus:outline-none bg-transparent"
+                    class="flex-1 min-w-0 px-1.5 py-0.5 rounded border border-transparent hover:border-gray-200 focus:border-brand-300 text-xs font-semibold tracking-wide text-heading focus:outline-none bg-transparent"
                   />
                   <button v-if="grupos.length > 1" @click.stop="removeGrupo(gi)" type="button" class="w-5 h-5 rounded flex items-center justify-center text-gray-300 hover:text-red-500 transition-colors shrink-0">
                     <FontAwesomeIcon :icon="faTrash" class="w-2.5 h-2.5" />

@@ -628,6 +628,48 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     ui.toast('Sección agregada');
   }
 
+  /** Resto de un id/código con puntos, sin su primer segmento: "12.01.3" -> "01.3". */
+  function sinPrimerSegmento(id: string): string {
+    return id.split('.').slice(1).join('.');
+  }
+
+  /**
+   * Copia completa de una sección al final de la lista — nunca a continuación de la original, ni
+   * renumerando las demás. El numero nuevo es siempre el mayor numero de sección existente más uno
+   * (duplicar la sección 5 con secciones hasta la 12 da 13, igual que duplicar la propia 12).
+   *
+   * Todo lo que cuelga de la sección (subsecciones, campos, configTabla, valores) se copia tal cual
+   * — solo se reescribe el primer segmento de cada `codigo`/`identificador` para que apunte al numero
+   * nuevo (12.01 -> 13.01, 12.01.3 -> 13.01.3); el resto del path no cambia. Los ids internos de las
+   * columnas de tabla se conservan igual que en `handleDuplicarCampo`, por la misma razón: son claves
+   * que solo viven dentro de su propio campo.
+   */
+  function handleDuplicarSeccion(seccionId: string) {
+    const nuevoIndex = secciones.value.length;
+    mutate((p) => {
+      const original = p.secciones.find((s) => s.id === seccionId);
+      if (!original) return;
+      const maxNumero = p.secciones.reduce((max, s) => Math.max(max, Number(s.numero) || 0), 0);
+      const nuevoNumero = String(maxNumero + 1).padStart(2, '0');
+
+      const copia = deepClone(original);
+      copia.id = generateId();
+      copia.numero = nuevoNumero;
+      for (const sub of copia.subsecciones) {
+        sub.id = generateId();
+        sub.codigo = `${nuevoNumero}.${sinPrimerSegmento(sub.codigo)}`;
+        for (const campo of sub.campos) {
+          campo.id = generateId();
+          campo.identificador = `${nuevoNumero}.${sinPrimerSegmento(campo.identificador)}`;
+        }
+      }
+      p.secciones.push(copia);
+      p.cantidadSecciones = p.secciones.length;
+    });
+    activeSectionIndex.value = nuevoIndex;
+    ui.toast('Sección duplicada');
+  }
+
   function handleImportEstructura(secciones: Seccion[]) {
     mutate((p) => {
       p.secciones = secciones;
@@ -721,7 +763,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     handleLeftResize, handleRightResize, handleExamplesResize, handleTabChange, handleSectionSelect,
     goToPrevSection, goToNextSection, handleFieldUpdate, handleAddCampo, handleDuplicarCampo, handleDeleteCampo,
     handleSectionNameChange, handleSectionHojaChange, handleSubsectionNameChange,
-    handleSubseccionAyudaChange, handleAddSubsection, handleDeleteSubsection, handleAddSection,
+    handleSubseccionAyudaChange, handleAddSubsection, handleDeleteSubsection, handleAddSection, handleDuplicarSeccion,
     handleExampleValueChange, handleCreateExample, handleDeleteEjemplo, handleToggleEjemploEstado,
     handleDownloadExcel, handlePreviewExample, handleInsertExcel,
     handleVolcarExcel, handleVolcarEstructura, handleConfirmarVolcado, getDefaultValores,

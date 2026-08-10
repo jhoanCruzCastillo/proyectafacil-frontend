@@ -36,7 +36,7 @@ const {
   handleLeftResize, handleRightResize, handleExamplesResize, handleTabChange, handleSectionSelect,
   goToPrevSection, goToNextSection, handleFieldUpdate, handleAddCampo, handleDuplicarCampo, handleDeleteCampo,
   handleSectionNameChange, handleSectionHojaChange, handleSubsectionNameChange,
-  handleSubseccionAyudaChange, handleAddSubsection, handleDeleteSubsection, handleAddSection,
+  handleSubseccionAyudaChange, handleAddSubsection, handleDeleteSubsection, handleAddSection, handleDuplicarSeccion,
   handleExampleValueChange, handleCreateExample, handleDeleteEjemplo, handleToggleEjemploEstado,
   handleDownloadExcel, handlePreviewExample, handleInsertExcel,
   handleVolcarExcel, handleVolcarEstructura, handleConfirmarVolcado, getDefaultValores,
@@ -95,12 +95,14 @@ const verContextosIA = ref(false);
         <SectionIndex
           :secciones="secciones"
           :active-seccion-id="seccionActiva?.id ?? null"
-          show-add-button
+          :show-add-button="!showExamples"
           show-edit-hoja
+          :show-duplicate-section="!showExamples"
           :show-import-estructura="!showExamples"
           @select="handleSectionSelect"
           @add-section="handleAddSection"
           @edit-hoja="editingHojaSeccionId = $event"
+          @duplicate-section="handleDuplicarSeccion"
           @import-estructura="showImportEstructura = true"
         />
       </div>

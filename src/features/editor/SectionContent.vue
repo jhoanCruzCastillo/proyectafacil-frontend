@@ -143,7 +143,7 @@ const subseccionAyuda = computed(() => props.seccion.subsecciones.find((s) => s.
         </button>
         </template>
         <button
-          v-if="editable"
+          v-if="editable && !showExampleValues"
           @click="emit('add-campo', sub.id, sub.codigo)"
           type="button"
           class="w-full py-2.5 rounded-lg border-2 border-dashed border-gray-200 text-sm font-medium text-gray-400 hover:border-brand-300 hover:text-brand-600 transition-colors flex items-center justify-center gap-2"
@@ -154,7 +154,7 @@ const subseccionAyuda = computed(() => props.seccion.subsecciones.find((s) => s.
       </div>
     </div>
     <button
-      v-if="editable"
+      v-if="editable && !showExampleValues"
       @click="emit('add-subsection', seccion.id)"
       type="button"
       class="w-full py-2 rounded-lg border border-dashed border-gray-200 text-xs font-medium text-gray-400 hover:border-brand-300 hover:text-brand-600 transition-colors flex items-center justify-center gap-1.5"
