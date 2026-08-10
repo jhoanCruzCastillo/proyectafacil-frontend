@@ -1,4 +1,4 @@
-import { parseDynamicRows, parseGroupedRows, parseTree, getPeriodos, esJerarquica, esCeldaPartida, agrupadorProfundidad, posicionesArbol, posicionDe, posicionesGrupos, grupoOcupaFila, repartoAgrupador, type FilaDinamica, type ValorCelda, type PosicionNodo } from './tableRowHelpers';
+import { parseDynamicRows, parseGroupedRows, parseTree, getPeriodos, esJerarquica, esCeldaPartida, agrupadorProfundidad, posicionesArbol, posicionDe, posicionesGrupos, grupoOcupaFila, repartoAgrupador, alturaFilaBase, type FilaDinamica, type ValorCelda, type PosicionNodo } from './tableRowHelpers';
 import { LibroEdits, aplicarEdicionesXlsx } from './xlsxXmlPatcher';
 import { crearResolver, esFormula, evaluarFormula, traducirFormulaAExcel, type ResolucionToken, type ResolucionCelda } from './formula';
 import { booleanoATexto, dateASerialExcel, dePorcentaje, type EtiquetasBooleano } from './conversionesExcel';
@@ -213,9 +213,12 @@ function registrarCrecimientoTabla(ediciones: LibroEdits, hoja: string | undefin
   // desplazando hacia abajo TODO lo que venía después en la hoja. Nada se escribe en ellas, así que
   // el desplazamiento era puro daño.
   if (!raw || raw.trim() === '') return;
+  // `filasNecesariasTabla`/`filasBase` cuentan filas BASE, no filas físicas de Excel: una tabla con
+  // `abarca_filas: 3` que crece una fila base inserta 3 filas físicas, no 1 (ver 4.10 en Notion).
+  const alto = alturaFilaBase(config);
   const necesarias = filasNecesariasTabla(config, raw);
   const excedente = necesarias - filasBase;
-  if (excedente > 0) ediciones.registrarCrecimiento(hoja, filaInicial + filasBase - 1, excedente);
+  if (excedente > 0) ediciones.registrarCrecimiento(hoja, filaInicial + filasBase * alto - 1, excedente * alto);
 }
 
 // Escribe un nodo del árbol UNA sola vez — en la primera fila que ocupa su subárbol — y, si ese
@@ -315,9 +318,8 @@ function writeArbol(
 // posición declarada. Las plantillas oficiales suelen fusionar varias filas por registro (4.02.01
 // reserva 3), y avanzar de una en una partía esos bloques y desalineaba la tabla entera.
 function altoDeFila(config: ConfigTabla, hoja: string, fila: number, altoDeBloque?: AltoDeBloque): number {
-  if (!altoDeBloque) return 1;
   const primera = config.columnas.find((c) => c.columnaExcel)?.columnaExcel;
-  return Math.max(altoDeBloque(hoja, primera, fila) ?? 1, 1);
+  return alturaFilaBase(config, altoDeBloque?.(hoja, primera, fila));
 }
 
 function writeCampoTabla(ediciones: LibroEdits, hoja: string | undefined, config: ConfigTabla, raw: string, altoDeBloque?: AltoDeBloque) {

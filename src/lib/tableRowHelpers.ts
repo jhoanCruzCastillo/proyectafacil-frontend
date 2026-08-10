@@ -147,6 +147,24 @@ export function parseTree(value: string, columns: ColumnaTabla[], config: Config
 export type AltoDeBloque = (hoja: string, columna: string | undefined, fila: number) => number | undefined;
 
 /**
+ * Cuántas filas de Excel ocupa una fila BASE de la tabla (4.10) — una fila de `valor` en las
+ * variantes planas, o un nodo hoja en las jerárquicas.
+ *
+ * `config.abarcaFilas` es la fuente de verdad DECLARADA: si está presente, manda sobre cualquier
+ * fusión detectada en vivo en el archivo (`alturaViva`) — es justo para los casos en que no hay
+ * Excel asignado todavía, o en que la fusión real no coincide exactamente con lo declarado. Sin
+ * declarar, se usa `alturaViva` (la fusión que se haya detectado), o 1 si tampoco hay eso.
+ *
+ * ES LA ÚNICA DEFINICIÓN de esta altura: la consultan `posicionesArbol`, el escritor, el lector y
+ * los editores de tabla — con una sola definición, la celda que ve el usuario y la celda donde
+ * termina el dato no pueden desincronizarse.
+ */
+export function alturaFilaBase(config: ConfigTabla, alturaViva?: number): number {
+  if (config.abarcaFilas && config.abarcaFilas > 0) return config.abarcaFilas;
+  return Math.max(alturaViva ?? 1, 1);
+}
+
+/**
  * ¿La fila de título de este grupo ocupa una fila del Excel?
  *
  * Un bloque sin título y sin valores propios NO es "un grupo con el nombre en blanco": son filas
@@ -308,7 +326,7 @@ export function posicionesArbol(
 
     let filasConsumidas: number;
     if (node.children.length === 0) {
-      filasConsumidas = Math.max(altoDeBloque?.(hoja, col?.columnaExcel, filaInicio) ?? 1, 1);
+      filasConsumidas = alturaFilaBase(config, altoDeBloque?.(hoja, col?.columnaExcel, filaInicio));
     } else {
       let fila = filaInicio + (esNivelAgrupador ? 1 : 0);
       filasConsumidas = esNivelAgrupador ? 1 : 0;

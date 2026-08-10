@@ -110,6 +110,7 @@ function resolverFormula(
   hojaBase: string,
   visitados: Set<string>,
   valores: Map<string, string>,
+  memoCompartido: Map<string, unknown> | undefined,
 ): Lista | undefined {
   const texto = formula.replace(/^=/, '').trim();
   if (!texto) return undefined;
@@ -131,11 +132,11 @@ function resolverFormula(
   const abre = /\b(?:INDIRECT|INDIRECTO)\s*\(/i.exec(texto);
   if (abre) {
     const arg = argumentoDe(texto, abre.index + abre[0].length - 1);
-    const destino = arg ? evaluarTexto(libro, valores, hojaBase, arg) : null;
+    const destino = arg ? evaluarTexto(libro, valores, hojaBase, arg, memoCompartido) : null;
     // Sin destino todavía (el campo del que depende está vacío, o da #N/A) no hay opciones que
     // ofrecer: se marca como dependiente y el campo queda como texto libre.
     if (!destino) return { estado: 'dependiente' };
-    return resolverFormula(libro, destino, hojaBase, visitados, valores);
+    return resolverFormula(libro, destino, hojaBase, visitados, valores, memoCompartido);
   }
 
   // Otras formas que no se resuelven (ver cabecera del archivo)
@@ -150,7 +151,7 @@ function resolverFormula(
     const destino = libro.nombresDefinidos.get(clave);
     if (destino) {
       visitados.add(clave);
-      return resolverFormula(libro, destino, hojaBase, visitados, valores);
+      return resolverFormula(libro, destino, hojaBase, visitados, valores, memoCompartido);
     }
   }
 
@@ -186,22 +187,51 @@ export function mensajeAvisoListas(avisos: AvisoLista[]): string | null {
     : `${avisos.length} valores no están entre las opciones de su desplegable en el Excel: ${nombres}${resto}`;
 }
 
+// Cache PERMANENTE de listas ya resueltas, por libro — sobrevive entre llamadas a `catalogoDeListas`.
+// Ver el comentario dentro de esa función para el porqué.
+const cachePermanentePorLibro = new WeakMap<LibroLeido, Map<string, Lista>>();
+
 /**
  * `valores` son los datos que la estructura tiene mapeados, indexados `hoja!REF`. Solo hacen falta
  * para las listas dependientes (`INDIRECT`), que se calculan a partir de otros campos; las demás se
  * resuelven igual aunque se pase un mapa vacío.
  */
-export function catalogoDeListas(libro: LibroLeido, valores: Map<string, string> = new Map()): CatalogoListas {
+export function catalogoDeListas(
+  libro: LibroLeido,
+  valores: Map<string, string> = new Map(),
+  memoCompartido?: Map<string, unknown>,
+  usarCachePermanente = true,
+): CatalogoListas {
   // Una misma fórmula cubre muchas celdas (`I128:I143` -> Si_No), así que se memoriza por fórmula
-  // y no por celda: resolver UBIGEO son 1874 lecturas y se hacen una sola vez.
-  const cache = new Map<string, Lista | undefined>();
+  // y no por celda: resolver UBIGEO son 1874 lecturas.
+  //
+  // Las 'resuelta' se guardan en una cache PERMANENTE por libro (sobrevive entre llamadas): no
+  // dependen de `valores`, así que un Excel con validaciones pesadas como UBIGEO se lee una sola vez
+  // en toda la sesión, no en cada tecla que se escribe en cualquier campo de la pantalla. Las
+  // 'dependiente' (`INDIRECT`) sí pueden cambiar entre llamadas porque leen `valores`, así que esas
+  // solo se memorizan dentro de esta llamada.
+  //
+  // `usarCachePermanente=false` (modo "tiempo real" del selector del editor) apaga esta cache y
+  // vuelve a resolver todo desde cero en cada llamada, igual que antes de que existiera.
+  let permanente = usarCachePermanente ? cachePermanentePorLibro.get(libro) : undefined;
+  if (usarCachePermanente && !permanente) {
+    permanente = new Map();
+    cachePermanentePorLibro.set(libro, permanente);
+  }
+  const cacheDependientes = new Map<string, Lista | undefined>();
 
   function listaDe(hoja: string, ref: string): Lista | undefined {
     const formula = libro.validacionLista(hoja, ref);
     if (!formula) return undefined;
-    const clave = `${hoja} ${formula}`;
-    if (!cache.has(clave)) cache.set(clave, resolverFormula(libro, formula, hoja, new Set(), valores));
-    return cache.get(clave);
+    const clave = `${hoja} ${formula}`;
+    const resuelta = permanente?.get(clave);
+    if (resuelta) return resuelta;
+    if (cacheDependientes.has(clave)) return cacheDependientes.get(clave);
+
+    const resultado = resolverFormula(libro, formula, hoja, new Set(), valores, memoCompartido);
+    if (resultado?.estado === 'resuelta' && permanente) permanente.set(clave, resultado);
+    else cacheDependientes.set(clave, resultado);
+    return resultado;
   }
 
   return {

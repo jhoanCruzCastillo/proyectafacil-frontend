@@ -11,8 +11,8 @@
 import { computed, shallowRef, watch, type ComputedRef, type InjectionKey, type Ref, type ShallowRef } from 'vue';
 import { leerLibroXlsx, type LibroLeido } from '@/lib/xlsxXmlReader';
 import type { AltoDeBloque } from '@/lib/tableRowHelpers';
-import { catalogoDeListas, type CatalogoListas } from '@/lib/xlsxListas';
-import { calcularCelda, type ResultadoCelda } from '@/lib/excelFormulaEval';
+import { catalogoDeListas } from '@/lib/xlsxListas';
+import { calcularCelda, crearMemoCompartido, type ResultadoCelda } from '@/lib/excelFormulaEval';
 
 export interface ExcelVivo {
   /** Opciones del desplegable de esa celda, o undefined si no tiene o no se pudo resolver */
@@ -28,6 +28,15 @@ export interface ExcelVivo {
 }
 
 export const EXCEL_VIVO: InjectionKey<ComputedRef<ExcelVivo | null>> = Symbol('excelVivo');
+
+/**
+ * 'cache' (por defecto): las listas del Excel que no dependen de otros campos se resuelven una sola
+ * vez por archivo, y las fórmulas visibles de una misma pasada comparten lo que ya calcularon entre
+ * sí — ver `useExcelVivo`. 'tiempo_real' apaga ambas cosas y vuelve al comportamiento original (todo
+ * se recalcula desde cero en cada tecla): es la vía de escape manual del selector del editor, para
+ * cuando se sospeche que el caché muestra algo desactualizado en una ficha puntual.
+ */
+export type ModoCalculoExcel = 'cache' | 'tiempo_real';
 
 // El libro se descarga y parsea una sola vez por URL, para toda la sesión: son ~250 KB y ni las
 // opciones ni las fórmulas cambian mientras el archivo asignado sea el mismo.
@@ -84,30 +93,39 @@ export function useAltoDeBloqueExcel(fuente: Ref<string | null | undefined>): Co
 export function useExcelVivo(
   fuente: Ref<string | null | undefined>,
   valoresPorCelda: Ref<Map<string, string> | null>,
+  modo?: Ref<ModoCalculoExcel>,
 ): ComputedRef<ExcelVivo | null> {
   const libro = useLibro(fuente);
-  // El catálogo depende de los valores porque las listas dependientes (`INDIRECT`) se calculan a
-  // partir de otros campos: al cambiar el campo padre, cambian las opciones que ofrece el hijo.
-  const catalogo = computed<CatalogoListas | null>(() =>
-    libro.value ? catalogoDeListas(libro.value, valoresPorCelda.value ?? new Map()) : null,
-  );
 
+  // `catalogo` y `calculado` se arman en el MISMO computed (antes eran dos computeds separados) para
+  // poder compartir un único `memoFormulas` entre ambos: sin él, dos fórmulas visibles que leen el
+  // mismo rango grande (p. ej. dos totales que suman las mismas 500 filas) lo recorrían cada una por
+  // su cuenta. Compartirlo es seguro porque las dos cuelgan de las mismas dependencias reactivas
+  // (`libro`, `valoresPorCelda` y `modo`): se recrea entero en cuanto cualquiera de las tres cambia,
+  // así que nunca puede devolver un valor de un snapshot anterior.
   return computed<ExcelVivo | null>(() => {
     const l = libro.value;
     if (!l) return null;
     const valores = valoresPorCelda.value;
-    // Se memoriza dentro de la pasada: varias celdas de la misma hoja comparten dependencias
-    // (todas las de Datos Generales cuelgan de B44) y así no se recalculan una y otra vez.
-    const memo = new Map<string, ResultadoCelda | undefined>();
+    const usarCache = (modo?.value ?? 'cache') === 'cache';
+    // En modo 'tiempo_real' no se comparte memo entre fórmulas ni se usa el caché permanente de
+    // listas: cada una vuelve a resolverse desde cero, igual que antes de que existiera el caché.
+    const memoFormulas = usarCache ? crearMemoCompartido() : undefined;
+    // El catálogo depende de los valores porque las listas dependientes (`INDIRECT`) se calculan a
+    // partir de otros campos: al cambiar el campo padre, cambian las opciones que ofrece el hijo.
+    const catalogo = catalogoDeListas(l, valores ?? new Map(), memoFormulas, usarCache);
+    // Se memoriza aparte (por celda, no por fórmula) para no volver a llamar a `calcularCelda` si dos
+    // campos visibles apuntan exactamente a la misma celda.
+    const memoCalculado = new Map<string, ResultadoCelda | undefined>();
 
     return {
-      opcionesDe: (hoja, ref) => catalogo.value?.opcionesDe(hoja, ref),
+      opcionesDe: (hoja, ref) => catalogo.opcionesDe(hoja, ref),
       altoDeBloque: (hoja, columna, fila) => (columna ? l.fusion(hoja, `${columna}${fila}`)?.filas : undefined),
       calculado: (hoja, ref) => {
         if (!valores) return undefined;
         const clave = `${hoja}!${ref}`;
-        if (!memo.has(clave)) memo.set(clave, calcularCelda(l, valores, hoja, ref));
-        return memo.get(clave);
+        if (!memoCalculado.has(clave)) memoCalculado.set(clave, calcularCelda(l, valores, hoja, ref, memoFormulas));
+        return memoCalculado.get(clave);
       },
     };
   });

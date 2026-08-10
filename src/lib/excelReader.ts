@@ -3,7 +3,7 @@ import { leerImagenesDeHoja, imagenParaFila, type ImagenIncrustada } from './xls
 import { aFechaISO, aAnio, aPorcentaje } from './conversionesExcel';
 import { parseCoords, serializarCoords } from './coords';
 import {
-  esCeldaPartida, esJerarquica, getPeriodos, parseTree, posicionesArbol, posicionDe, agrupadorProfundidad, posicionesGrupos,
+  esCeldaPartida, esJerarquica, getPeriodos, parseTree, posicionesArbol, posicionDe, agrupadorProfundidad, posicionesGrupos, alturaFilaBase,
   type FilaDinamica, type GrupoFilas, type TreeNode,
 } from './tableRowHelpers';
 import type { Plantilla, Campo, Seccion, ConfigTabla, ColumnaTabla, TipoCampo, TipoColumna } from '@/types';
@@ -335,6 +335,9 @@ function leerTablaSimple(
   detectarCrecimiento = true,
 ): TablaLeida {
   const filasBase = config.captura!.filasBase!;
+  // Cada fila BASE ocupa `alto` filas físicas de Excel (4.10) — 1 salvo que la tabla declare
+  // `abarca_filas`. Toda la aritmética de abajo avanza en unidades de `alto`, nunca de a una.
+  const alto = alturaFilaBase(config);
   const filas: FilaDinamica[] = [];
   let filasConDatos = 0;
 
@@ -346,14 +349,14 @@ function leerTablaSimple(
     if (!letra) continue;
     const set = new Set<number>();
     for (let i = 0; i < filasBase; i++) {
-      const estilo = libro.estilo(hoja, `${letra}${filaFisicaInicial + i}`);
+      const estilo = libro.estilo(hoja, `${letra}${filaFisicaInicial + i * alto}`);
       if (estilo !== undefined) set.add(estilo);
     }
     estilosBase.set(col.id, set);
   }
 
   for (let i = 0; i < filasBase; i++) {
-    const fila = leerFilaTabla(libro, hoja, config, filaFisicaInicial + i, periodos);
+    const fila = leerFilaTabla(libro, hoja, config, filaFisicaInicial + i * alto, periodos);
     filas.push(fila.valores);
     if (fila.tieneDatos) filasConDatos++;
   }
@@ -363,7 +366,7 @@ function leerTablaSimple(
   // pre-formateado de la plantilla, y una tabla real llenada no deja huecos intermedios.
   let filasExtra = 0;
   while (detectarCrecimiento && filasExtra < MAX_FILAS_EXTRA) {
-    const filaFisica = filaFisicaInicial + filasBase + filasExtra;
+    const filaFisica = filaFisicaInicial + (filasBase + filasExtra) * alto;
     if (!esDeLaMismaTabla(libro, hoja, config.columnas, filaFisica, estilosBase)) break;
     const fila = leerFilaTabla(libro, hoja, config, filaFisica, periodos);
     if (!fila.tieneDatos) break;
@@ -406,7 +409,7 @@ function rellenarGrupos(
 ): TablaAgrupadaLeida {
   const primera = config.columnas.find((c) => c.columnaExcel)?.columnaExcel;
   const posiciones = posicionesGrupos(actuales, filaFisicaInicial, (fila) =>
-    primera ? libro.fusion(hoja, `${primera}${fila}`)?.filas ?? 1 : 1,
+    alturaFilaBase(config, primera ? libro.fusion(hoja, `${primera}${fila}`)?.filas : undefined),
   );
 
   let filasConDatos = 0;
@@ -758,7 +761,10 @@ export async function leerValoresDeExcel(
       // Plana (con o sin columnas dinámicas). Solo la variante simple detecta filas insertadas.
       const lectura = leerTablaSimple(libro, hoja, config, filaFisica, periodos, esTablaPlanaSimple(config));
       if (lectura.filasExtra > 0) {
-        crecimientos.push({ despuesDeFila: filaOriginal + config.captura!.filasBase! - 1, cantidad: lectura.filasExtra });
+        // `filasExtra` cuenta filas BASE; el desplazamiento real de lo que sigue en la hoja es en
+        // filas FÍSICAS, así que hay que multiplicar por lo que ocupa cada fila base (4.10).
+        const alto = alturaFilaBase(config);
+        crecimientos.push({ despuesDeFila: filaOriginal + config.captura!.filasBase! * alto - 1, cantidad: lectura.filasExtra * alto });
         resultado.filasExtraDetectadas += lectura.filasExtra;
       }
       if (lectura.filasConDatos === 0) continue; // tabla vacía en el Excel: no tocar nada

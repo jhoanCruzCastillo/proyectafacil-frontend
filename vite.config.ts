@@ -21,5 +21,15 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
+    // Mismo proxy que server, pero para `vite preview` (build de producción) — Vite no comparte
+    // la config de `server.proxy` con `preview`, hay que declararla aparte.
+    preview: {
+      proxy: {
+        '/api': {
+          target: env.CI4_BACKEND_URL || 'http://localhost:8080',
+          changeOrigin: true,
+        },
+      },
+    },
   }
 })

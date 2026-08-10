@@ -4,7 +4,7 @@ import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faPlus } from '@/lib/icons';
 import TableHeaderRow from './TableHeaderRow.vue';
 import TableRow from './TableRow.vue';
-import { parseDynamicRows, newEmptyRow, getPeriodos, esCeldaPartida, valorPlano, type FilaDinamica } from '@/lib/tableRowHelpers';
+import { parseDynamicRows, newEmptyRow, getPeriodos, esCeldaPartida, valorPlano, alturaFilaBase, type FilaDinamica } from '@/lib/tableRowHelpers';
 import type { ConfigTabla } from '@/types';
 
 const props = defineProps<{
@@ -100,7 +100,7 @@ function renamePeriodo(pi: number, value: string) {
             :periodos="getPeriodos(config)"
             :columna-dinamica-id="config.columnaDinamicaId"
             :hoja="hoja"
-            :fila-excel="config.captura?.filaInicial ? config.captura.filaInicial + ri : undefined"
+            :fila-excel="config.captura?.filaInicial ? config.captura.filaInicial + ri * alturaFilaBase(config) : undefined"
             @cell-change="(colId, val) => updateCell(ri, colId, val)"
             @periodo-change="(colId, pi, val) => updatePeriodo(ri, colId, pi, val)"
             @subcelda-change="(colId, subId, val) => updateSubcelda(ri, colId, subId, val)"

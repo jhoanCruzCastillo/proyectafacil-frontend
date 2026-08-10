@@ -9,9 +9,9 @@ import { contarCamposSinCaptura } from '@/lib/campoValidation';
 import { buildDocumento } from '@/lib/schemaExport';
 import { insertarValoresEnExcel, type AvisoLista } from '@/lib/excelWriter';
 import { usePushActividad } from '@/composables/useActividad';
-import { useExcelVivo, useAltoDeBloqueExcel, EXCEL_VIVO } from '@/composables/useListasExcel';
+import { useExcelVivo, useAltoDeBloqueExcel, EXCEL_VIVO, type ModoCalculoExcel } from '@/composables/useListasExcel';
 import { mensajeAvisoListas } from '@/lib/xlsxListas';
-import { parseDynamicRows, parseGroupedRows, parseTree, esJerarquica, esCeldaPartida, valorSubcolumna, agrupadorProfundidad, posicionesArbol, posicionesGrupos, posicionDe, type AltoDeBloque, type FilaDinamica, type TreeNode } from '@/lib/tableRowHelpers';
+import { parseDynamicRows, parseGroupedRows, parseTree, esJerarquica, esCeldaPartida, valorSubcolumna, agrupadorProfundidad, posicionesArbol, posicionesGrupos, posicionDe, alturaFilaBase, type AltoDeBloque, type FilaDinamica, type TreeNode } from '@/lib/tableRowHelpers';
 import { useAutoguardado } from '@/composables/useAutoguardado';
 import { useUiStore } from '@/stores/ui';
 import type { VersionTab, Campo, ConfigTabla, Plantilla, Ejemplo, Seccion, TipologiaIoarr } from '@/types';
@@ -88,7 +88,7 @@ function indexarCeldasAgrupadas(
   const grupos = parseGroupedRows(valorCrudo, config);
   const primera = config.columnas.find((c) => c.columnaExcel)?.columnaExcel;
   const posiciones = posicionesGrupos(grupos, filaInicial, (fila) =>
-    Math.max(altoDeBloque(hoja, primera, fila) ?? 1, 1),
+    alturaFilaBase(config, altoDeBloque(hoja, primera, fila)),
   );
 
   grupos.forEach((grupo, gi) => {
@@ -161,8 +161,13 @@ function indexarCeldasDeTabla(mapa: Map<string, string>, hoja: string, campo: Ca
   }
   if (config.subtipo !== 'filas_dinamicas') return;
 
+  const primera = config.columnas.find((c) => c.columnaExcel)?.columnaExcel;
   const filas = parseDynamicRows(valorCrudo, config);
-  filas.forEach((fila, i) => indexarFila(mapa, hoja, config, fila, filaInicial + i));
+  let fila = filaInicial;
+  for (const filaData of filas) {
+    indexarFila(mapa, hoja, config, filaData, fila);
+    fila += alturaFilaBase(config, altoDeBloque(hoja, primera, fila));
+  }
 }
 
 // Toda la lógica de edición de estructura y de autoría de ejemplos (tab Ejemplos) de
@@ -231,6 +236,22 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
   // archivo, una sola descarga.
   const altoDeBloque = useAltoDeBloqueExcel(fuenteExcel);
 
+  // Selector "Caché / Tiempo real" del editor (junto al botón de importar JSON) — por ficha, guardado
+  // en localStorage para que la elección sobreviva a recargar la página. 'cache' es el default: es el
+  // comportamiento normal desde que se agregó el caché de listas/fórmulas del Excel. 'tiempo_real' es
+  // la vía de escape manual si se sospecha que el caché muestra algo desactualizado en una ficha
+  // puntual — vuelve exactamente al cálculo desde cero que había antes.
+  const MODO_CALCULO_KEY_PREFIX = 'pf_modo_calculo_excel_';
+  const modoCalculo = ref<ModoCalculoExcel>('cache');
+  watch(plantillaId, (id) => {
+    const guardado = localStorage.getItem(MODO_CALCULO_KEY_PREFIX + id);
+    modoCalculo.value = guardado === 'tiempo_real' ? 'tiempo_real' : 'cache';
+  }, { immediate: true });
+  function setModoCalculo(modo: ModoCalculoExcel) {
+    modoCalculo.value = modo;
+    localStorage.setItem(MODO_CALCULO_KEY_PREFIX + plantillaId.value, modo);
+  }
+
   // Entradas del cálculo en vivo, indexadas por la celda a la que apunta cada campo. En Estructura
   // son los valores por defecto de la plantilla; en Ejemplos son los del ejemplo activo tal como se
   // están editando, para que las fórmulas del Excel se recalculen mientras se escribe.
@@ -261,7 +282,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
   // Se lee el Excel del catálogo (no la copia del ejemplo): es el mismo archivo en cuanto a opciones
   // y fórmulas, pero no cambia al insertar valores, así que la caché sigue válida toda la sesión.
   // Se comparte con las tarjetas de campo por inject.
-  provide(EXCEL_VIVO, useExcelVivo(fuenteExcel, valoresPorCelda));
+  provide(EXCEL_VIVO, useExcelVivo(fuenteExcel, valoresPorCelda, modoCalculo));
   const previewFileUrl = computed(
     () => (showExamples.value && activeEjemplo.value ? excelEjemploActivo.value?.dataUrl : undefined) ?? archivoExcelAsignado.value?.dataUrl ?? null,
   );
@@ -755,7 +776,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     estadoGuardado: autoguardado.estado,
     editData, activeTab, activeSectionIndex, selectedCampo, isNewCampo, editingHojaSeccionId,
     leftWidth, rightWidth, examplesWidth, highlightMissingCaptura, ejemplosCount, jsonPreview,
-    showImportEstructura,
+    showImportEstructura, modoCalculo, setModoCalculo,
     secciones, safeIdx, seccionActiva, isFirst, isLast, showExamples,
     ejemplos, activeEjemplo, editedValores, showNuevoEjemplo, deleteTarget, volcarTarget, volcarEstructura,
     archivoExcelAsignado, showExcelCatalogModal, showPreview, showInsertConfirm, isInserting, insertProgress,

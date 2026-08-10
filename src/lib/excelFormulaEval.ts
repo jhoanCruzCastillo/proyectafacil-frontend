@@ -655,6 +655,18 @@ function fechaDesdeSerial(serial: number, soloAnio: boolean): string {
 }
 
 /**
+ * Memo compartido entre varias llamadas a `calcularCelda`/`evaluarTexto` — sin él, cada llamada
+ * vuelve a resolver desde cero hasta la última celda de la que depende, y en una plantilla con
+ * fórmulas encadenadas (un SUM de 500 filas que otras fórmulas también suman) eso se repite una vez
+ * por cada celda visible que lo usa. Es seguro compartirlo entre TODAS las fórmulas de una misma
+ * pasada porque una pasada = un snapshot fijo de `valores`; hay que crear uno nuevo (no reutilizar
+ * este) en cuanto ese snapshot cambie, o se arrastraría un valor de un estado anterior.
+ */
+export function crearMemoCompartido(): Map<string, unknown> {
+  return new Map();
+}
+
+/**
  * Evalúa una expresión suelta (no la fórmula de una celda) y devuelve su texto, o null si no se pudo
  * resolver o salió vacía.
  *
@@ -667,8 +679,9 @@ export function evaluarTexto(
   valores: Map<string, string>,
   hoja: string,
   expresion: string,
+  memoCompartido?: Map<string, unknown>,
 ): string | null {
-  const ctx: Contexto = { libro, valores, memo: new Map(), enCurso: new Set(), hojaBase: hoja };
+  const ctx: Contexto = { libro, valores, memo: (memoCompartido as Map<string, Valor> | undefined) ?? new Map(), enCurso: new Set(), hojaBase: hoja };
   const bruto = evaluarExpresion(expresion, ctx);
   const v = esRango(bruto) ? escalar(bruto, ctx) : bruto;
   if (v === NO_SOPORTADO || esRango(v) || v instanceof ErrorExcel) return null;
@@ -686,11 +699,12 @@ export function calcularCelda(
   valores: Map<string, string>,
   hoja: string,
   ref: string,
+  memoCompartido?: Map<string, unknown>,
 ): ResultadoCelda | undefined {
   const formula = libro.formulaDe(hoja, ref);
   if (!formula) return undefined;
 
-  const ctx: Contexto = { libro, valores, memo: new Map(), enCurso: new Set(), hojaBase: hoja };
+  const ctx: Contexto = { libro, valores, memo: (memoCompartido as Map<string, Valor> | undefined) ?? new Map(), enCurso: new Set(), hojaBase: hoja };
   const bruto = evaluarExpresion(formula, ctx);
   // El formato oficial escribe referencias a bloques fusionados como rango (`+'Unidad
   // Productora'!E49:F49`). Excel lo resuelve por intersección implícita; aquí se toma la esquina

@@ -62,7 +62,7 @@ const anchoTotalAgrupador = computed(() => cabecerasAgrupador.value.reduce((s, c
       </select>
     </div>
 
-    <div class="grid grid-cols-3 gap-3">
+    <div class="grid grid-cols-4 gap-3">
       <CampoConAyuda
         etiqueta="Columna inicial"
         ayuda="Letra de la columna del Excel donde arranca la tabla. Es solo una referencia: cada columna puede indicar la suya propia con el engranaje."
@@ -99,6 +99,19 @@ const anchoTotalAgrupador = computed(() => cabecerasAgrupador.value.reduce((s, c
           type="number"
           placeholder="Ej. 3"
           min="0"
+          class="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+        />
+      </CampoConAyuda>
+      <CampoConAyuda
+        etiqueta="Abarca filas"
+        ayuda="Cuántas filas del Excel ocupa cada fila base de la tabla (una fila de valor, o un nodo hoja en jerárquicas). 1 si no están fusionadas — es el valor por defecto."
+      >
+        <input
+          :value="config.abarcaFilas ?? 1"
+          @input="emit('update', { ...config, abarcaFilas: Number(($event.target as HTMLInputElement).value) || 1 })"
+          type="number"
+          placeholder="1"
+          min="1"
           class="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30"
         />
       </CampoConAyuda>

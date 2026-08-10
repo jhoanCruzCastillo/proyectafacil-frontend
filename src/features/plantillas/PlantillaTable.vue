@@ -1,13 +1,17 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faEye, faPen, faFileExcel } from '@/lib/icons';
+import { faPen, faIdCard, faFileExcel } from '@/lib/icons';
 import { instrumentoLabels, tipologiaIoarrLabels } from '@/lib/icons';
 import InstrumentoTabs from './InstrumentoTabs.vue';
 import PlantillasAgrupadas from './PlantillasAgrupadas.vue';
 import PracticaToggle from './PracticaToggle.vue';
 import EstadoPlantillaToggle from './EstadoPlantillaToggle.vue';
 import ExcelCatalogModal from './ExcelCatalogModal.vue';
+import NuevaPlantillaModal from './NuevaPlantillaModal.vue';
+import { useActualizarPlantilla } from '@/composables/usePlantillas';
+import { usePushActividad } from '@/composables/useActividad';
+import { useUiStore } from '@/stores/ui';
 import type { Plantilla, Sector, TipoInstrumento, TipologiaIoarr } from '@/types';
 
 const props = defineProps<{
@@ -68,6 +72,26 @@ const vistaAgrupada = computed(() => activeTab.value === 'ficha_tecnica' && prop
 
 const excelPlantillaId = ref<string | null>(null);
 const excelPlantilla = computed(() => props.plantillas.find((p) => p.id === excelPlantillaId.value) ?? null);
+
+const ui = useUiStore();
+const actualizarPlantilla = useActualizarPlantilla();
+const pushActividad = usePushActividad();
+const editandoPlantillaId = ref<string | null>(null);
+const editandoPlantilla = computed(() => props.plantillas.find((p) => p.id === editandoPlantillaId.value) ?? null);
+
+async function handleActualizarDatos(
+  codigo: string,
+  nombre: string,
+  descripcion: string,
+  instrumento: TipoInstrumento,
+  tipologiasIoarr: TipologiaIoarr[] | undefined,
+) {
+  if (!editandoPlantillaId.value) return;
+  await actualizarPlantilla.mutateAsync({ id: editandoPlantillaId.value, data: { codigo, nombre, descripcion, instrumento, tipologiasIoarr } });
+  await pushActividad.mutateAsync({ mensaje: `Se actualizaron los datos de la plantilla ${codigo} — ${nombre}`, color: 'blue' });
+  ui.toast('Datos actualizados');
+  editandoPlantillaId.value = null;
+}
 </script>
 
 <template>
@@ -141,19 +165,21 @@ const excelPlantilla = computed(() => props.plantillas.find((p) => p.id === exce
           <td class="px-6 py-4">
             <div class="flex items-center justify-center gap-2">
               <EstadoPlantillaToggle :plantilla="p" />
-              <RouterLink
-                :to="`/sectores/${p.sectorId}/plantilla/${p.id}`"
-                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-brand-600 hover:bg-brand-50 transition-colors"
+              <button
+                @click="editandoPlantillaId = p.id"
+                type="button"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-gray-600 hover:bg-gray-100 transition-colors"
+                title="Editar código, nombre, tipo y descripción"
               >
-                <FontAwesomeIcon :icon="faEye" class="w-3 h-3" />
-                Ver
-              </RouterLink>
+                <FontAwesomeIcon :icon="faIdCard" class="w-3 h-3" />
+                Datos
+              </button>
               <RouterLink
                 :to="`/sectores/${p.sectorId}/plantilla/${p.id}/${p.instrumento === 'perfil' ? 'perfil' : 'editar'}`"
                 class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-white bg-sidebar hover:bg-heading transition-colors"
               >
                 <FontAwesomeIcon :icon="faPen" class="w-3 h-3" />
-                Editar
+                Edit. plantilla
               </RouterLink>
               <button
                 @click="excelPlantillaId = p.id"
@@ -179,6 +205,12 @@ const excelPlantilla = computed(() => props.plantillas.find((p) => p.id === exce
       is-open
       :plantilla="excelPlantilla"
       @close="excelPlantillaId = null"
+    />
+    <NuevaPlantillaModal
+      :is-open="!!editandoPlantilla"
+      :plantilla="editandoPlantilla"
+      @close="editandoPlantillaId = null"
+      @update="handleActualizarDatos"
     />
   </div>
 </template>

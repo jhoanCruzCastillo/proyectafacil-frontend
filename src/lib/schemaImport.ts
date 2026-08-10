@@ -257,6 +257,9 @@ function campoFromDoc(rawCampo: unknown): Campo {
       subtipo,
       columnas,
       agrupador: Boolean(rawConfig.agrupador),
+      // Si el documento no lo trae (estructuras previas a esta convención), se asume 1 — sin
+      // fusionar, el comportamiento de siempre. Ver 4.10 en Notion.
+      abarcaFilas: typeof rawConfig.abarca_filas === 'number' && rawConfig.abarca_filas > 0 ? rawConfig.abarca_filas : 1,
       agrupadorAbarcaColumnas: typeof rawConfig.agrupador_abarca_columnas === 'number' ? rawConfig.agrupador_abarca_columnas : undefined,
       agrupadorNivel: typeof rawConfig.agrupador_nivel === 'number' ? rawConfig.agrupador_nivel : undefined,
       columnaDinamicaId,
