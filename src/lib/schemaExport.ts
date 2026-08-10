@@ -220,6 +220,7 @@ function buildCampo(seccion: Seccion, campo: Campo, valorRaw: string | undefined
         filas: esJerarquica(config.subtipo) ? 'jerarquicas' : 'planas',
         columnas: config.columnaDinamicaId ? 'dinamicas' : 'fijas',
         agrupador: Boolean(config.agrupador),
+        abarca_filas: config.abarcaFilas ?? 1,
         ...(config.agrupadorAbarcaColumnas != null ? { agrupador_abarca_columnas: config.agrupadorAbarcaColumnas } : {}),
         ...(config.agrupadorNivel != null ? { agrupador_nivel: config.agrupadorNivel } : {}),
       },

@@ -111,6 +111,12 @@ export interface ConfigTabla {
   cabeceras?: CabeceraGrupo[];
   /** Posición de arranque de la tabla en el Excel */
   captura?: CapturaTabla;
+  /** Cuántas filas de Excel ocupa cada fila BASE de la tabla (una fila de `valor` en planas, o un
+   * nodo hoja — los hijos que no son padres — en jerárquicas). `undefined`/1 = sin fusionar, el
+   * comportamiento de siempre. No confundir con `ColumnaTabla.nivel: 'padre'` + `combina_vertical`
+   * en la exportación: eso fusiona visualmente un valor repetido entre hermanos sin reducir filas
+   * físicas; esto declara que la fila base en sí ya ocupa más de una fila de Excel. */
+  abarcaFilas?: number;
 }
 
 export interface Sector {

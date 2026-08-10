@@ -7,7 +7,7 @@ import TableRow from './TableRow.vue';
 import CampoListaInput from '@/components/CampoListaInput.vue';
 import { EXCEL_VIVO } from '@/composables/useListasExcel';
 import { etiquetaDeValor } from '@/lib/conversionesExcel';
-import { parseGroupedRows, newEmptyRow, getPeriodos, esCeldaPartida, valorPlano, posicionesGrupos, grupoOcupaFila, repartoAgrupador, type GrupoFilas } from '@/lib/tableRowHelpers';
+import { parseGroupedRows, newEmptyRow, getPeriodos, esCeldaPartida, valorPlano, posicionesGrupos, grupoOcupaFila, repartoAgrupador, alturaFilaBase, type GrupoFilas } from '@/lib/tableRowHelpers';
 import type { ConfigTabla, ColumnaTabla } from '@/types';
 
 // Filas planas agrupadas bajo un encabezado de grupo (config.agrupador === true). Una sola tabla:
@@ -156,7 +156,7 @@ const posiciones = computed(() => {
   if (!props.hoja || !filaInicial) return null;
   return posicionesGrupos(grupos.value, filaInicial, (fila) => {
     const primera = props.config.columnas.find((c) => c.columnaExcel)?.columnaExcel;
-    return Math.max(excel?.value?.altoDeBloque(props.hoja!, primera, fila) ?? 1, 1);
+    return alturaFilaBase(props.config, excel?.value?.altoDeBloque(props.hoja!, primera, fila));
   });
 });
 
@@ -290,9 +290,22 @@ function valorGrupoMostrado(gi: number, col: ColumnaTabla, opciones: string[] | 
             />
             <tr>
               <td :colspan="totalCols + 1" class="px-1 py-1">
-                <button @click.stop="addRow(gi)" type="button" class="w-full py-1 text-[10px] font-medium text-brand-600 hover:bg-brand-50 transition-colors flex items-center justify-center gap-1">
-                  <FontAwesomeIcon :icon="faPlus" class="w-2 h-2" /> Agregar fila
-                </button>
+                <div class="flex items-center gap-1">
+                  <button @click.stop="addRow(gi)" type="button" class="flex-1 py-1 text-[10px] font-medium text-brand-600 hover:bg-brand-50 transition-colors flex items-center justify-center gap-1">
+                    <FontAwesomeIcon :icon="faPlus" class="w-2 h-2" /> Agregar fila
+                  </button>
+                  <!-- Grupo "filas sueltas": sin fila de título no hay papelera en ningún otro lado
+                       para eliminarlo, así que se ofrece aquí mismo. -->
+                  <button
+                    v-if="!grupoOcupaFila(grupo) && grupos.length > 1"
+                    @click.stop="removeGrupo(gi)"
+                    type="button"
+                    title="Eliminar este grupo de filas sueltas"
+                    class="w-5 h-5 rounded flex items-center justify-center text-gray-300 hover:text-red-500 transition-colors shrink-0"
+                  >
+                    <FontAwesomeIcon :icon="faTrash" class="w-2.5 h-2.5" />
+                  </button>
+                </div>
               </td>
             </tr>
           </template>

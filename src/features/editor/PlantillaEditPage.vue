@@ -28,7 +28,7 @@ const {
   estadoGuardado,
   editData, activeTab, selectedCampo, isNewCampo, editingHojaSeccionId,
   leftWidth, rightWidth, examplesWidth, highlightMissingCaptura, ejemplosCount, jsonPreview,
-  showImportEstructura,
+  showImportEstructura, modoCalculo, setModoCalculo,
   secciones, safeIdx, seccionActiva, isFirst, isLast, showExamples,
   ejemplos, activeEjemplo, editedValores, showNuevoEjemplo, deleteTarget, volcarTarget, volcarEstructura,
   archivoExcelAsignado, showExcelCatalogModal, showPreview, showInsertConfirm, isInserting, insertProgress,
@@ -99,11 +99,13 @@ const verContextosIA = ref(false);
           show-edit-hoja
           :show-duplicate-section="!showExamples"
           :show-import-estructura="!showExamples"
+          :modo-calculo="modoCalculo"
           @select="handleSectionSelect"
           @add-section="handleAddSection"
           @edit-hoja="editingHojaSeccionId = $event"
           @duplicate-section="handleDuplicarSeccion"
           @import-estructura="showImportEstructura = true"
+          @update:modo-calculo="setModoCalculo"
         />
       </div>
 

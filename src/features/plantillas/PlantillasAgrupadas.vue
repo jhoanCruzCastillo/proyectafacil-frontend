@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faPen, faIdCard, faMagnifyingGlass, faStar, faFilter } from '@/lib/icons';
+import { faPen, faIdCard, faFileExcel, faMagnifyingGlass, faStar, faFilter } from '@/lib/icons';
 import { instrumentoLabels } from '@/lib/icons';
 import PracticaToggle from './PracticaToggle.vue';
 import EstadoPlantillaToggle from './EstadoPlantillaToggle.vue';
+import ExcelCatalogModal from './ExcelCatalogModal.vue';
 import NuevaPlantillaModal from './NuevaPlantillaModal.vue';
 import { useActualizarPlantilla } from '@/composables/usePlantillas';
 import { usePushActividad } from '@/composables/useActividad';
@@ -72,6 +73,8 @@ const actualizarPlantilla = useActualizarPlantilla();
 const pushActividad = usePushActividad();
 const editandoPlantillaId = ref<string | null>(null);
 const editandoPlantilla = computed(() => props.plantillas.find((p) => p.id === editandoPlantillaId.value) ?? null);
+const excelPlantillaId = ref<string | null>(null);
+const excelPlantilla = computed(() => props.plantillas.find((p) => p.id === excelPlantillaId.value) ?? null);
 
 async function handleActualizarDatos(
   codigo: string,
@@ -147,6 +150,14 @@ async function handleActualizarDatos(
               <FontAwesomeIcon :icon="faPen" class="w-3 h-3" />
               Edit. plantilla
             </RouterLink>
+            <button
+              @click="excelPlantillaId = mefVisible.id"
+              type="button"
+              class="inline-flex items-center justify-center w-8 h-8 rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+              title="Gestionar Excel"
+            >
+              <FontAwesomeIcon :icon="faFileExcel" class="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
       </div>
@@ -191,6 +202,14 @@ async function handleActualizarDatos(
                 <FontAwesomeIcon :icon="faPen" class="w-3 h-3" />
                 Edit. plantilla
               </RouterLink>
+              <button
+                @click="excelPlantillaId = p.id"
+                type="button"
+                class="inline-flex items-center justify-center w-8 h-8 rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+                title="Gestionar Excel"
+              >
+                <FontAwesomeIcon :icon="faFileExcel" class="w-3.5 h-3.5" />
+              </button>
             </div>
           </div>
         </div>
@@ -200,6 +219,12 @@ async function handleActualizarDatos(
       </p>
     </div>
 
+    <ExcelCatalogModal
+      v-if="excelPlantilla"
+      is-open
+      :plantilla="excelPlantilla"
+      @close="excelPlantillaId = null"
+    />
     <NuevaPlantillaModal
       :is-open="!!editandoPlantilla"
       :plantilla="editandoPlantilla"
