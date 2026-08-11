@@ -296,6 +296,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     for (const sec of editData.value.secciones) {
       for (const sub of sec.subsecciones) {
         for (const campo of sub.campos) {
+          if (campo.tipo === 'nota') continue; // su texto vive solo en campo.valorEjemplo, no en el ejemplo
           if (campo.valorEjemplo) defaults[campo.identificador] = campo.valorEjemplo;
         }
       }
@@ -556,6 +557,31 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
   }
 
   /**
+   * Una nota (4.11) no es un campo real de la ficha: no tiene identificador (no cuenta para la
+   * numeración de sus hermanos ni para `cantidadCampos`) ni captura en Excel. Su texto vive en
+   * `valorEjemplo`, igual que un texto_largo, y se edita una sola vez desde Estructura — se muestra
+   * tal cual al cliente, no es un valor que él llene por ejemplo.
+   */
+  function handleAddNota(subseccionId: string, despuesDeCampoId?: string) {
+    const nuevoId = generateId();
+    let nuevaNota: Campo | null = null;
+    mutate((p) => {
+      for (const sec of p.secciones) {
+        const sub = sec.subsecciones.find((s) => s.id === subseccionId);
+        if (sub) {
+          nuevaNota = { id: nuevoId, identificador: '', etiqueta: '', tipo: 'nota', editable: true, valorEjemplo: '' };
+          const idx = despuesDeCampoId ? sub.campos.findIndex((c) => c.id === despuesDeCampoId) : -1;
+          if (idx >= 0) sub.campos.splice(idx + 1, 0, nuevaNota);
+          else sub.campos.push(nuevaNota);
+          break;
+        }
+      }
+    });
+    if (nuevaNota) { selectedCampo.value = nuevaNota; isNewCampo.value = true; }
+    ui.toast('Nota agregada');
+  }
+
+  /**
    * Copia exacta de un campo justo debajo del original, con el siguiente identificador libre de su
    * subsección (duplicar 08.06.2 da 08.06.3).
    *
@@ -575,13 +601,14 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
         const idx = sub.campos.findIndex((c) => c.id === campoId);
         if (idx < 0) continue;
         const original = sub.campos[idx];
+        const esNota = original.tipo === 'nota';
         copia = {
           ...deepClone(original),
           id: nuevoId,
-          identificador: siguienteIdentificador(sub.campos, sub.codigo || codigoDeSubseccion(original.identificador)),
+          identificador: esNota ? '' : siguienteIdentificador(sub.campos, sub.codigo || codigoDeSubseccion(original.identificador)),
         };
         sub.campos.splice(idx + 1, 0, copia);
-        sec.cantidadCampos += 1;
+        if (!esNota) sec.cantidadCampos += 1;
         break;
       }
     });
@@ -589,7 +616,8 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     // Se selecciona la copia (no como "campo nuevo": ya viene configurada, no hay nada que rellenar).
     selectedCampo.value = copia;
     isNewCampo.value = false;
-    ui.toast(`Campo duplicado como ${(copia as Campo).identificador}`);
+    const identificadorCopia = (copia as Campo).identificador;
+    ui.toast(identificadorCopia ? `Campo duplicado como ${identificadorCopia}` : 'Nota duplicada');
   }
 
   function handleDeleteCampo(campoId: string, subseccionId: string) {
@@ -598,7 +626,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
         const sub = sec.subsecciones.find((s) => s.id === subseccionId);
         if (sub) {
           sub.campos = sub.campos.filter((c) => c.id !== campoId);
-          sec.cantidadCampos = sec.subsecciones.reduce((sum, s) => sum + s.campos.length, 0);
+          sec.cantidadCampos = sec.subsecciones.reduce((sum, s) => sum + s.campos.filter((c) => c.tipo !== 'nota').length, 0);
           break;
         }
       }
@@ -782,7 +810,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     archivoExcelAsignado, showExcelCatalogModal, showPreview, showInsertConfirm, isInserting, insertProgress,
     previewFileUrl, previewFileName,
     handleLeftResize, handleRightResize, handleExamplesResize, handleTabChange, handleSectionSelect,
-    goToPrevSection, goToNextSection, handleFieldUpdate, handleAddCampo, handleDuplicarCampo, handleDeleteCampo,
+    goToPrevSection, goToNextSection, handleFieldUpdate, handleAddCampo, handleAddNota, handleDuplicarCampo, handleDeleteCampo,
     handleSectionNameChange, handleSectionHojaChange, handleSubsectionNameChange,
     handleSubseccionAyudaChange, handleAddSubsection, handleDeleteSubsection, handleAddSection, handleDuplicarSeccion,
     handleExampleValueChange, handleCreateExample, handleDeleteEjemplo, handleToggleEjemploEstado,

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faCircleQuestion, faTrash, faPlus } from '@/lib/icons';
+import { faCircleQuestion, faTrash, faPlus, faNoteSticky } from '@/lib/icons';
 import FieldCard from './FieldCard.vue';
 import AyudaSubseccionModal from './AyudaSubseccionModal.vue';
 import type { Campo, ConfigTabla, Seccion } from '@/types';
@@ -30,6 +30,8 @@ const emit = defineEmits<{
   'select-campo': [campo: Campo];
   /** `despuesDeCampoId` inserta el campo justo detrás de ese; sin él, al final de la subsección */
   'add-campo': [subseccionId: string, subseccionCodigo: string, despuesDeCampoId?: string];
+  /** Igual que `add-campo`, pero para una nota (4.11) — no lleva código de subsección: nunca numera. */
+  'add-nota': [subseccionId: string, despuesDeCampoId?: string];
   'delete-campo': [campoId: string, subseccionId: string];
   /** Copia el campo justo debajo, con el siguiente identificador libre de su subsección */
   'duplicate-campo': [campoId: string, subseccionId: string];
@@ -77,7 +79,7 @@ const subseccionAyuda = computed(() => props.seccion.subsecciones.find((s) => s.
 
     <div v-for="sub in seccion.subsecciones" :key="sub.id" class="mb-8">
       <div class="flex items-center gap-3 mb-4 border-b border-gray-100 pb-2 group">
-        <span class="text-sm font-bold text-gray-400">{{ sub.codigo }}</span>
+        <span class="text-[9px] font-bold text-gray-400 opacity-90">{{ sub.codigo }}</span>
         <input
           v-if="editable"
           :value="sub.nombre"
@@ -130,27 +132,49 @@ const subseccionAyuda = computed(() => props.seccion.subsecciones.find((s) => s.
           @update-example-value="emit('update-example-value', campo.identificador, $event)"
           @update-config-tabla="emit('update-config-tabla', campo.id, $event)"
         />
-        <!-- Mismo botón que el del final de la subsección, pero pegado al campo seleccionado: el
-             campo nuevo entra justo detrás de él, no al final. -->
-        <button
-          v-if="editable && selectedCampoId === campo.id"
-          @click="emit('add-campo', sub.id, sub.codigo, campo.id)"
-          type="button"
-          class="w-full py-2.5 rounded-lg border-2 border-dashed border-brand-200 text-sm font-medium text-brand-600 hover:border-brand-400 hover:bg-brand-50/50 transition-colors flex items-center justify-center gap-2"
-        >
-          <FontAwesomeIcon :icon="faPlus" class="w-3 h-3" />
-          Agregar campo aquí
-        </button>
+        <!-- Mismos botones que los del final de la subsección, pero pegados al campo seleccionado:
+             lo nuevo entra justo detrás de él, no al final. -->
+        <div v-if="editable && selectedCampoId === campo.id" class="flex gap-2">
+          <button
+            @click="emit('add-campo', sub.id, sub.codigo, campo.id)"
+            type="button"
+            class="flex-1 py-2.5 rounded-lg border-2 border-dashed border-brand-200 text-sm font-medium text-brand-600 hover:border-brand-400 hover:bg-brand-50/50 transition-colors flex items-center justify-center gap-2"
+          >
+            <FontAwesomeIcon :icon="faPlus" class="w-3 h-3" />
+            Agregar campo aquí
+          </button>
+          <button
+            @click="emit('add-nota', sub.id, campo.id)"
+            type="button"
+            title="Agregar nota aquí"
+            class="px-4 py-2.5 rounded-lg border-2 border-dashed border-gray-200 text-sm font-medium text-gray-400 hover:border-amber-300 hover:text-amber-600 transition-colors flex items-center justify-center gap-2"
+          >
+            <FontAwesomeIcon :icon="faNoteSticky" class="w-3 h-3" />
+            Nota
+          </button>
+        </div>
         </template>
-        <button
-          v-if="editable && !showExampleValues"
-          @click="emit('add-campo', sub.id, sub.codigo)"
-          type="button"
-          class="w-full py-2.5 rounded-lg border-2 border-dashed border-gray-200 text-sm font-medium text-gray-400 hover:border-brand-300 hover:text-brand-600 transition-colors flex items-center justify-center gap-2"
-        >
-          <FontAwesomeIcon :icon="faPlus" class="w-3 h-3" />
-          Agregar campo
-        </button>
+        <div class="flex gap-2">
+          <button
+            v-if="editable && !showExampleValues"
+            @click="emit('add-campo', sub.id, sub.codigo)"
+            type="button"
+            class="flex-1 py-2.5 rounded-lg border-2 border-dashed border-gray-200 text-sm font-medium text-gray-400 hover:border-brand-300 hover:text-brand-600 transition-colors flex items-center justify-center gap-2"
+          >
+            <FontAwesomeIcon :icon="faPlus" class="w-3 h-3" />
+            Agregar campo
+          </button>
+          <button
+            v-if="editable && !showExampleValues"
+            @click="emit('add-nota', sub.id)"
+            type="button"
+            title="Agregar nota"
+            class="px-4 py-2.5 rounded-lg border-2 border-dashed border-gray-200 text-sm font-medium text-gray-400 hover:border-amber-300 hover:text-amber-600 transition-colors flex items-center justify-center gap-2"
+          >
+            <FontAwesomeIcon :icon="faNoteSticky" class="w-3 h-3" />
+            Nota
+          </button>
+        </div>
       </div>
     </div>
     <button

@@ -109,7 +109,32 @@ function handleClick() {
 </script>
 
 <template>
+  <!-- Nota (4.11): no es un campo real, es un bloque de texto que el admin deja entre los campos.
+       Se muestra igual al cliente, siempre en solo lectura — se edita únicamente desde el panel de
+       propiedades en Estructura (ver FieldPropertiesPanel). -->
   <div
+    v-if="campo.tipo === 'nota'"
+    @click="handleClick"
+    class="rounded-xl border-2 p-4 transition-all"
+    :class="[isSelected ? 'border-brand-500 bg-brand-50/30 shadow-sm' : 'border-gray-100 bg-white', clickable ? 'cursor-pointer' : '']"
+  >
+    <div class="flex items-start gap-3">
+      <p class="flex-1 min-w-0 font-semibold text-heading text-sm whitespace-pre-wrap break-words">
+        <span v-if="campo.valorEjemplo">{{ campo.valorEjemplo }}</span>
+        <span v-else class="text-muted italic font-normal">Nota vacía…</span>
+      </p>
+      <div v-if="duplicable || deletable" class="flex flex-col gap-1 shrink-0">
+        <button v-if="duplicable" @click.stop="emit('duplicate')" type="button" class="text-gray-300 hover:text-brand-600 transition-colors p-1" title="Duplicar nota">
+          <FontAwesomeIcon :icon="faClone" class="w-3 h-3" />
+        </button>
+        <button v-if="deletable" @click.stop="emit('delete')" type="button" class="text-gray-300 hover:text-red-500 transition-colors p-1" title="Eliminar nota">
+          <FontAwesomeIcon :icon="faTrash" class="w-3 h-3" />
+        </button>
+      </div>
+    </div>
+  </div>
+  <div
+    v-else
     @click="handleClick"
     class="rounded-xl border-2 p-4 transition-all"
     :class="[
@@ -130,7 +155,7 @@ function handleClick() {
       </div>
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2">
-          <span class="text-xs font-bold px-1.5 py-0.5 rounded" :class="isSelected ? 'bg-brand-100 text-brand-700' : 'bg-gray-100 text-gray-500'">
+          <span class="text-[9px] font-bold px-1.5 py-0.5 rounded opacity-90" :class="isSelected ? 'bg-brand-100 text-brand-700' : 'bg-gray-100 text-gray-500'">
             {{ campo.identificador }}
           </span>
           <span class="font-semibold text-heading text-sm">{{ campo.etiqueta }}</span>

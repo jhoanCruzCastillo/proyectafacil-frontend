@@ -146,6 +146,17 @@ function valorMostrado(col: ColumnaTabla, opciones: string[] | null): string {
           <span v-else class="text-[11px] text-muted">—</span>
         </div>
       </td>
+      <!-- Columna booleana (4.10): en el Excel oficial es una casilla de verificación (checkbox de
+           formulario) enlazada a una celda TRUE/FALSE — se dibuja como tal en vez de como texto. -->
+      <td v-else-if="col.tipo === 'booleano'" class="px-1 py-0.5 align-top">
+        <input
+          :checked="row[col.id] === 'true'"
+          @change="emit('cell-change', col.id, ($event.target as HTMLInputElement).checked ? 'true' : 'false')"
+          @click.stop
+          type="checkbox"
+          class="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500 mt-0.5"
+        />
+      </td>
       <!-- Celda con desplegable declarado en el Excel -->
       <td v-else-if="opcionesExcel(col)" class="px-1 py-0.5 align-top">
         <CampoListaInput

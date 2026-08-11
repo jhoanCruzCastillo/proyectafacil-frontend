@@ -23,7 +23,7 @@ export function validarValoresPlantilla(plantilla: Plantilla, valores: Record<st
   for (const seccion of plantilla.secciones) {
     for (const sub of seccion.subsecciones) {
       for (const campo of sub.campos) {
-        if (campo.tipo === 'tabla' || campo.tipo === 'tabla_jerarquica' || !campo.editable) continue;
+        if (campo.tipo === 'tabla' || campo.tipo === 'tabla_jerarquica' || campo.tipo === 'nota' || !campo.editable) continue;
         const error = validarValorCampo(campo, valores[campo.identificador]);
         if (error) errores[campo.identificador] = error;
       }
@@ -48,7 +48,7 @@ export function calcularProgresoValores(plantilla: Plantilla, valores: Record<st
   for (const seccion of plantilla.secciones) {
     for (const sub of seccion.subsecciones) {
       for (const campo of sub.campos) {
-        if (campo.tipo === 'tabla' || campo.tipo === 'tabla_jerarquica' || !campo.editable) continue;
+        if (campo.tipo === 'tabla' || campo.tipo === 'tabla_jerarquica' || campo.tipo === 'nota' || !campo.editable) continue;
         total++;
         if ((valores[campo.identificador] ?? '').trim()) llenos++;
       }

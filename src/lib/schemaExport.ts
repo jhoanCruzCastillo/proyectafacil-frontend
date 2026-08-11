@@ -206,6 +206,11 @@ function valorTabla(config: ConfigTabla, raw: string | undefined): unknown {
 // --- Campo ---
 
 function buildCampo(seccion: Seccion, campo: Campo, valorRaw: string | undefined): Record<string, unknown> {
+  // Nota (4.11): sin id, sin captura, sin nada más — es texto fijo que el admin deja entre los
+  // campos, no un dato de la ficha. Su contenido siempre sale de `valorEjemplo` (autorado una sola
+  // vez en Estructura), nunca de `valorRaw`/`ejemplo.valores` — ver Notion 4.11.
+  if (campo.tipo === 'nota') return { tipo_nodo: 'nota', nota: campo.valorEjemplo ?? '' };
+
   const esTabla = campo.tipo === 'tabla' || campo.tipo === 'tabla_jerarquica';
 
   if (esTabla) {

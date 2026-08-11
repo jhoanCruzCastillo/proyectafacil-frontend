@@ -29,12 +29,13 @@ const faltaCaptura = computed(() => campoFaltaCaptura(props.campo));
 const coords = computed(() => parseCoords(props.campo.valorEjemplo));
 
 const etiquetaInput = ref<HTMLInputElement | null>(null);
+const notaInput = ref<HTMLTextAreaElement | null>(null);
 
 function focusEtiqueta() {
-  if (props.autoFocusEtiqueta) {
-    etiquetaInput.value?.focus();
-    etiquetaInput.value?.select();
-  }
+  if (!props.autoFocusEtiqueta) return;
+  if (props.campo.tipo === 'nota') { notaInput.value?.focus(); return; }
+  etiquetaInput.value?.focus();
+  etiquetaInput.value?.select();
 }
 onMounted(focusEtiqueta);
 watch(() => props.campo.id, () => nextTick(focusEtiqueta));
@@ -70,7 +71,21 @@ function updateCoords(lat: number, lng: number) {
 </script>
 
 <template>
-  <div class="space-y-5">
+  <!-- Nota (4.11): sin identificador, sin captura, sin tipo/comportamiento — un formulario de un
+       solo campo, el texto que se ve en el centro. -->
+  <div v-if="campo.tipo === 'nota'" class="space-y-3">
+    <h3 class="text-xs font-semibold uppercase tracking-widest text-muted">Nota</h3>
+    <textarea
+      ref="notaInput"
+      :value="campo.valorEjemplo || ''"
+      @input="update({ valorEjemplo: ($event.target as HTMLTextAreaElement).value })"
+      rows="4"
+      placeholder="Escribe la nota…"
+      class="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500"
+    />
+  </div>
+
+  <div v-else class="space-y-5">
     <div class="flex items-center justify-between">
       <h3 class="text-xs font-semibold uppercase tracking-widest text-muted">Propiedades del campo</h3>
       <span class="text-xs font-bold px-2 py-1 rounded bg-brand-100 text-brand-700">{{ campo.identificador }}</span>

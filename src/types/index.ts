@@ -13,7 +13,8 @@ export type TipoCampo =
   | 'calculado'
   | 'imagen'
   | 'firma'
-  | 'mapa_coordenadas';
+  | 'mapa_coordenadas'
+  | 'nota';
 
 export type TipoSector = 'Sectorial' | 'General';
 
