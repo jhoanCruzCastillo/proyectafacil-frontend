@@ -1,18 +1,29 @@
 <script setup lang="ts">
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faWandMagicSparkles, faChevronRight, faPlus, faGear, faEllipsisVertical, sectorIcons } from '@/lib/icons';
+import { faWandMagicSparkles, faChevronRight, faPlus, faGear, faEllipsisVertical, faLayerGroup, sectorIcons } from '@/lib/icons';
 import { tiempoRelativo } from '@/lib/tiempoRelativo';
-import type { Seccion, ContextoGlobalIA } from '@/types';
+import type { Seccion, ContextoGeneralIA, ContextoGlobalIA } from '@/types';
 
-// Columna izquierda del panel de Contextos IA: las secciones de ESTA ficha (contexto local) y los
-// contextos globales, que son reutilizables por cualquier ficha.
+// Columna izquierda del panel de Contextos IA, de más específico a más compartido:
+//  - Contexto por sección: propio de una sección de ESTA ficha.
+//  - Contextos generales: propios de TODA esta ficha (no se comparten con otras).
+//  - Contextos globales: reutilizables por cualquier ficha de cualquier sector.
 defineProps<{
   secciones: Seccion[];
   seccionActivaId: string | null;
+  generales: ContextoGeneralIA[];
+  generalActivoId?: string | null;
   globales: ContextoGlobalIA[];
+  globalActivoId?: string | null;
 }>();
 
-defineEmits<{ 'select-seccion': [string] }>();
+defineEmits<{
+  'select-seccion': [string];
+  'select-general': [string];
+  'nuevo-general': [];
+  'select-global': [string];
+  'nuevo-global': [];
+}>();
 </script>
 
 <template>
@@ -60,10 +71,11 @@ defineEmits<{ 'select-seccion': [string] }>();
       </ul>
     </div>
 
-    <div class="px-3 pt-6 pb-4 flex-1">
+    <div class="px-3 pt-6">
       <div class="flex items-center justify-between px-2 mb-2">
-        <p class="text-[10px] font-semibold uppercase tracking-widest text-white/40">Contextos globales</p>
+        <p class="text-[10px] font-semibold uppercase tracking-widest text-white/40">Contextos generales</p>
         <button
+          @click="$emit('nuevo-general')"
           type="button"
           class="px-2 py-1 rounded-md bg-white/[0.06] border border-white/10 text-[10px] font-medium text-white/70 hover:bg-white/10 hover:text-white transition-colors flex items-center gap-1"
         >
@@ -71,11 +83,50 @@ defineEmits<{ 'select-seccion': [string] }>();
           Nuevo
         </button>
       </div>
+      <p class="text-[10.5px] text-white/35 leading-snug px-2 mb-2">Aplican a toda esta ficha, no se comparten con otras.</p>
+      <ul class="space-y-1">
+        <li v-for="g in generales" :key="g.id">
+          <button
+            @click="$emit('select-general', g.id)"
+            type="button"
+            class="w-full flex items-center gap-2.5 px-2 py-2 rounded-lg border text-left transition-colors duration-75"
+            :class="generalActivoId === g.id ? 'bg-amber-400/10 border-amber-400/30' : 'border-transparent hover:bg-white/5'"
+          >
+            <span class="w-7 h-7 rounded-lg bg-amber-400/15 border border-amber-400/25 flex items-center justify-center shrink-0">
+              <FontAwesomeIcon :icon="faLayerGroup" class="w-3 h-3 text-amber-300" />
+            </span>
+            <span class="flex-1 min-w-0">
+              <span class="block text-xs font-medium text-white/85 truncate">{{ g.nombre }}</span>
+              <span class="block text-[10px] text-white/40">
+                {{ g.actualizadoEn ? `Actualizado ${tiempoRelativo(g.actualizadoEn)}` : 'Sin actualizar' }}
+              </span>
+            </span>
+          </button>
+        </li>
+        <li v-if="generales.length === 0" class="px-2 py-1.5 text-[11px] text-white/30 italic">Todavía no hay contextos generales.</li>
+      </ul>
+    </div>
+
+    <div class="px-3 pt-6 pb-4 flex-1">
+      <div class="flex items-center justify-between px-2 mb-2">
+        <p class="text-[10px] font-semibold uppercase tracking-widest text-white/40">Contextos globales</p>
+        <button
+          @click="$emit('nuevo-global')"
+          type="button"
+          class="px-2 py-1 rounded-md bg-white/[0.06] border border-white/10 text-[10px] font-medium text-white/70 hover:bg-white/10 hover:text-white transition-colors flex items-center gap-1"
+        >
+          <FontAwesomeIcon :icon="faPlus" class="w-2 h-2" />
+          Nuevo
+        </button>
+      </div>
+      <p class="text-[10.5px] text-white/35 leading-snug px-2 mb-2">Reutilizables por cualquier ficha de cualquier sector.</p>
       <ul class="space-y-1">
         <li v-for="g in globales" :key="g.id">
           <button
+            @click="$emit('select-global', g.id)"
             type="button"
-            class="w-full flex items-center gap-2.5 px-2 py-2 rounded-lg border border-transparent hover:bg-white/5 transition-colors duration-75 text-left"
+            class="w-full flex items-center gap-2.5 px-2 py-2 rounded-lg border text-left transition-colors duration-75"
+            :class="globalActivoId === g.id ? 'bg-emerald-400/10 border-emerald-400/30' : 'border-transparent hover:bg-white/5'"
           >
             <span class="w-7 h-7 rounded-lg bg-emerald-400/15 border border-emerald-400/25 flex items-center justify-center shrink-0">
               <FontAwesomeIcon :icon="sectorIcons[g.icono ?? ''] ?? faWandMagicSparkles" class="w-3 h-3 text-emerald-300" />

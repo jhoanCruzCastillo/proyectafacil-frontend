@@ -11,6 +11,7 @@ import type { NotificacionUsuario } from '@/types';
 // Campanita visible en todo el admin (montada en Sidebar) — hoy solo la llena el flujo de
 // asesoría (ver AsesoriaController::notificar en el backend), pero el inbox es genérico por si se
 // reutiliza para otra cosa más adelante.
+defineProps<{ collapsed?: boolean }>();
 const session = useSessionStore();
 const router = useRouter();
 const usuarioId = computed(() => session.sesion?.usuarioId ?? '');
@@ -37,15 +38,20 @@ function abrir(n: NotificacionUsuario) {
 </script>
 
 <template>
-  <div ref="rootEl" class="relative px-4">
+  <div ref="rootEl" class="relative" :class="collapsed ? 'px-2' : 'px-4'">
     <button
       @click="abierto = !abierto"
       type="button"
-      class="w-full flex items-center gap-3 px-1 py-2.5 rounded-lg text-sm font-medium text-white/65 hover:bg-sidebar-hover hover:text-white transition-colors relative"
+      :title="collapsed ? 'Notificaciones' : undefined"
+      class="w-full flex items-center px-1 py-2.5 rounded-lg text-sm font-medium text-white/65 hover:bg-sidebar-hover hover:text-white transition-colors relative"
+      :class="collapsed ? 'justify-center' : 'gap-3'"
     >
-      <FontAwesomeIcon :icon="faBell" class="w-4 text-center" />
-      <span class="flex-1 text-left">Notificaciones</span>
-      <span v-if="noLeidas > 0" class="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+      <span class="relative shrink-0">
+        <FontAwesomeIcon :icon="faBell" class="w-4 text-center" />
+        <span v-if="noLeidas > 0 && collapsed" class="absolute -top-1 -right-1.5 w-2 h-2 rounded-full bg-red-500" />
+      </span>
+      <span v-if="!collapsed" class="flex-1 text-left">Notificaciones</span>
+      <span v-if="noLeidas > 0 && !collapsed" class="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
         {{ noLeidas > 9 ? '9+' : noLeidas }}
       </span>
     </button>
@@ -53,7 +59,8 @@ function abrir(n: NotificacionUsuario) {
     <Transition name="pop">
       <div
         v-if="abierto"
-        class="absolute left-3 right-3 bottom-full mb-2 bg-sidebar rounded-xl shadow-modal border border-white/10 overflow-hidden z-50 max-h-80 overflow-y-auto"
+        class="absolute bg-sidebar rounded-xl shadow-modal border border-white/10 overflow-hidden z-50 max-h-80 overflow-y-auto"
+        :class="collapsed ? 'left-full ml-2 bottom-0 w-72' : 'left-3 right-3 bottom-full mb-2'"
       >
         <p v-if="(notificaciones ?? []).length === 0" class="px-4 py-4 text-xs text-white/50 text-center">Sin notificaciones</p>
         <button

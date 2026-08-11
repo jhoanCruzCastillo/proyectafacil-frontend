@@ -6,7 +6,7 @@ export interface TurnoAsistente {
 }
 
 /**
- * Pregunta al asesor de IA. La llamada a Anthropic la hace el BACKEND: la API key nunca llega al
+ * Pregunta al asesor de IA. La llamada a OpenAI la hace el BACKEND: la API key nunca llega al
  * navegador (Vite hornearía cualquier VITE_* dentro del bundle público).
  */
 export function consultarAsistenteIA(datos: {

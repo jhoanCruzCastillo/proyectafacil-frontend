@@ -470,23 +470,34 @@ export interface Docente {
 }
 
 // --- Contextos IA ---
+//
+// El markdown de cada contexto vive como archivo .md en Cloudinary — estos tipos solo traen la
+// `url`; el contenido se descarga y cachea aparte (ver `src/lib/markdownCache.ts`).
 
-/** Contexto reutilizable por cualquier ficha (ej. "Invierte.pe", "Finanzas"). */
+/** Contexto reutilizable por cualquier ficha de cualquier sector (ej. "Invierte.pe", "Finanzas"). */
 export interface ContextoGlobalIA {
   id: string;
   nombre: string;
   /** Clave de `sectorIcons`, o null */
   icono?: string | null;
-  markdown: string;
+  url: string | null;
   /** Cuántas secciones lo tienen asociado */
   usos: number;
+  actualizadoEn?: string | null;
+}
+
+/** Contexto propio de UNA ficha (aplica a todas sus secciones, no se comparte con otras fichas). */
+export interface ContextoGeneralIA {
+  id: string;
+  nombre: string;
+  url: string | null;
   actualizadoEn?: string | null;
 }
 
 /** Contexto propio de UNA sección de UNA ficha. */
 export interface ContextoSeccionIA {
   seccionId: string;
-  markdown: string;
+  url: string | null;
   /** IDs de los contextos globales asociados */
   globales: string[];
   actualizadoEn?: string | null;
@@ -494,6 +505,7 @@ export interface ContextoSeccionIA {
 
 export interface ContextosIAPlantilla {
   secciones: ContextoSeccionIA[];
+  generales: ContextoGeneralIA[];
   globales: ContextoGlobalIA[];
 }
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faHouse, faLayerGroup, faAngleLeft, faUserGear, faCalendarWeek, faCalendarCheck, faCircleInfo, faCircleExclamation, faListCheck, faHeadset, faPeopleGroup, faMoneyBillTransfer, instrumentoIcons } from '@/lib/icons';
+import { faHouse, faLayerGroup, faAnglesLeft, faAnglesRight, faUserGear, faCalendarWeek, faCalendarCheck, faCircleInfo, faCircleExclamation, faListCheck, faHeadset, faPeopleGroup, faMoneyBillTransfer, instrumentoIcons } from '@/lib/icons';
 import UserMenu from '@/features/settings/UserMenu.vue';
 import MejorarPlanCard from '@/features/settings/MejorarPlanCard.vue';
 import NotificacionesBell from '@/features/asesoria/NotificacionesBell.vue';
@@ -60,34 +60,37 @@ const navItems = computed(() => {
   return items;
 });
 
-defineProps<{ hidden?: boolean }>();
-const emit = defineEmits<{ hide: [] }>();
+const props = defineProps<{ collapsed?: boolean }>();
+const emit = defineEmits<{ toggle: [] }>();
 </script>
 
 <template>
   <aside
-    class="fixed left-0 top-0 bottom-0 w-56 bg-sidebar text-white flex flex-col z-40 transition-transform duration-150 ease-out"
-    :class="hidden ? '-translate-x-full' : 'translate-x-0'"
+    class="fixed left-0 top-0 bottom-0 bg-sidebar text-white flex flex-col z-40 transition-[width] duration-150 ease-out overflow-hidden"
+    :class="collapsed ? 'w-16' : 'w-56'"
   >
-    <div class="px-5 py-5 flex items-center gap-3 border-b border-white/10">
+    <div
+      class="flex items-center border-b border-white/10"
+      :class="collapsed ? 'flex-col gap-2 px-0 py-4' : 'gap-3 px-5 py-5'"
+    >
       <img :src="logo" alt="" class="w-9 h-9 object-contain shrink-0" />
-      <div class="flex-1 min-w-0">
+      <div v-if="!collapsed" class="flex-1 min-w-0">
         <div class="font-bold text-sm leading-tight">
           <span class="text-white">Proyecta</span><span class="text-brand-400">Fácil</span>
         </div>
         <div class="text-[11px] text-white/50 leading-tight">Editor de plantillas</div>
       </div>
       <button
-        @click="emit('hide')"
+        @click="emit('toggle')"
         class="w-7 h-7 rounded-md flex items-center justify-center text-white/50 hover:text-white hover:bg-sidebar-hover transition-colors duration-75 shrink-0"
-        title="Ocultar menú"
+        :title="collapsed ? 'Expandir menú' : 'Colapsar menú'"
       >
-        <FontAwesomeIcon :icon="faAngleLeft" class="w-3.5 h-3.5" />
+        <FontAwesomeIcon :icon="collapsed ? faAnglesRight : faAnglesLeft" class="w-3.5 h-3.5" />
       </button>
     </div>
 
     <nav class="flex-1 px-3 pt-6">
-      <p class="text-[10px] font-semibold uppercase tracking-widest text-white/40 px-3 mb-3">
+      <p v-if="!collapsed" class="text-[10px] font-semibold uppercase tracking-widest text-white/40 px-3 mb-3">
         Navegación
       </p>
       <ul class="space-y-1">
@@ -100,19 +103,23 @@ const emit = defineEmits<{ hide: [] }>();
             <a
               :href="href"
               @click="navigate"
-              class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors"
-              :class="isExactActive ? 'bg-sidebar-active text-white shadow-card' : 'text-white/65 hover:bg-sidebar-hover hover:text-white'"
+              :title="collapsed ? item.label : undefined"
+              class="flex items-center px-3 py-2.5 rounded-lg text-sm font-medium transition-colors"
+              :class="[
+                isExactActive ? 'bg-sidebar-active text-white shadow-card' : 'text-white/65 hover:bg-sidebar-hover hover:text-white',
+                collapsed ? 'justify-center px-0' : 'gap-3',
+              ]"
             >
-              <FontAwesomeIcon :icon="item.icon" class="w-4 text-center" />
-              <span class="flex-1">{{ item.label }}</span>
+              <FontAwesomeIcon :icon="item.icon" class="w-4 text-center shrink-0" />
+              <span v-if="!collapsed" class="flex-1">{{ item.label }}</span>
             </a>
           </RouterLink>
         </li>
       </ul>
     </nav>
 
-    <MejorarPlanCard v-if="esCliente" />
-    <NotificacionesBell v-if="session.sesion" />
-    <UserMenu />
+    <MejorarPlanCard v-if="esCliente && !collapsed" />
+    <NotificacionesBell v-if="session.sesion" :collapsed="props.collapsed" />
+    <UserMenu :collapsed="props.collapsed" />
   </aside>
 </template>

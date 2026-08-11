@@ -27,3 +27,40 @@ export function useEliminarContextoSeccion() {
     onSuccess: (_d, { plantillaId }) => queryClient.invalidateQueries({ queryKey: ['contextos-ia', plantillaId] }),
   });
 }
+
+// Los generales son propios de una ficha — misma query que secciones/globales (porPlantilla trae los tres).
+export function useGuardarContextoGeneral() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ plantillaId, id, nombre, markdown }: { plantillaId: string; id: string | null; nombre: string; markdown: string }) =>
+      contextosIAHttp.guardarGeneral(plantillaId, id, nombre, markdown),
+    onSuccess: (_d, { plantillaId }) => queryClient.invalidateQueries({ queryKey: ['contextos-ia', plantillaId] }),
+  });
+}
+
+export function useEliminarContextoGeneral() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ plantillaId, id }: { plantillaId: string; id: string }) => contextosIAHttp.eliminarGeneral(plantillaId, id),
+    onSuccess: (_d, { plantillaId }) => queryClient.invalidateQueries({ queryKey: ['contextos-ia', plantillaId] }),
+  });
+}
+
+// Los globales son compartidos por cualquier plantilla — se invalidan todas las queries
+// 'contextos-ia' (coincidencia parcial de TanStack Query), no solo la de la plantilla activa.
+export function useGuardarContextoGlobal() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, nombre, markdown, icono }: { id: string | null; nombre: string; markdown: string; icono: string | null }) =>
+      contextosIAHttp.guardarGlobal(id, nombre, markdown, icono),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['contextos-ia'] }),
+  });
+}
+
+export function useEliminarContextoGlobal() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => contextosIAHttp.eliminarGlobal(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['contextos-ia'] }),
+  });
+}

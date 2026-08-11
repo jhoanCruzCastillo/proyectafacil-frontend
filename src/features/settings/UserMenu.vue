@@ -25,6 +25,7 @@ function iniciales(nombre: string): string {
   return nombre.split(' ').slice(0, 2).map((p) => p[0]).join('').toUpperCase();
 }
 
+defineProps<{ collapsed?: boolean }>();
 const session = useSessionStore();
 const router = useRouter();
 const menuAbierto = ref(false);
@@ -56,11 +57,17 @@ function handleLogout() {
 </script>
 
 <template>
-  <div v-if="session.sesion" ref="rootEl" class="relative px-4 py-4 border-t border-white/10">
+  <div
+    v-if="session.sesion"
+    ref="rootEl"
+    class="relative border-t border-white/10"
+    :class="collapsed ? 'px-2 py-4' : 'px-4 py-4'"
+  >
     <Transition name="pop">
       <div
         v-if="menuAbierto"
-        class="absolute left-3 right-3 bottom-full mb-2 bg-sidebar rounded-xl shadow-modal border border-white/10 overflow-hidden z-50"
+        class="absolute bg-sidebar rounded-xl shadow-modal border border-white/10 overflow-hidden z-50"
+        :class="collapsed ? 'left-full ml-2 bottom-0 w-56' : 'left-3 right-3 bottom-full mb-2'"
       >
         <button
           @click="menuAbierto = false; showAjustes = true"
@@ -96,12 +103,14 @@ function handleLogout() {
 
     <button
       @click="menuAbierto = !menuAbierto"
-      class="w-full flex items-center gap-3 text-left rounded-lg hover:bg-white/5 transition-colors duration-75 -mx-1 px-1 py-1"
+      :title="collapsed ? session.sesion.nombre : undefined"
+      class="w-full flex items-center text-left rounded-lg hover:bg-white/5 transition-colors duration-75 -mx-1 px-1 py-1"
+      :class="collapsed ? 'justify-center' : 'gap-3'"
     >
       <div class="w-8 h-8 rounded-full bg-sidebar-active flex items-center justify-center text-xs font-bold shrink-0">
         {{ iniciales(session.sesion.nombre) }}
       </div>
-      <div class="flex-1 min-w-0">
+      <div v-if="!collapsed" class="flex-1 min-w-0">
         <div class="text-sm font-medium truncate text-white">{{ session.sesion.nombre }}</div>
         <div class="flex items-center gap-1.5 min-w-0">
           <span class="text-[11px] shrink-0" :class="rolColor[session.sesion.rol]">{{ rolUsuarioLabels[session.sesion.rol] }}</span>
