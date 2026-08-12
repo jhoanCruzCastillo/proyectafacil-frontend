@@ -7,20 +7,28 @@ import {
 } from '@/lib/icons';
 import ConfirmModal from '@/components/ConfirmModal.vue';
 import {
-  useFuenteVerdadQuery, useGuardarArchivoFuente, useEliminarArchivoFuente, useGuardarTextoFuente, useLlenarFichaIA,
+  useFuenteVerdadQuery, useGuardarArchivoFuente, useEliminarArchivoFuente, useGuardarTextoFuente,
 } from '@/composables/useFuenteVerdad';
 import { useUiStore } from '@/stores/ui';
-import type { ArchivoFuenteVerdad } from '@/types';
+import type { ArchivoFuenteVerdad, Seccion } from '@/types';
 
-const props = defineProps<{ isOpen: boolean; ejemploId: string }>();
-const emit = defineEmits<{ close: []; llenado: [] }>();
+const props = defineProps<{
+  isOpen: boolean;
+  ejemploId: string;
+  /** Secciones de la plantilla para elegir cuáles llenar con IA */
+  secciones?: Seccion[];
+}>();
+
+const emit = defineEmits<{
+  close: [];
+  'iniciar-llenado': [payload: { seccionIds: string[] }];
+}>();
 
 const ui = useUiStore();
 const { data: fuente } = useFuenteVerdadQuery(() => props.ejemploId);
 const guardarArchivo = useGuardarArchivoFuente();
 const eliminarArchivo = useEliminarArchivoFuente();
 const guardarTexto = useGuardarTextoFuente();
-const llenarFicha = useLlenarFichaIA();
 
 const archivos = computed(() => fuente.value?.archivos ?? []);
 const texto = ref('');
@@ -30,6 +38,39 @@ watch(fuente, (f) => {
   texto.value = f?.textoAdicional ?? '';
   textoOriginal = f?.textoAdicional ?? '';
 }, { immediate: true });
+
+const seccionesDisponibles = computed(() => props.secciones ?? []);
+const seccionIdsSeleccionados = ref<string[]>([]);
+
+function seleccionarTodas() {
+  seccionIdsSeleccionados.value = seccionesDisponibles.value.map((s) => s.id);
+}
+
+function quitarTodas() {
+  seccionIdsSeleccionados.value = [];
+}
+
+function toggleSeccion(id: string) {
+  const set = new Set(seccionIdsSeleccionados.value);
+  if (set.has(id)) set.delete(id);
+  else set.add(id);
+  seccionIdsSeleccionados.value = [...set];
+}
+
+const todasSeleccionadas = computed(
+  () =>
+    seccionesDisponibles.value.length > 0 &&
+    seccionIdsSeleccionados.value.length === seccionesDisponibles.value.length,
+);
+
+// Al abrir el modal (o si cambia el catálogo), por defecto todas seleccionadas.
+watch(
+  () => [props.isOpen, seccionesDisponibles.value.map((s) => s.id).join('|')] as const,
+  ([open]) => {
+    if (open) seleccionarTodas();
+  },
+  { immediate: true },
+);
 
 const EXTENSIONES_PERMITIDAS = ['pdf', 'txt', 'md'];
 const TAMANO_MAXIMO = 10 * 1024 * 1024;
@@ -105,18 +146,37 @@ async function handleGuardarFuente() {
 
 const showConfirmLlenar = ref(false);
 const hayFuente = computed(() => archivos.value.length > 0 || texto.value.trim() !== '');
+const puedeLlenar = computed(
+  () => hayFuente.value && seccionIdsSeleccionados.value.length > 0 && !guardarTexto.isPending.value,
+);
+
+const mensajeConfirmLlenar = computed(() => {
+  const n = seccionIdsSeleccionados.value.length;
+  const total = seccionesDisponibles.value.length;
+  if (n >= total && total > 0) {
+    return 'Esto BORRARÁ los valores actuales de todas las secciones seleccionadas y los volverá a llenar desde la fuente de la verdad. Puede tardar varios minutos. Esta acción no se puede deshacer.';
+  }
+  return `Se llenarán ${n} sección${n === 1 ? '' : 'es'} con IA. Solo se reemplazarán los campos de esas secciones; el resto de la ficha se conserva. Puede tardar unos minutos.`;
+});
 
 async function handleLlenarFicha() {
   showConfirmLlenar.value = false;
-  try {
-    const resultado = await llenarFicha.mutateAsync(props.ejemploId);
-    const total = resultado.secciones.reduce((n, s) => n + s.llenados, 0);
-    ui.toast(`Ficha llenada con IA — ${total} campos completados`);
-    emit('llenado');
-    emit('close');
-  } catch (e) {
-    ui.toast(e instanceof Error ? e.message : 'No se pudo llenar la ficha con IA', 'error');
+  if (seccionIdsSeleccionados.value.length === 0) {
+    ui.toast('Selecciona al menos una sección', 'error');
+    return;
   }
+  // Guarda el texto adicional pendiente para que la IA lo tenga en la misma corrida.
+  if (texto.value !== textoOriginal) {
+    try {
+      await guardarTexto.mutateAsync({ ejemploId: props.ejemploId, texto: texto.value });
+      textoOriginal = texto.value;
+    } catch (e) {
+      ui.toast(e instanceof Error ? e.message : 'No se pudo guardar el texto adicional', 'error');
+      return;
+    }
+  }
+  emit('iniciar-llenado', { seccionIds: [...seccionIdsSeleccionados.value] });
+  emit('close');
 }
 </script>
 
@@ -198,36 +258,89 @@ async function handleLlenarFicha() {
               <p class="text-right text-[11px] text-muted mt-1">{{ texto.length }} / 5000</p>
             </div>
 
+            <div v-if="seccionesDisponibles.length > 0">
+              <div class="flex items-center justify-between gap-2 mb-2">
+                <span class="text-sm font-bold text-heading">Secciones a llenar con IA</span>
+                <div class="flex items-center gap-2 text-xs">
+                  <button
+                    type="button"
+                    class="font-medium text-violet-600 hover:text-violet-800"
+                    @click="seleccionarTodas"
+                  >
+                    Todas
+                  </button>
+                  <span class="text-gray-300">|</span>
+                  <button
+                    type="button"
+                    class="font-medium text-gray-500 hover:text-gray-700"
+                    @click="quitarTodas"
+                  >
+                    Ninguna
+                  </button>
+                </div>
+              </div>
+              <p class="text-xs text-muted mb-2">
+                Elige qué secciones autocompletar. Por defecto están todas; desmarcar acorta el tiempo de espera.
+                <span class="font-medium text-heading">
+                  {{ seccionIdsSeleccionados.length }}/{{ seccionesDisponibles.length }} seleccionadas
+                </span>
+              </p>
+              <div class="rounded-xl border border-gray-200 max-h-48 overflow-y-auto divide-y divide-gray-50">
+                <label
+                  v-for="s in seccionesDisponibles"
+                  :key="s.id"
+                  class="flex items-start gap-2.5 px-3 py-2.5 hover:bg-gray-50/80 cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    class="mt-0.5 rounded border-gray-300 text-violet-600 focus:ring-violet-500"
+                    :checked="seccionIdsSeleccionados.includes(s.id)"
+                    @change="toggleSeccion(s.id)"
+                  >
+                  <span class="min-w-0">
+                    <span class="text-[11px] font-mono text-muted">{{ s.numero }}</span>
+                    <span class="block text-sm text-heading leading-snug">{{ s.nombre }}</span>
+                  </span>
+                </label>
+              </div>
+            </div>
+
             <div class="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-blue-50 border border-blue-100 text-blue-700 text-xs">
               <FontAwesomeIcon :icon="faInfoCircle" class="w-3.5 h-3.5 mt-0.5 shrink-0" />
-              <span>Esta fuente de información se utilizará como contexto principal para todas las secciones de la ficha.</span>
+              <span>Esta fuente de información se utilizará como contexto principal para las secciones que elijas llenar.</span>
             </div>
 
             <div class="rounded-xl border border-violet-200 bg-gradient-to-br from-violet-50 to-fuchsia-50 p-4">
               <div class="flex items-center justify-between gap-3">
                 <div class="min-w-0">
-                  <p class="text-sm font-bold text-heading flex items-center gap-2">
+                  <p class="text-sm font-bold text-heading flex items-center gap-2 flex-wrap">
                     <FontAwesomeIcon :icon="faWandMagicSparkles" class="w-3.5 h-3.5 text-violet-600" />
-                    Llenar toda la ficha con IA
+                    Llenar con IA
                     <span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-violet-200 text-violet-700 tracking-wide">BETA</span>
                   </p>
-                  <p class="text-xs text-muted mt-1">La IA utilizará la fuente de la verdad para completar automáticamente todas las secciones de la ficha técnica.</p>
+                  <p class="text-xs text-muted mt-1">
+                    <template v-if="todasSeleccionadas">La IA completará todas las secciones de la ficha técnica.</template>
+                    <template v-else-if="seccionIdsSeleccionados.length === 0">Selecciona al menos una sección para continuar.</template>
+                    <template v-else>
+                      La IA completará {{ seccionIdsSeleccionados.length }} sección{{ seccionIdsSeleccionados.length === 1 ? '' : 'es' }} seleccionada{{ seccionIdsSeleccionados.length === 1 ? '' : 's' }}.
+                    </template>
+                  </p>
                 </div>
                 <button
                   @click="showConfirmLlenar = true"
-                  :disabled="!hayFuente || llenarFicha.isPending.value"
+                  :disabled="!puedeLlenar"
                   type="button"
                   class="shrink-0 px-4 py-2.5 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-75 flex items-center gap-2"
                 >
-                  <FontAwesomeIcon :icon="llenarFicha.isPending.value ? faSpinner : faWandMagicSparkles" class="w-3.5 h-3.5" :class="{ 'animate-spin': llenarFicha.isPending.value }" />
-                  {{ llenarFicha.isPending.value ? 'Llenando…' : 'Llenar toda la ficha' }}
+                  <FontAwesomeIcon :icon="faWandMagicSparkles" class="w-3.5 h-3.5" />
+                  {{ todasSeleccionadas ? 'Llenar toda la ficha' : 'Llenar selección' }}
                 </button>
               </div>
             </div>
 
             <div class="flex items-center justify-end gap-3 pt-2 border-t border-gray-100">
               <button @click="emit('close')" type="button" class="px-5 py-2.5 rounded-lg border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors duration-75">
-                Cancelar
+                Cerrar
               </button>
               <button
                 @click="handleGuardarFuente"
@@ -255,9 +368,9 @@ async function handleLlenarFicha() {
 
   <ConfirmModal
     :is-open="showConfirmLlenar"
-    title="Llenar toda la ficha con IA"
-    message="Esto BORRARÁ todos los valores actuales de la ficha y los volverá a llenar desde cero según la fuente de la verdad. Puede tardar varios minutos. Esta acción no se puede deshacer."
-    confirm-label="Llenar ficha"
+    title="Llenar con IA"
+    :message="mensajeConfirmLlenar"
+    confirm-label="Llenar"
     @confirm="handleLlenarFicha"
     @close="showConfirmLlenar = false"
   />

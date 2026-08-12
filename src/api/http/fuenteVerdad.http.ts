@@ -1,5 +1,5 @@
 import { apiFetch } from './_shared';
-import type { FuenteVerdadApi } from '../contracts/fuenteVerdad';
+import type { FuenteVerdadApi, LlenarConIAOptions } from '../contracts/fuenteVerdad';
 import type { FuenteVerdad, ResultadoLlenadoIA } from '@/types';
 
 export const fuenteVerdadHttp: FuenteVerdadApi = {
@@ -25,10 +25,17 @@ export const fuenteVerdadHttp: FuenteVerdadApi = {
     });
   },
 
-  // Llenado automático de toda la ficha — puede tardar varios minutos (una llamada a la IA por
-  // sección): sin esto el fetch por defecto no tiene timeout propio del navegador, así que no hace
-  // falta nada especial acá, pero el caller debe mostrar un estado de carga acorde.
-  llenarConIA(ejemploId) {
-    return apiFetch<ResultadoLlenadoIA>(`ejemplos/${ejemploId}/llenar-ia`, { method: 'POST' });
+  // Llenado: 1 llamada IA por sección. `seccionIds` acota el alcance; `signal` cancela / timeout.
+  llenarConIA(ejemploId, opts: LlenarConIAOptions = {}) {
+    const { seccionIds, ...init } = opts;
+    const body =
+      seccionIds && seccionIds.length > 0
+        ? JSON.stringify({ seccionIds })
+        : JSON.stringify({});
+    return apiFetch<ResultadoLlenadoIA>(`ejemplos/${ejemploId}/llenar-ia`, {
+      method: 'POST',
+      body,
+      ...init,
+    });
   },
 };

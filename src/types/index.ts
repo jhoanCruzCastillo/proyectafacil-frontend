@@ -252,6 +252,44 @@ export interface ResultadoLlenadoIA {
   secciones: ResumenSeccionLlenadoIA[];
 }
 
+/** Estado por campo que declara el prompt de llenado IA (y se muestra en el editor del cliente). */
+export type EstadoCampoIA =
+  | 'extraido'
+  | 'inferido'
+  | 'requiere_confirmacion'
+  | 'no_encontrado';
+
+/** Detalle por campo para el informe de resultados (post-llenado). */
+export type CategoriaResultadoCampoIA =
+  | 'alta_confianza'
+  | 'revision'
+  | 'ya_existian'
+  | 'sin_informacion';
+
+export interface CampoResultadoLlenadoIA {
+  id: string;
+  etiqueta: string;
+  seccionId: string;
+  tipo: TipoCampo;
+  valorPropuesto: string | null;
+  /** 0–1 cuando el backend lo provea; null si aún no hay señal de confianza. */
+  confianza: number | null;
+  categoria: CategoriaResultadoCampoIA;
+  /** Estado semántico del prompt; hoy se deriva de `categoria` hasta que el backend lo envíe. */
+  estado: EstadoCampoIA;
+  motivo?: string;
+}
+
+export interface ResumenResultadoLlenadoIA {
+  documentosAnalizados: number;
+  camposCompletados: number;
+  altaConfianza: number;
+  requierenRevision: number;
+  yaExistian: number;
+  sinInformacion: number;
+  campos: CampoResultadoLlenadoIA[];
+}
+
 export interface Ejemplo {
   id: string;
   nombre: string;

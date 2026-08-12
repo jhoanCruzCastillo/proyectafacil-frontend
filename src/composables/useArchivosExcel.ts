@@ -7,6 +7,8 @@ export function useCatalogoExcelQuery(plantillaId: MaybeRefOrGetter<string>) {
   return useQuery({
     queryKey: ['archivosExcel', plantillaId],
     queryFn: () => archivosExcelApi.getCatalogo(toValue(plantillaId)),
+    // Sin id la URL cae en `plantillas/archivos` (404). Esperar a tener plantilla real.
+    enabled: () => !!toValue(plantillaId),
   });
 }
 

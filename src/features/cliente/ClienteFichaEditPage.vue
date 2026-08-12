@@ -11,10 +11,13 @@ import ConfirmModal from '@/components/ConfirmModal.vue';
 import ClienteFichaTopBar from './ClienteFichaTopBar.vue';
 import EjemplosReferenciaPanel from './EjemplosReferenciaPanel.vue';
 import FuenteVerdadModal from './FuenteVerdadModal.vue';
+import ProcesamientoIAModal from './ProcesamientoIAModal.vue';
+import ResultadoLlenadoIAModal from './ResultadoLlenadoIAModal.vue';
 import AsesorIAChat from './AsesorIAChat.vue';
 import AsesoriaHumanaFAB from './AsesoriaHumanaFAB.vue';
 import HistorialFichaModal from './HistorialFichaModal.vue';
 import { useClienteFichaEditor } from '@/composables/useClienteFichaEditor';
+import { useLlenadoIAProgreso } from '@/composables/useLlenadoIAProgreso';
 
 const route = useRoute();
 const ejemploId = computed(() => route.params.ejemploId as string);
@@ -29,6 +32,39 @@ const {
   handleLeftResize, handleExamplesResize, handleSectionSelect, goToPrevSection, goToNextSection, handleValueChange,
   handleSave, handleDownload, handleInsert,
 } = useClienteFichaEditor(ejemploId);
+
+const {
+  showProgreso: showProcesamientoIA,
+  showResultado: showResultadoLlenadoIA,
+  fase: faseLlenadoIA,
+  secciones: seccionesProgresoIA,
+  mensajeError: mensajeErrorLlenadoIA,
+  resumenResultado,
+  estadosCamposIA,
+  esperandoServidor: esperandoServidorLlenadoIA,
+  iniciar: iniciarLlenadoIAJob,
+  abrirSiHaySesion,
+  cerrarProgreso: cerrarProcesamientoIA,
+  verResultados: verResultadosLlenadoIA,
+  cerrarResultado: cerrarResultadoLlenadoIA,
+  terminarProceso: terminarProcesoLlenadoIA,
+  confirmarCampoIA,
+  alEditarCampoIA,
+} = useLlenadoIAProgreso(plantilla);
+
+function abrirContextoIA() {
+  if (abrirSiHaySesion()) return;
+  showFuenteVerdad.value = true;
+}
+
+function iniciarLlenadoIA(payload?: { seccionIds?: string[] }) {
+  void iniciarLlenadoIAJob(ejemploId.value, payload?.seccionIds);
+}
+
+function onValueChange(campoIdentificador: string, value: string) {
+  handleValueChange(campoIdentificador, value);
+  alEditarCampoIA(campoIdentificador, value);
+}
 </script>
 
 <template>
@@ -52,7 +88,7 @@ const {
       :show-historial="muestraHistorial"
       @change-tab="activeTab = $event"
       @historial="showHistorial = true"
-      @fuente-verdad="showFuenteVerdad = true"
+      @fuente-verdad="abrirContextoIA"
       @save="handleSave"
       @download="handleDownload"
       @insert="showInsertConfirm = true"
@@ -100,7 +136,9 @@ const {
             :errores-validacion="activeTab === 'mi-ficha' ? errores : undefined"
             :referencia-valores="activeTab === 'mi-ficha' ? referenciaEjemplo?.valores : undefined"
             :permite-mejora-i-a="activeTab === 'mi-ficha' && permiteMejoraIA"
-            @update-example-value="handleValueChange"
+            :estados-i-a="activeTab === 'mi-ficha' ? estadosCamposIA : undefined"
+            @update-example-value="onValueChange"
+            @confirmar-ia="confirmarCampoIA"
           />
         </div>
 
@@ -155,6 +193,31 @@ const {
 
     <HistorialFichaModal :is-open="showHistorial" :ejemplo-id="ejemplo.id" @close="showHistorial = false" />
 
-    <FuenteVerdadModal :is-open="showFuenteVerdad" :ejemplo-id="ejemplo.id" @close="showFuenteVerdad = false" />
+    <FuenteVerdadModal
+      :is-open="showFuenteVerdad"
+      :ejemplo-id="ejemplo.id"
+      :secciones="plantilla.secciones"
+      @close="showFuenteVerdad = false"
+      @iniciar-llenado="iniciarLlenadoIA"
+    />
   </div>
+
+  <!-- Fuera del v-else del editor: sobreviven un refetch de ejemplo y no cortan la transición al informe. -->
+  <ProcesamientoIAModal
+    v-if="faseLlenadoIA === 'procesando' || faseLlenadoIA === 'error' || (faseLlenadoIA === 'completado' && showProcesamientoIA)"
+    :is-open="showProcesamientoIA"
+    :secciones="seccionesProgresoIA"
+    :fase="faseLlenadoIA === 'error' ? 'error' : faseLlenadoIA === 'procesando' ? 'procesando' : 'completado'"
+    :mensaje-error="mensajeErrorLlenadoIA"
+    :esperando-servidor="esperandoServidorLlenadoIA"
+    @close="cerrarProcesamientoIA()"
+    @ver-resultados="verResultadosLlenadoIA()"
+  />
+
+  <ResultadoLlenadoIAModal
+    :is-open="showResultadoLlenadoIA"
+    :resumen="resumenResultado"
+    @close="cerrarResultadoLlenadoIA()"
+    @terminar="terminarProcesoLlenadoIA()"
+  />
 </template>

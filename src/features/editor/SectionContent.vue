@@ -4,7 +4,7 @@ import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faCircleQuestion, faTrash, faPlus, faNoteSticky } from '@/lib/icons';
 import FieldCard from './FieldCard.vue';
 import AyudaSubseccionModal from './AyudaSubseccionModal.vue';
-import type { Campo, ConfigTabla, Seccion } from '@/types';
+import type { Campo, ConfigTabla, EstadoCampoIA, Seccion } from '@/types';
 
 // Edición de nombre de sección/subsección, hoja de Excel, agregar/eliminar subsecciones y campos,
 // y edición del valor por defecto y del valor de ejemplo (tab Ejemplos).
@@ -24,6 +24,8 @@ const props = defineProps<{
   referenciaValores?: Record<string, string>;
   /** true = el plan del cliente incluye la ayuda de IA para mejorar títulos/textos (Nivel 1+) */
   permiteMejoraIA?: boolean;
+  /** Estados del llenado IA por identificador (solo cliente, tras un llenado) */
+  estadosIA?: Record<string, EstadoCampoIA>;
 }>();
 
 const emit = defineEmits<{
@@ -44,6 +46,7 @@ const emit = defineEmits<{
   'update-default-value': [campoId: string, value: string];
   'update-example-value': [identificador: string, value: string];
   'update-config-tabla': [campoId: string, config: ConfigTabla];
+  'confirmar-ia': [identificador: string];
 }>();
 
 const ayudaAbiertaId = ref<string | null>(null);
@@ -125,12 +128,14 @@ const subseccionAyuda = computed(() => props.seccion.subsecciones.find((s) => s.
           :error="erroresValidacion?.[campo.identificador]"
           :referencia-valor="referenciaValores?.[campo.identificador]"
           :permite-mejora-i-a="permiteMejoraIA"
+          :estado-i-a="estadosIA?.[campo.identificador] ?? null"
           @click="emit('select-campo', campo)"
           @delete="emit('delete-campo', campo.id, sub.id)"
           @duplicate="emit('duplicate-campo', campo.id, sub.id)"
           @update-default-value="emit('update-default-value', campo.id, $event)"
           @update-example-value="emit('update-example-value', campo.identificador, $event)"
           @update-config-tabla="emit('update-config-tabla', campo.id, $event)"
+          @confirmar-ia="emit('confirmar-ia', campo.identificador)"
         />
         <!-- Mismos botones que los del final de la subsección, pero pegados al campo seleccionado:
              lo nuevo entra justo detrás de él, no al final. -->

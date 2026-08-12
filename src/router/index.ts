@@ -252,4 +252,20 @@ router.beforeEach((to) => {
   return true;
 });
 
+// Tras `vite build` + `preview`, el navegador puede seguir con un index/chunk viejo en caché.
+// El SPA fallback sirve HTML para el .js faltante → "Failed to fetch dynamically imported module".
+// Un reload fuerza a pedir el index nuevo (una sola vez por sesión de error).
+router.onError((error) => {
+  const msg = error instanceof Error ? error.message : String(error);
+  const isChunk =
+    msg.includes('Failed to fetch dynamically imported module') ||
+    msg.includes('Importing a module script failed') ||
+    msg.includes('error loading dynamically imported module');
+  if (!isChunk) return;
+  const key = 'pf:chunk-reload';
+  if (sessionStorage.getItem(key) === '1') return;
+  sessionStorage.setItem(key, '1');
+  window.location.reload();
+});
+
 export default router;
