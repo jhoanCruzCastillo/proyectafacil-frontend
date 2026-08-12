@@ -279,23 +279,30 @@ function handleClick() {
               Mejorar con IA
             </button>
           </div>
-          <div v-if="!editableExample" class="text-sm text-heading mt-0.5">
+          <!-- Tabla/coordenadas/imagen tienen forma propia — un volcado de texto plano mostraría el
+               JSON crudo de la tabla, ilegible. Siempre se renderiza el widget real; si no es
+               editable (tab "Ejemplos" del cliente, ficha en solo lectura), se envuelve en un
+               <fieldset disabled> nativo: se ve exactamente igual pero ningún control responde,
+               sin tener que duplicar la lógica de cada editor de tabla en una versión de solo lectura. -->
+          <fieldset
+            v-if="isCoordField || isImagenField || (isTableField && campo.configTabla)"
+            :disabled="!editableExample"
+            class="m-0 p-0 border-0 min-w-0 mt-1.5"
+          >
+            <CampoCoordenadasInput v-if="isCoordField" :value="displayValue || ''" :editable="editableExample" @change="emit('update-example-value', $event)" />
+            <CampoImagenInput v-else-if="isImagenField" :value="displayValue || ''" :editable="editableExample" @change="emit('update-example-value', $event)" />
+            <ExampleTableEditor
+              v-else-if="isTableField && campo.configTabla"
+              :config="(campo.configTabla as ConfigTabla)"
+              :model-value="displayValue || ''"
+              :hoja="hoja"
+              @update:model-value="emit('update-example-value', $event)"
+            />
+          </fieldset>
+          <div v-else-if="!editableExample" class="text-sm text-heading mt-0.5">
             {{ displayValue || '' }}
             <span v-if="!displayValue" class="text-muted italic">Sin valor</span>
           </div>
-          <div v-else-if="isCoordField" class="mt-1.5">
-            <CampoCoordenadasInput :value="displayValue || ''" :editable="editableExample" @change="emit('update-example-value', $event)" />
-          </div>
-          <div v-else-if="isImagenField" class="mt-1.5">
-            <CampoImagenInput :value="displayValue || ''" :editable="editableExample" @change="emit('update-example-value', $event)" />
-          </div>
-          <ExampleTableEditor
-            v-else-if="isTableField && campo.configTabla"
-            :config="(campo.configTabla as ConfigTabla)"
-            :model-value="displayValue || ''"
-            :hoja="hoja"
-            @update:model-value="emit('update-example-value', $event)"
-          />
           <template v-else>
             <CampoListaInput
               v-if="tieneLista"

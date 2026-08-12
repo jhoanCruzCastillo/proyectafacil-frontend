@@ -2,13 +2,15 @@
 import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faLightbulb, faGraduationCap, faChevronLeft, faChevronRight } from '@/lib/icons';
+import { faGraduationCap, faChevronLeft, faChevronRight } from '@/lib/icons';
 import ResizeHandle from '@/components/ResizeHandle.vue';
 import SectionIndex from '@/features/editor/SectionIndex.vue';
 import SectionContent from '@/features/editor/SectionContent.vue';
 import ExcelPreviewModal from '@/features/editor/ExcelPreviewModal.vue';
 import ConfirmModal from '@/components/ConfirmModal.vue';
 import ClienteFichaTopBar from './ClienteFichaTopBar.vue';
+import EjemplosReferenciaPanel from './EjemplosReferenciaPanel.vue';
+import FuenteVerdadModal from './FuenteVerdadModal.vue';
 import AsesorIAChat from './AsesorIAChat.vue';
 import AsesoriaHumanaFAB from './AsesoriaHumanaFAB.vue';
 import HistorialFichaModal from './HistorialFichaModal.vue';
@@ -19,12 +21,12 @@ const ejemploId = computed(() => route.params.ejemploId as string);
 
 const {
   ejemplo, plantilla, archivoEjemplo, esNivel0, diasRestantes,
-  soloLectura, permiteMejoraIA, muestraHistorial, showHistorial,
+  soloLectura, permiteMejoraIA, muestraHistorial, showHistorial, showFuenteVerdad,
   esPropietario, ejemplosReferencia, referenciaId, referenciaEjemplo,
-  editedValores, leftWidth, showPreview, showInsertConfirm, isInserting, insertProgress,
+  editedValores, leftWidth, activeTab, examplesWidth, showPreview, showInsertConfirm, isInserting, insertProgress,
   errores, erroresCount, progreso, erroresPorSeccion,
   secciones, safeIdx, seccionActiva, isFirst, isLast,
-  handleLeftResize, handleSectionSelect, goToPrevSection, goToNextSection, handleValueChange,
+  handleLeftResize, handleExamplesResize, handleSectionSelect, goToPrevSection, goToNextSection, handleValueChange,
   handleSave, handleDownload, handleInsert,
 } = useClienteFichaEditor(ejemploId);
 </script>
@@ -43,11 +45,14 @@ const {
     <ClienteFichaTopBar
       :plantilla="plantilla"
       :ejemplo="ejemplo"
+      :active-tab="activeTab"
       :errores-count="erroresCount"
       :progreso="progreso"
       :solo-lectura="soloLectura"
       :show-historial="muestraHistorial"
+      @change-tab="activeTab = $event"
       @historial="showHistorial = true"
+      @fuente-verdad="showFuenteVerdad = true"
       @save="handleSave"
       @download="handleDownload"
       @insert="showInsertConfirm = true"
@@ -60,21 +65,23 @@ const {
       <template v-else>Ejercicio de práctica — Plan Pedagógico · {{ diasRestantes }} día{{ diasRestantes === 1 ? '' : 's' }} restantes</template>
     </div>
 
-    <div v-if="ejemplosReferencia.length > 0" class="shrink-0 border-b border-gray-100 bg-blue-50/60 px-6 py-2 flex items-center gap-2">
-      <FontAwesomeIcon :icon="faLightbulb" class="w-3.5 h-3.5 text-blue-500" />
-      <span class="text-xs font-medium text-blue-700">Ejemplo de referencia</span>
-      <select v-model="referenciaId" class="text-xs border border-blue-200 rounded-md px-2 py-1 bg-white text-heading focus:outline-none focus:ring-2 focus:ring-blue-300">
-        <option value="">Ninguno</option>
-        <option v-for="refe in ejemplosReferencia" :key="refe.id" :value="refe.id">{{ refe.nombre }}</option>
-      </select>
-    </div>
-
     <div class="flex flex-1 overflow-hidden">
+      <template v-if="activeTab === 'ejemplos'">
+        <div class="shrink-0 bg-white overflow-hidden border-r border-gray-100" :style="{ width: `${examplesWidth}px` }">
+          <EjemplosReferenciaPanel
+            :ejemplos="ejemplosReferencia"
+            :active-ejemplo="referenciaEjemplo ?? null"
+            @select="(ej) => (referenciaId = ej.id)"
+          />
+        </div>
+        <ResizeHandle @resize="handleExamplesResize" />
+      </template>
+
       <div class="shrink-0 bg-white p-4 overflow-y-auto" :style="{ width: `${leftWidth}px` }">
         <SectionIndex
           :secciones="secciones"
           :active-seccion-id="seccionActiva?.id ?? null"
-          :errores-por-seccion="erroresPorSeccion"
+          :errores-por-seccion="activeTab === 'mi-ficha' ? erroresPorSeccion : undefined"
           @select="handleSectionSelect"
         />
       </div>
@@ -85,14 +92,14 @@ const {
         <div class="flex-1 overflow-y-auto bg-white p-6">
           <SectionContent
             v-if="seccionActiva"
-            :key="seccionActiva.id"
+            :key="`${seccionActiva.id}-${activeTab}`"
             :seccion="seccionActiva"
             show-example-values
-            :example-valores="editedValores"
-            :values-editable="!soloLectura"
-            :errores-validacion="errores"
-            :referencia-valores="referenciaEjemplo?.valores"
-            :permite-mejora-i-a="permiteMejoraIA"
+            :example-valores="activeTab === 'mi-ficha' ? editedValores : referenciaEjemplo?.valores"
+            :values-editable="activeTab === 'mi-ficha' && !soloLectura"
+            :errores-validacion="activeTab === 'mi-ficha' ? errores : undefined"
+            :referencia-valores="activeTab === 'mi-ficha' ? referenciaEjemplo?.valores : undefined"
+            :permite-mejora-i-a="activeTab === 'mi-ficha' && permiteMejoraIA"
             @update-example-value="handleValueChange"
           />
         </div>
@@ -147,5 +154,7 @@ const {
     />
 
     <HistorialFichaModal :is-open="showHistorial" :ejemplo-id="ejemplo.id" @close="showHistorial = false" />
+
+    <FuenteVerdadModal :is-open="showFuenteVerdad" :ejemplo-id="ejemplo.id" @close="showFuenteVerdad = false" />
   </div>
 </template>

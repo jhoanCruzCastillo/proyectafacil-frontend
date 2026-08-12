@@ -135,8 +135,11 @@ export function usePerfilEditor(plantillaId: Ref<string>, sectorId: Ref<string>)
 
   async function handleCreateExample(nombre: string, subtitulo: string, detalle: string) {
     const nuevo: Ejemplo = { id: generateId(), nombre, subtitulo, detalle, plantillaId: plantillaId.value, activo: false, valores: {}, estado: 'archivado' };
-    await crearEjemplo.mutateAsync(nuevo);
-    activeEjemplo.value = nuevo;
+    // El backend asigna su propio id al crear (ignora el id local) — guardar el objeto que
+    // devuelve, no `nuevo`, o cualquier llamada posterior (guardar valores, adjuntar Excel) fallaría
+    // con 404 al usar un id que el servidor nunca reconoció.
+    const creado = await crearEjemplo.mutateAsync(nuevo);
+    activeEjemplo.value = creado;
     editedValores.value = {};
     ui.toast(`Ejemplo "${nombre}" creado`);
   }

@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faXmark, faCheck, faFileCirclePlus, faTriangleExclamation, instrumentoLabels } from '@/lib/icons';
+import { faXmark, faCheck, faFileCirclePlus, faTriangleExclamation, faSpinner, instrumentoLabels } from '@/lib/icons';
 import { useSectoresQuery } from '@/composables/useSectores';
 import { usePlantillasQuery } from '@/composables/usePlantillas';
 import { useUsuariosQuery } from '@/composables/useUsuarios';
@@ -59,6 +59,11 @@ const descripcion = ref('');
 
 const { data: catalogoData } = useCatalogoExcelQuery(selectedPlantillaId);
 
+// Las tres mutaciones de handleSubmit corren en secuencia — mientras cualquiera esté en vuelo, el
+// botón se deshabilita y muestra el spinner, así el usuario nunca ve el modal "congelado" sin saber
+// si el clic surtió efecto.
+const enviando = computed(() => crearEjemplo.isPending.value || setExcelEjemplo.isPending.value || pushActividad.isPending.value);
+
 watch(
   () => props.isOpen,
   (open) => {
@@ -98,6 +103,7 @@ const plantillasCoincidentes = computed(() =>
 );
 
 async function handleSubmit() {
+  if (enviando.value) return; // evita doble envío si el usuario hace doble clic
   if (!selectedPlantillaId.value || !nombre.value.trim() || !session.sesion || bloqueado.value) return;
   const plantilla = plantillas.value.find((p) => p.id === selectedPlantillaId.value);
   if (!plantilla) return;
@@ -109,31 +115,40 @@ async function handleSubmit() {
     return;
   }
 
-  const nuevoId = generateId();
-  await crearEjemplo.mutateAsync({
-    id: nuevoId,
-    nombre: nombre.value.trim(),
-    subtitulo: codigo.value.trim(),
-    detalle: descripcion.value.trim(),
-    plantillaId: plantilla.id,
-    activo: false,
-    valores: {},
-    propietarioId: cuentaEfectivaDe(usuariosData.value ?? [], session.sesion),
-    creadoPorUsuarioId: session.sesion.usuarioId,
-  });
-  await setExcelEjemplo.mutateAsync({
-    ejemploId: nuevoId,
-    archivo: {
+  try {
+    // El backend asigna su propio id numérico al crear (ignora cualquier id que mandemos acá) —
+    // hay que usar el que devuelve, no un id generado en el cliente. Antes se usaba un UUID local
+    // para el paso siguiente (adjuntar el Excel), que nunca coincidía con el id real y esa llamada
+    // fallaba con 404 en silencio: el modal se quedaba "congelado" sin ningún aviso.
+    const creado = await crearEjemplo.mutateAsync({
       id: generateId(),
-      nombre: archivoAsignado.nombre,
-      dataUrl: archivoAsignado.dataUrl,
-      fechaSubida: new Date().toLocaleDateString('es-PE'),
-    },
-  });
-  await pushActividad.mutateAsync({ mensaje: `Se creó la ficha "${nombre.value.trim()}"`, color: 'green' });
-  ui.toast(`Ficha "${nombre.value.trim()}" creada`);
-  emit('close');
-  router.push(`/mis-fichas/${nuevoId}`);
+      nombre: nombre.value.trim(),
+      subtitulo: codigo.value.trim(),
+      detalle: descripcion.value.trim(),
+      plantillaId: plantilla.id,
+      activo: false,
+      valores: {},
+      propietarioId: cuentaEfectivaDe(usuariosData.value ?? [], session.sesion),
+      creadoPorUsuarioId: session.sesion.usuarioId,
+    });
+    await setExcelEjemplo.mutateAsync({
+      ejemploId: creado.id,
+      archivo: {
+        id: generateId(),
+        nombre: archivoAsignado.nombre,
+        dataUrl: archivoAsignado.dataUrl,
+        fechaSubida: new Date().toLocaleDateString('es-PE'),
+      },
+    });
+    await pushActividad.mutateAsync({ mensaje: `Se creó la ficha "${nombre.value.trim()}"`, color: 'green' });
+    ui.toast(`Ficha "${nombre.value.trim()}" creada`);
+    emit('close');
+    router.push(`/mis-fichas/${creado.id}`);
+  } catch {
+    // Si algo falla a mitad de camino (red, servidor) el usuario debe enterarse — antes esto
+    // quedaba en una promesa rechazada sin manejar y el modal se veía "congelado".
+    ui.toast('No se pudo crear la ficha. Inténtalo de nuevo.', 'error');
+  }
 }
 </script>
 
@@ -243,17 +258,17 @@ async function handleSubmit() {
             <div class="flex items-center justify-between pt-4 border-t border-gray-100">
               <p class="text-xs text-muted"><span class="text-red-500">*</span> Campos obligatorios</p>
               <div class="flex gap-3">
-                <button @click="emit('close')" type="button" class="px-5 py-2.5 rounded-lg border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors duration-75">
+                <button @click="emit('close')" :disabled="enviando" type="button" class="px-5 py-2.5 rounded-lg border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-75">
                   Cancelar
                 </button>
                 <button
                   @click="handleSubmit"
-                  :disabled="!selectedPlantillaId || !nombre.trim() || bloqueado"
+                  :disabled="!selectedPlantillaId || !nombre.trim() || bloqueado || enviando"
                   type="button"
                   class="px-5 py-2.5 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-75 flex items-center gap-2"
                 >
-                  <FontAwesomeIcon :icon="faCheck" class="w-3.5 h-3.5" />
-                  Crear y empezar a llenar
+                  <FontAwesomeIcon :icon="enviando ? faSpinner : faCheck" class="w-3.5 h-3.5" :class="{ 'animate-spin': enviando }" />
+                  {{ enviando ? 'Creando...' : 'Crear y empezar a llenar' }}
                 </button>
               </div>
             </div>

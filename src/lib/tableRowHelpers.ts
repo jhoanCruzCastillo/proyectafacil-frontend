@@ -1,4 +1,4 @@
-import type { ColumnaTabla, ConfigTabla, SubtipoTabla } from '../types';
+import type { Campo, ColumnaTabla, ConfigTabla, SubtipoTabla } from '../types';
 
 /** Valor de una celda de tabla:
  *  - `string`            → celda normal (o celda partida en modo FUSIONADO: un solo dato a lo ancho)
@@ -352,4 +352,148 @@ export function posicionesArbol(
 /** Posición de un nodo concreto dentro del mapa devuelto por `posicionesArbol`. */
 export function posicionDe(mapa: Map<string, PosicionNodo>, path: number[]): PosicionNodo | undefined {
   return mapa.get(claveRuta(path));
+}
+
+// Celdas de las tablas, para que el cálculo en vivo pueda usarlas como entrada: la Localización de
+// la sección 1 se construye a partir del UBIGEO, que vive en una columna de la tabla 3.03.01, y el
+// "%" de la 4.01.02 divide dos celdas de su propia columna Cantidad.
+//
+// La fila de Excel de cada dato SIEMPRE sale de la misma función que usan el editor y el escritor
+// (`posicionesArbol`, `posicionesGrupos`, o la cuenta directa en las planas). Si se calculara aquí
+// aparte, la celda que alimenta la fórmula y la celda donde acaba el dato podrían no ser la misma.
+//
+// Compartido entre el editor de admin (usePlantillaEditor) y el de cliente (useClienteFichaEditor):
+// ambos alimentan el mismo `useExcelVivo` con las mismas celdas, solo cambia de dónde sacan los
+// valores (molde/ejemplo activo en admin; ficha propia/ejemplo de referencia en cliente).
+
+/**
+ * Una fila de datos -> celdas del Excel.
+ *
+ * Una columna partida (convención 4.8) aporta UNA CELDA POR PARTE, cada una con su propia letra:
+ * en la 4.01.02 la columna "%" ocupa J y K, y sin desdoblarla el texto de la derecha se indexaba
+ * sobre J —la celda que el Excel calcula— o no se indexaba en absoluto.
+ */
+function indexarFila(
+  mapa: Map<string, string>,
+  hoja: string,
+  config: ConfigTabla,
+  fila: FilaDinamica,
+  filaExcel: number,
+): void {
+  for (const col of config.columnas) {
+    const valor = fila[col.id];
+    if (col.subcolumnas?.length && esCeldaPartida(valor)) {
+      for (const sub of col.subcolumnas) {
+        const texto = valorSubcolumna(valor, sub.id);
+        if (sub.columnaExcel && texto !== '') mapa.set(`${hoja}!${sub.columnaExcel}${filaExcel}`, texto);
+      }
+      continue;
+    }
+    if (col.columnaExcel && typeof valor === 'string' && valor !== '') {
+      mapa.set(`${hoja}!${col.columnaExcel}${filaExcel}`, valor);
+    }
+  }
+}
+
+/**
+ * Celdas de una tabla AGRUPADA. La fila de título de un grupo es una fila del Excel más y puede
+ * llevar datos propios; un bloque sin título no consume ninguna. Antes estas tablas se saltaban
+ * enteras —se daba por hecho que ninguna fórmula dependía de ellas— y por eso las celdas calculadas
+ * de la 4.01.02 salían siempre en blanco: la fórmula se detectaba, pero sus operandos nunca llegaban.
+ */
+function indexarCeldasAgrupadas(
+  mapa: Map<string, string>,
+  hoja: string,
+  campo: Campo,
+  valorCrudo: string,
+  altoDeBloque: AltoDeBloque,
+): void {
+  const config = campo.configTabla;
+  const filaInicial = config?.captura?.filaInicial;
+  if (!config || !filaInicial) return;
+
+  const grupos = parseGroupedRows(valorCrudo, config);
+  const primera = config.columnas.find((c) => c.columnaExcel)?.columnaExcel;
+  const posiciones = posicionesGrupos(grupos, filaInicial, (fila) =>
+    alturaFilaBase(config, altoDeBloque(hoja, primera, fila)),
+  );
+
+  grupos.forEach((grupo, gi) => {
+    const pos = posiciones[gi];
+    if (!pos) return;
+    if (pos.filaTitulo !== null && grupo.valoresGrupo) {
+      indexarFila(mapa, hoja, config, grupo.valoresGrupo as FilaDinamica, pos.filaTitulo);
+    }
+    grupo.filas.forEach((fila, ri) => {
+      const filaExcel = pos.filas[ri];
+      if (filaExcel) indexarFila(mapa, hoja, config, fila, filaExcel);
+    });
+  });
+}
+
+// Celdas de una tabla JERÁRQUICA. La fila de cada nodo sale de `posicionesArbol` — la misma función
+// que usan el escritor y el editor — para que el valor que se teclea alimente exactamente la celda
+// que el Excel va a leer en su fórmula. Sin esto, una columna calculada como "Total = Cantidad ×
+// Costo" siempre daba 0: la fórmula se detectaba, pero sus operandos nunca llegaban.
+function indexarCeldasJerarquicas(
+  mapa: Map<string, string>,
+  hoja: string,
+  campo: Campo,
+  valorCrudo: string,
+  altoDeBloque: AltoDeBloque,
+): void {
+  const config = campo.configTabla;
+  const filaInicial = config?.captura?.filaInicial;
+  if (!config || !filaInicial) return;
+
+  const roots = parseTree(valorCrudo, config.columnas, config);
+  const agrupadorDepth = config.agrupador ? agrupadorProfundidad(config.columnas, config) : -1;
+  const posiciones = posicionesArbol(roots, config, hoja, filaInicial, agrupadorDepth, altoDeBloque);
+
+  function recorrer(node: TreeNode, path: number[]): void {
+    const pos = posicionDe(posiciones, path);
+    if (pos) {
+      const col = config!.columnas[pos.colIdx];
+      if (col?.columnaExcel && typeof node.value === 'string' && node.value !== '') {
+        mapa.set(`${hoja}!${col.columnaExcel}${pos.fila}`, node.value);
+      }
+      // Fila de título de un grupo: sus columnas libres a la derecha también son celdas de datos.
+      for (const [colId, valor] of Object.entries(node.valores ?? {})) {
+        const libre = config!.columnas.find((c) => c.id === colId);
+        if (libre?.columnaExcel && typeof valor === 'string' && valor !== '') {
+          mapa.set(`${hoja}!${libre.columnaExcel}${pos.fila}`, valor);
+        }
+      }
+    }
+    node.children.forEach((hijo, i) => recorrer(hijo, [...path, i]));
+  }
+
+  roots.forEach((raiz, i) => recorrer(raiz, [i]));
+}
+
+/** Punto de entrada: indexa las celdas de UN campo tipo tabla, sea cual sea su subtipo. */
+export function indexarCeldasDeTabla(mapa: Map<string, string>, hoja: string, campo: Campo, valorCrudo: string, altoDeBloque: AltoDeBloque): void {
+  const config = campo.configTabla;
+  const filaInicial = config?.captura?.filaInicial;
+  if (!config || !filaInicial) return;
+
+  if (esJerarquica(config.subtipo)) {
+    indexarCeldasJerarquicas(mapa, hoja, campo, valorCrudo, altoDeBloque);
+    return;
+  }
+  // El agrupador se comprueba antes que el subtipo: una tabla agrupada sigue siendo `filas_dinamicas`
+  // pero su valor es una lista de grupos, no de filas.
+  if (config.agrupador) {
+    indexarCeldasAgrupadas(mapa, hoja, campo, valorCrudo, altoDeBloque);
+    return;
+  }
+  if (config.subtipo !== 'filas_dinamicas') return;
+
+  const primera = config.columnas.find((c) => c.columnaExcel)?.columnaExcel;
+  const filas = parseDynamicRows(valorCrudo, config);
+  let fila = filaInicial;
+  for (const filaData of filas) {
+    indexarFila(mapa, hoja, config, filaData, fila);
+    fila += alturaFilaBase(config, altoDeBloque(hoja, primera, fila));
+  }
 }

@@ -98,8 +98,10 @@ export function renderMarkdown(texto: string): string {
         i++;
       }
       i++; // salta la línea de cierre ```
+      // Tema claro a propósito: contraste legible en paneles blancos (Contextos IA, ayudas).
+      // `whitespace-pre` conserva indentación JSON; el fondo no debe pelearse con estilos de `code` inline.
       bloques.push(
-        `<pre class="my-2 p-3 rounded-lg bg-gray-900 overflow-x-auto"><code class="text-[12.5px] font-mono text-gray-100 leading-relaxed">${codigo.join('\n')}</code></pre>`,
+        `<pre class="md-pre my-2 p-3 rounded-lg bg-slate-50 border border-slate-200 overflow-x-auto"><code class="md-code-block text-[12.5px] font-mono text-slate-800 leading-relaxed whitespace-pre">${codigo.join('\n')}</code></pre>`,
       );
       continue;
     }

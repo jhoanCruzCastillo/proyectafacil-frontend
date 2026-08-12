@@ -225,6 +225,33 @@ export interface Campo {
   decimales?: number;
 }
 
+// --- Fuente de la verdad / llenado automático con IA ---
+
+/** Documento (PDF/TXT/MD) que el cliente cargó como fuente de la verdad de su proyecto. */
+export interface ArchivoFuenteVerdad {
+  id: string;
+  nombre: string;
+  extension: 'pdf' | 'txt' | 'md';
+  tamanoBytes: number;
+}
+
+export interface FuenteVerdad {
+  archivos: ArchivoFuenteVerdad[];
+  textoAdicional: string;
+}
+
+export interface ResumenSeccionLlenadoIA {
+  seccionId: string;
+  nombre: string;
+  campos: number;
+  llenados: number;
+}
+
+export interface ResultadoLlenadoIA {
+  valores: Record<string, string>;
+  secciones: ResumenSeccionLlenadoIA[];
+}
+
 export interface Ejemplo {
   id: string;
   nombre: string;

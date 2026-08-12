@@ -4,7 +4,7 @@ import { faLock } from '@/lib/icons';
 import type { VersionTab } from '@/types';
 
 defineProps<{
-  activeTab: VersionTab;
+  activeTab: VersionTab | null;
   disableProyecto?: boolean;
   /** true = variante para cabeceras oscuras (fondo transparente en vez de blanco) — ver EditorTopBar.vue */
   dark?: boolean;
@@ -19,7 +19,7 @@ const tabs: { key: VersionTab; label: string }[] = [
 </script>
 
 <template>
-  <div class="flex rounded-lg border overflow-hidden" :class="dark ? 'border-white/15' : 'border-gray-200'">
+  <div class="flex overflow-hidden" :class="dark ? '' : 'rounded-lg border border-gray-200'">
     <button
       v-for="tab in tabs"
       :key="tab.key"

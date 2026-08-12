@@ -3,6 +3,14 @@ import type { Campo, ColumnaTabla, ConfigTabla, Ejemplo, Plantilla, Seccion, Tip
 
 export type TipoVersionDocumento = 'estructura' | 'ejemplo';
 
+/**
+ * Da el texto que el Excel calcularía para un campo `calculado`, o `undefined` si no hay Excel
+ * asignado o la celda no tiene fórmula. Solo se usa para RELLENAR el `valor` que se muestra/exporta
+ * en el documento — nunca cambia qué se escribe al insertar en Excel (esa protección sigue viviendo
+ * aparte, en excelWriter.ts, y sigue mirando la celda real del archivo, no este valor).
+ */
+export type ValorCalculadoFn = (hoja: string, campo: Campo) => string | undefined;
+
 // Id reservado que usa el esquema oficial para la columna que se repite por período
 const ID_COLUMNA_DINAMICA = 'columnas_dinamicas';
 
@@ -255,7 +263,7 @@ function buildCampo(seccion: Seccion, campo: Campo, valorRaw: string | undefined
 
 // --- Sección / grupo ---
 
-function buildSeccion(seccion: Seccion, ejemplo?: Ejemplo): Record<string, unknown> {
+function buildSeccion(seccion: Seccion, ejemplo: Ejemplo | undefined, valorCalculado: ValorCalculadoFn | undefined): Record<string, unknown> {
   return {
     id: seccion.numero,
     nombre: seccion.nombre,
@@ -266,7 +274,14 @@ function buildSeccion(seccion: Seccion, ejemplo?: Ejemplo): Record<string, unkno
       nombre: sub.nombre,
       tipo_nodo: 'grupo',
       campos: sub.campos.map((campo) => {
-        const valorRaw = ejemplo ? ejemplo.valores[campo.identificador] : campo.valorEjemplo;
+        let valorRaw = ejemplo ? ejemplo.valores[campo.identificador] : campo.valorEjemplo;
+        // Un campo `calculado` nunca guarda su valor (lo calcula el Excel, no se persiste — ver
+        // Notion 3.2/5). Sin esto el documento lo exportaría siempre vacío aunque la UI ya muestre
+        // el resultado en vivo. No afecta qué se escribe al insertar: esa protección sigue mirando
+        // la celda real del archivo en excelWriter.ts, no este valor.
+        if (!valorRaw && campo.tipo === 'calculado' && valorCalculado) {
+          valorRaw = valorCalculado(seccion.hoja ?? '', campo) ?? valorRaw;
+        }
         return buildCampo(seccion, campo, valorRaw);
       }),
     })),
@@ -285,7 +300,12 @@ export interface DocumentoJSON {
   secciones: Record<string, unknown>[];
 }
 
-export function buildDocumento(plantilla: Plantilla, tipoVersion: TipoVersionDocumento, ejemplo?: Ejemplo): DocumentoJSON {
+export function buildDocumento(
+  plantilla: Plantilla,
+  tipoVersion: TipoVersionDocumento,
+  ejemplo?: Ejemplo,
+  valorCalculado?: ValorCalculadoFn,
+): DocumentoJSON {
   return {
     schema_version: '1.0',
     formato: {
@@ -293,6 +313,6 @@ export function buildDocumento(plantilla: Plantilla, tipoVersion: TipoVersionDoc
       nombre: plantilla.nombre,
       tipo_version: tipoVersion,
     },
-    secciones: plantilla.secciones.map((seccion) => buildSeccion(seccion, tipoVersion === 'ejemplo' ? ejemplo : undefined)),
+    secciones: plantilla.secciones.map((seccion) => buildSeccion(seccion, tipoVersion === 'ejemplo' ? ejemplo : undefined, valorCalculado)),
   };
 }

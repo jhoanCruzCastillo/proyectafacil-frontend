@@ -17,6 +17,8 @@ import {
   faLandmark,
   faUmbrellaBeach,
   faFileInvoice,
+  faFilePdf,
+  faUpload,
   faLayerGroup,
   faToggleOn,
   faToggleOff,
@@ -336,6 +338,8 @@ export const columnTypePrimitivos: TipoColumna[] = [
 
 export {
   faHouse,
+  faFilePdf,
+  faUpload,
   faLayerGroup,
   faToggleOn,
   faToggleOff,
