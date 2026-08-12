@@ -249,6 +249,10 @@ export interface ResumenSeccionLlenadoIA {
 
 export interface ResultadoLlenadoIA {
   valores: Record<string, string>;
+  /** Estado semántico por identificador (extraido / inferido / …) cuando el backend lo envía. */
+  estados?: Record<string, EstadoCampoIA>;
+  /** Confianza 0–1 por identificador, si viene del modelo. */
+  confianza?: Record<string, number>;
   secciones: ResumenSeccionLlenadoIA[];
 }
 

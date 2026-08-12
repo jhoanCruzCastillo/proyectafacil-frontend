@@ -83,12 +83,8 @@ export function mapaEstadosDesdeResumen(
 }
 
 /**
- * Arma el resumen del informe de resultados a partir de la respuesta actual del backend
- * (mapa plano de valores) y el catálogo de campos de la plantilla.
- *
- * Cuando el backend empiece a devolver confianza/estado por campo, este mapper
- * podrá clasificar en alta_confianza / revision / ya_existian con umbrales reales.
- * Hoy: todo valor propuesto va a alta_confianza; el resto a sin_informacion.
+ * Arma el resumen del informe de resultados a partir de la respuesta del backend
+ * (mapa de valores + estados/confianza opcionales) y el catálogo de campos.
  */
 export function construirResumenResultadoLlenado(
   plantilla: Plantilla,
@@ -97,6 +93,8 @@ export function construirResumenResultadoLlenado(
   seccionIds?: string[] | null,
 ): ResumenResultadoLlenadoIA {
   const valores = resultado.valores ?? {};
+  const estadosApi = resultado.estados ?? {};
+  const confianzaApi = resultado.confianza ?? {};
   const campos: CampoResultadoLlenadoIA[] = [];
   const filtro = seccionIds && seccionIds.length > 0 ? new Set(seccionIds) : null;
 
@@ -104,17 +102,23 @@ export function construirResumenResultadoLlenado(
     if (filtro && !filtro.has(seccionId)) continue;
     const crudo = valores[campo.identificador];
     const valor = typeof crudo === 'string' ? crudo.trim() : crudo != null ? String(crudo).trim() : '';
+    const estadoBackend = estadosApi[campo.identificador];
+    const confianza = typeof confianzaApi[campo.identificador] === 'number'
+      ? confianzaApi[campo.identificador]
+      : null;
+
     if (valor !== '') {
-      const categoria = 'alta_confianza' as const;
+      const estado: EstadoCampoIA = estadoBackend ?? 'extraido';
+      const categoria = categoriaDesdeEstado(estado, confianza);
       campos.push({
         id: campo.identificador,
         etiqueta: campo.etiqueta,
         seccionId,
         tipo: campo.tipo,
         valorPropuesto: truncar(valor),
-        confianza: null,
+        confianza,
         categoria,
-        estado: estadoDesdeCategoria(categoria),
+        estado,
       });
     } else {
       const categoria = 'sin_informacion' as const;
@@ -126,7 +130,7 @@ export function construirResumenResultadoLlenado(
         valorPropuesto: null,
         confianza: null,
         categoria,
-        estado: estadoDesdeCategoria(categoria),
+        estado: estadoBackend ?? 'no_encontrado',
         motivo: 'No se encontró información en los documentos',
       });
     }
@@ -146,6 +150,17 @@ export function construirResumenResultadoLlenado(
     sinInformacion,
     campos,
   };
+}
+
+function categoriaDesdeEstado(
+  estado: EstadoCampoIA,
+  confianza: number | null,
+): CategoriaResultadoCampoIA {
+  if (estado === 'requiere_confirmacion') return 'revision';
+  if (estado === 'inferido') return 'revision';
+  if (estado === 'no_encontrado') return 'sin_informacion';
+  if (confianza != null && confianza < 0.7) return 'revision';
+  return 'alta_confianza';
 }
 
 export function formatoConfianza(confianza: number | null): string {
