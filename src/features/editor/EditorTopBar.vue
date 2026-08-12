@@ -74,19 +74,28 @@ const colorGuardado = computed(() => (props.estadoGuardado === 'error' ? 'text-r
           <FontAwesomeIcon v-if="estadoGuardado === 'guardando'" :icon="faSpinner" class="w-3 h-3 animate-spin" />
           {{ textoGuardado }}
         </span>
-        <VersionTabs :active-tab="activeTab" disable-proyecto dark @change="emit('change-tab', $event)" />
+        <div class="flex rounded-lg border border-white/15 overflow-hidden">
+          <button
+            v-if="puedeEditarContextos"
+            type="button"
+            class="px-4 py-2 text-sm font-medium flex items-center gap-2 transition-colors"
+            :class="contextosIA
+              ? 'bg-violet-600 text-white'
+              : 'bg-transparent text-white/70 hover:bg-white/10 hover:text-white'"
+            @click="emit('toggle-contextos-ia')"
+          >
+            <FontAwesomeIcon :icon="faWandMagicSparkles" class="w-3.5 h-3.5" />
+            Contexto IA
+          </button>
+          <VersionTabs
+            :active-tab="contextosIA ? null : activeTab"
+            disable-proyecto
+            dark
+            @change="emit('change-tab', $event)"
+          />
+        </div>
         <button
-          v-if="puedeEditarContextos"
-          @click="emit('toggle-contextos-ia')"
-          type="button"
-          class="px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 border transition-colors bg-gradient-to-r from-violet-500/30 to-fuchsia-500/25 hover:from-violet-500/40 hover:to-fuchsia-500/35"
-          :class="contextosIA ? 'border-violet-300/60 text-white shadow-[0_0_0_1px_rgba(167,139,250,0.35)]' : 'border-violet-400/30 text-violet-100'"
-        >
-          <FontAwesomeIcon :icon="faWandMagicSparkles" class="w-3.5 h-3.5" />
-          Contextos IA
-        </button>
-        <button
-          v-if="esSuperusuario"
+          v-if="esSuperusuario && !contextosIA"
           @click="emit('view-json')"
           type="button"
           class="px-4 py-2 rounded-lg border border-white/15 text-sm font-medium text-white/80 hover:bg-white/10 hover:text-white transition-colors flex items-center gap-2"
@@ -97,7 +106,7 @@ const colorGuardado = computed(() => (props.estadoGuardado === 'error' ? 'text-r
         <!-- Volcar existía solo en Ejemplos (desde la tarjeta del ejemplo). En Estructura el origen
              no se elige: siempre es el Excel asignado, así que vive aquí arriba. -->
         <button
-          v-if="!showInsert"
+          v-if="!showInsert && !contextosIA"
           @click="emit('volcar-estructura')"
           :disabled="!tieneExcelAsignado"
           type="button"
@@ -108,7 +117,7 @@ const colorGuardado = computed(() => (props.estadoGuardado === 'error' ? 'text-r
           Volcar
         </button>
         <button
-          v-if="showInsert"
+          v-if="showInsert && !contextosIA"
           @click="emit('insert-excel')"
           type="button"
           class="px-4 py-2 rounded-lg border border-white/15 text-sm font-medium text-white/80 hover:bg-white/10 hover:text-white transition-colors flex items-center gap-2"
@@ -117,7 +126,7 @@ const colorGuardado = computed(() => (props.estadoGuardado === 'error' ? 'text-r
           Insertar
         </button>
         <button
-          v-else
+          v-if="!showInsert && !contextosIA"
           @click="emit('preview-excel')"
           type="button"
           class="px-4 py-2 rounded-lg border border-white/15 text-sm font-medium text-white/80 hover:bg-white/10 hover:text-white transition-colors flex items-center gap-2"
@@ -126,6 +135,7 @@ const colorGuardado = computed(() => (props.estadoGuardado === 'error' ? 'text-r
           Vista previa
         </button>
         <button
+          v-if="!contextosIA"
           @click="emit('save')"
           type="button"
           class="px-4 py-2 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 transition-colors flex items-center gap-2"

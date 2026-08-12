@@ -672,6 +672,15 @@ function renamePeriodo(pi: number, value: string) {
                   @change="updateGrupoValor(cell.path, cell.colId, $event)"
                   @click.stop
                 />
+                <!-- Columna booleana (4.10): casilla de verificación en vez de texto -->
+                <input
+                  v-else-if="columns[ci]?.tipo === 'booleano'"
+                  :checked="cell.value === 'true'"
+                  @change="updateGrupoValor(cell.path, cell.colId, ($event.target as HTMLInputElement).checked ? 'true' : 'false')"
+                  @click.stop
+                  type="checkbox"
+                  class="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                />
                 <textarea
                   v-else
                   :value="typeof cell.value === 'string' ? cell.value : ''"
@@ -754,6 +763,15 @@ function renamePeriodo(pi: number, value: string) {
                     class="flex-1 min-w-0"
                     @change="updateNodeValue(cell.path, $event)"
                     @click.stop
+                  />
+                  <!-- Columna booleana (4.10): casilla de verificación en vez de texto -->
+                  <input
+                    v-else-if="columns[ci]?.tipo === 'booleano'"
+                    :checked="cell.value === 'true'"
+                    @change="updateNodeValue(cell.path, ($event.target as HTMLInputElement).checked ? 'true' : 'false')"
+                    @click.stop
+                    type="checkbox"
+                    class="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500 mt-1"
                   />
                   <!-- textarea con field-sizing: crece con el contenido hasta 15 líneas y luego
                        scrollea. Enter sigue confirmando la edición (handleKeyDown lo intercepta

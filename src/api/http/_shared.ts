@@ -2,11 +2,20 @@
 // (mismo origen gracias al proxy de Vite, ver vite.config.ts) y manejo uniforme de errores JSON.
 
 export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(`/api/${path}`, {
-    credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json', ...options.headers },
-    ...options,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`/api/${path}`, {
+      credentials: 'same-origin',
+      ...options,
+      headers: { 'Content-Type': 'application/json', ...options.headers },
+    });
+  } catch (e) {
+    const aborted =
+      (e instanceof DOMException && e.name === 'AbortError') ||
+      (e instanceof Error && e.name === 'AbortError');
+    if (aborted) throw e;
+    throw new Error(e instanceof Error ? e.message : `No se pudo conectar con /api/${path}`);
+  }
 
   // DEBUG TEMPORAL — quitar cuando se resuelva el issue de producción devolviendo datos mock.
   // Si este log NUNCA aparece para un recurso (ej. usuarios), es la prueba de que ese recurso está

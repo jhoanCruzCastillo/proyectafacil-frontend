@@ -17,6 +17,8 @@ import {
   faLandmark,
   faUmbrellaBeach,
   faFileInvoice,
+  faFilePdf,
+  faUpload,
   faLayerGroup,
   faToggleOn,
   faToggleOff,
@@ -142,6 +144,7 @@ import {
   faGlobe,
   faCrown,
   faEnvelope,
+  faNoteSticky,
   type IconDefinition,
 } from '@fortawesome/free-solid-svg-icons';
 import type { RolUsuario, TipoInstrumento, TipologiaIoarr, TipoCampo, TipoColumna, SubtipoTabla, MetodoPago } from '@/types';
@@ -262,6 +265,7 @@ export const fieldTypeIcons: Record<TipoCampo, IconDefinition> = {
   imagen: faImage,
   firma: faSignature,
   mapa_coordenadas: faLocationDot,
+  nota: faNoteSticky,
 };
 
 export const fieldTypeLabels: Record<TipoCampo, string> = {
@@ -280,6 +284,7 @@ export const fieldTypeLabels: Record<TipoCampo, string> = {
   imagen: 'Imagen / croquis',
   firma: 'Firma',
   mapa_coordenadas: 'Coordenadas',
+  nota: 'Nota',
 };
 
 export const columnTypeLabels: Record<TipoColumna, string> = {
@@ -333,6 +338,8 @@ export const columnTypePrimitivos: TipoColumna[] = [
 
 export {
   faHouse,
+  faFilePdf,
+  faUpload,
   faLayerGroup,
   faToggleOn,
   faToggleOff,
@@ -436,6 +443,7 @@ export {
   faCloudArrowUp,
   faArrowUpRightFromSquare,
   faGem,
+  faNoteSticky,
   faBold,
   faItalic,
   faHeading,

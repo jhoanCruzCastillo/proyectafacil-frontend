@@ -2,11 +2,12 @@ import { type Ref, computed, provide, ref, watch } from 'vue';
 import { useEjemploQuery, useEjemplosByPlantillaQuery, useActualizarEjemplo } from '@/composables/useEjemplos';
 import { usePlantillaQuery } from '@/composables/usePlantillas';
 import { useExcelEjemploQuery, useSetExcelEjemplo } from '@/composables/useExcelEjemplos';
+import { useCatalogoExcelQuery } from '@/composables/useArchivosExcel';
 import { useRegistrarCambioFicha } from '@/composables/useHistorialCambios';
 import { usePushActividad } from '@/composables/useActividad';
 import { useUsuariosQuery } from '@/composables/useUsuarios';
 import { useEstadoEntrenamiento } from '@/composables/useEstadoEntrenamiento';
-import { useExcelVivo, EXCEL_VIVO } from '@/composables/useListasExcel';
+import { useExcelVivo, useAltoDeBloqueExcel, EXCEL_VIVO } from '@/composables/useListasExcel';
 import { useSessionStore } from '@/stores/session';
 import { useUiStore } from '@/stores/ui';
 import { generateId } from '@/api/mock/_shared';
@@ -15,10 +16,13 @@ import { puedeVerHistorial } from '@/lib/planAcceso';
 import { insertarValoresEnExcel, type AvisoLista } from '@/lib/excelWriter';
 import { mensajeAvisoListas } from '@/lib/xlsxListas';
 import { calcularCambios } from '@/lib/historialFicha';
+import { indexarCeldasDeTabla } from '@/lib/tableRowHelpers';
 import { validarValoresPlantilla, calcularProgresoValores } from '@/lib/valorValidation';
 
 const MIN_LEFT = 180;
 const DEFAULT_LEFT = 260;
+const MIN_EXAMPLES = 220;
+const DEFAULT_EXAMPLES = 300;
 
 export function useClienteFichaEditor(ejemploId: Ref<string>) {
   const session = useSessionStore();
@@ -36,15 +40,11 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
   const pushActividad = usePushActividad();
   const { esNivel0, vencido, diasRestantes, numeroNivel } = useEstadoEntrenamiento();
 
-  // Desplegables leídos del Excel de la ficha, para que el cliente elija la opción exacta en vez de
-  // teclearla. El cálculo en vivo va con `null`: de momento solo está habilitado en el editor de
-  // estructura (ver useExcelVivo).
-  provide(EXCEL_VIVO, useExcelVivo(computed(() => archivoEjemplo.value?.dataUrl ?? null), computed(() => null)));
-
   const soloLectura = computed(() => esNivel0.value && vencido.value);
   const permiteMejoraIA = computed(() => numeroNivel.value >= 1);
   const muestraHistorial = computed(() => puedeVerHistorial(numeroNivel.value));
   const showHistorial = ref(false);
+  const showFuenteVerdad = ref(false);
 
   const cuentaId = computed(() => (session.sesion ? cuentaEfectivaDe(usuariosData.value ?? [], session.sesion) : null));
   const esTitular = computed(() => !!session.sesion && session.sesion.usuarioId === cuentaId.value);
@@ -57,12 +57,54 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
   const activeSectionIndex = ref(0);
   const editedValores = ref<Record<string, string>>({});
   const leftWidth = ref(DEFAULT_LEFT);
+  // 'ejemplos' reutiliza la misma navegación de secciones que 'mi-ficha' (activeSectionIndex es
+  // compartido) — solo cambia qué panel de la izquierda se muestra y de dónde salen los valores
+  // que se renderizan a la derecha (ver ClienteFichaEditPage.vue).
+  const activeTab = ref<'mi-ficha' | 'ejemplos'>('mi-ficha');
+  const examplesWidth = ref(DEFAULT_EXAMPLES);
   const showPreview = ref(false);
   const showInsertConfirm = ref(false);
   const isInserting = ref(false);
   const insertProgress = ref(0);
   const referenciaId = ref('');
   const referenciaEjemplo = computed(() => ejemplosReferencia.value.find((e) => e.id === referenciaId.value));
+
+  // Desplegables leídos del Excel (para que el cliente elija la opción exacta en vez de teclearla) y
+  // celdas calculadas (para que "Objeto de intervención"/"Localización" y demás fórmulas del Excel se
+  // vean en vivo, no como "Sin valor") — la ESTRUCTURA (qué celda tiene fórmula, qué opciones ofrece
+  // un desplegable) sale siempre del Excel ASIGNADO a la plantilla, exactamente igual que en el
+  // editor de admin (ver fuenteExcel en usePlantillaEditor.ts) — es el mismo Excel para cualquier
+  // ejemplo de esa plantilla, no la copia 1:1 que cada ficha guarda para descargar/insertar (esa
+  // puede no existir todavía, p. ej. en una ficha vieja creada antes de que se copiara automático).
+  // Lo que sí cambia según la pestaña son los VALORES que alimentan esas fórmulas (ver valoresPorCelda).
+  const { data: catalogoExcel } = useCatalogoExcelQuery(plantillaId);
+  const archivoExcelAsignado = computed(() => {
+    const catalogo = catalogoExcel.value;
+    return catalogo?.archivos.find((a) => a.id === catalogo.asignadoId) ?? null;
+  });
+  const fuenteExcelVivo = computed(() => archivoExcelAsignado.value?.dataUrl ?? null);
+  const altoDeBloqueExcel = useAltoDeBloqueExcel(fuenteExcelVivo);
+  const valoresPorCelda = computed(() => {
+    if (!plantilla.value) return null;
+    const valores = activeTab.value === 'ejemplos' ? (referenciaEjemplo.value?.valores ?? {}) : editedValores.value;
+    const mapa = new Map<string, string>();
+    for (const sec of plantilla.value.secciones) {
+      if (!sec.hoja) continue;
+      for (const sub of sec.subsecciones) {
+        for (const campo of sub.campos) {
+          const crudo = valores[campo.identificador] ?? campo.valorEjemplo ?? '';
+          const cap = campo.captura;
+          if (cap?.columna && cap.fila) {
+            mapa.set(`${sec.hoja}!${cap.columna}${cap.fila}`, crudo);
+            continue;
+          }
+          indexarCeldasDeTabla(mapa, sec.hoja, campo, crudo, altoDeBloqueExcel.value);
+        }
+      }
+    }
+    return mapa;
+  });
+  provide(EXCEL_VIVO, useExcelVivo(fuenteExcelVivo, valoresPorCelda));
 
   watch(ejemplo, (ej) => {
     if (ej) editedValores.value = { ...ej.valores };
@@ -93,6 +135,7 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
   const isLast = computed(() => safeIdx.value === secciones.value.length - 1);
 
   function handleLeftResize(d: number) { leftWidth.value = Math.max(MIN_LEFT, leftWidth.value + d); }
+  function handleExamplesResize(d: number) { examplesWidth.value = Math.max(MIN_EXAMPLES, examplesWidth.value + d); }
   function handleSectionSelect(seccionId: string) {
     const idx = secciones.value.findIndex((s) => s.id === seccionId);
     if (idx !== -1) activeSectionIndex.value = idx;
@@ -166,12 +209,12 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
 
   return {
     ejemplo, plantilla, archivoEjemplo, esNivel0, vencido, diasRestantes, numeroNivel,
-    soloLectura, permiteMejoraIA, muestraHistorial, showHistorial,
+    soloLectura, permiteMejoraIA, muestraHistorial, showHistorial, showFuenteVerdad,
     esPropietario, ejemplosReferencia, referenciaId, referenciaEjemplo,
-    activeSectionIndex, editedValores, leftWidth, showPreview, showInsertConfirm, isInserting, insertProgress,
+    activeSectionIndex, editedValores, leftWidth, activeTab, examplesWidth, showPreview, showInsertConfirm, isInserting, insertProgress,
     errores, erroresCount, progreso, erroresPorSeccion,
     secciones, safeIdx, seccionActiva, isFirst, isLast,
-    handleLeftResize, handleSectionSelect, goToPrevSection, goToNextSection, handleValueChange,
+    handleLeftResize, handleExamplesResize, handleSectionSelect, goToPrevSection, goToNextSection, handleValueChange,
     handleSave, handleDownload, handleInsert,
   };
 }

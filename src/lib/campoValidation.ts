@@ -16,6 +16,8 @@ function tablaFaltaCaptura(config: ConfigTabla | undefined): boolean {
 // Excel — para tablas, la fila inicial de la tabla y la columna de cada una de sus columnas;
 // para campos sueltos, columna + fila. Sin esto, excelWriter.ts no puede insertar el valor.
 export function campoFaltaCaptura(campo: Campo): boolean {
+  // Una nota (4.11) no es un campo real de la ficha: nunca tiene ni necesita captura en Excel.
+  if (campo.tipo === 'nota') return false;
   const esTabla = campo.tipo === 'tabla' || campo.tipo === 'tabla_jerarquica';
   if (esTabla) return tablaFaltaCaptura(campo.configTabla);
   return !campo.captura?.columna || !campo.captura?.fila;

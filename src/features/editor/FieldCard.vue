@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, ref } from 'vue';
+import { computed, inject, nextTick, ref } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { fieldTypeIcons, fieldTypeLabels, subtipoTablaLabels, columnTypeLabels, faTriangleExclamation, faClone, faTrash, faLightbulb, faWandMagicSparkles, faSpinner } from '@/lib/icons';
 import { campoFaltaCaptura } from '@/lib/campoValidation';
@@ -8,9 +8,10 @@ import ExampleTableEditor from './ExampleTableEditor.vue';
 import CampoCoordenadasInput from '@/components/CampoCoordenadasInput.vue';
 import CampoImagenInput from '@/components/CampoImagenInput.vue';
 import CampoListaInput from '@/components/CampoListaInput.vue';
+import CampoEstadoIA from '@/features/cliente/CampoEstadoIA.vue';
 import { EXCEL_VIVO } from '@/composables/useListasExcel';
 import { etiquetaDeValor } from '@/lib/conversionesExcel';
-import type { Campo, ConfigTabla } from '@/types';
+import type { Campo, ConfigTabla, EstadoCampoIA } from '@/types';
 
 const props = defineProps<{
   campo: Campo;
@@ -32,6 +33,8 @@ const props = defineProps<{
   referenciaValor?: string;
   /** true = el plan del cliente incluye la ayuda de IA para mejorar títulos/textos (Nivel 1+); undefined = no mostrar el botón (modo admin) */
   permiteMejoraIA?: boolean;
+  /** Estado del llenado IA para este campo (solo cliente, tras un llenado) */
+  estadoIA?: EstadoCampoIA | null;
   /** Hoja de Excel de la sección a la que pertenece el campo — hace falta para localizar su celda
    * y saber si tiene lista desplegable */
   hoja?: string;
@@ -44,7 +47,24 @@ const emit = defineEmits<{
   'update-default-value': [value: string];
   'update-example-value': [value: string];
   'update-config-tabla': [config: ConfigTabla];
+  'confirmar-ia': [];
 }>();
+
+const valorEditorEl = ref<HTMLElement | null>(null);
+
+async function enfocarEditorValor() {
+  await nextTick();
+  valorEditorEl.value?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  const focusable = valorEditorEl.value?.querySelector<HTMLElement>(
+    'input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+  );
+  focusable?.focus();
+}
+
+function onConfirmarIA() {
+  emit('confirmar-ia');
+  void enfocarEditorValor();
+}
 
 const icon = computed(() => fieldTypeIcons[props.campo.tipo]);
 const typeLabel = computed(() => fieldTypeLabels[props.campo.tipo]);
@@ -109,7 +129,32 @@ function handleClick() {
 </script>
 
 <template>
+  <!-- Nota (4.11): no es un campo real, es un bloque de texto que el admin deja entre los campos.
+       Se muestra igual al cliente, siempre en solo lectura — se edita únicamente desde el panel de
+       propiedades en Estructura (ver FieldPropertiesPanel). -->
   <div
+    v-if="campo.tipo === 'nota'"
+    @click="handleClick"
+    class="rounded-xl border-2 p-4 transition-all"
+    :class="[isSelected ? 'border-brand-500 bg-brand-50/30 shadow-sm' : 'border-gray-100 bg-white', clickable ? 'cursor-pointer' : '']"
+  >
+    <div class="flex items-start gap-3">
+      <p class="flex-1 min-w-0 font-semibold text-heading text-sm whitespace-pre-wrap break-words">
+        <span v-if="campo.valorEjemplo">{{ campo.valorEjemplo }}</span>
+        <span v-else class="text-muted italic font-normal">Nota vacía…</span>
+      </p>
+      <div v-if="duplicable || deletable" class="flex flex-col gap-1 shrink-0">
+        <button v-if="duplicable" @click.stop="emit('duplicate')" type="button" class="text-gray-300 hover:text-brand-600 transition-colors p-1" title="Duplicar nota">
+          <FontAwesomeIcon :icon="faClone" class="w-3 h-3" />
+        </button>
+        <button v-if="deletable" @click.stop="emit('delete')" type="button" class="text-gray-300 hover:text-red-500 transition-colors p-1" title="Eliminar nota">
+          <FontAwesomeIcon :icon="faTrash" class="w-3 h-3" />
+        </button>
+      </div>
+    </div>
+  </div>
+  <div
+    v-else
     @click="handleClick"
     class="rounded-xl border-2 p-4 transition-all"
     :class="[
@@ -129,26 +174,36 @@ function handleClick() {
         <FontAwesomeIcon :icon="icon" class="w-4 h-4" />
       </div>
       <div class="flex-1 min-w-0">
-        <div class="flex items-center gap-2">
-          <span class="text-xs font-bold px-1.5 py-0.5 rounded" :class="isSelected ? 'bg-brand-100 text-brand-700' : 'bg-gray-100 text-gray-500'">
-            {{ campo.identificador }}
-          </span>
-          <span class="font-semibold text-heading text-sm">{{ campo.etiqueta }}</span>
-          <span v-if="campo.requerido" class="text-red-500 text-sm" title="Obligatorio">*</span>
-          <FontAwesomeIcon
-            v-if="!campo.editable"
-            :icon="fieldTypeIcons.calculado"
-            class="w-3 h-3 text-gray-400"
-            title="Campo calculado (solo lectura)"
+        <div class="flex items-start gap-2">
+          <div class="flex items-center gap-2 flex-wrap min-w-0 flex-1">
+            <span class="text-[9px] font-bold px-1.5 py-0.5 rounded opacity-90" :class="isSelected ? 'bg-brand-100 text-brand-700' : 'bg-gray-100 text-gray-500'">
+              {{ campo.identificador }}
+            </span>
+            <span class="font-semibold text-heading text-sm">{{ campo.etiqueta }}</span>
+            <span v-if="campo.requerido" class="text-red-500 text-sm" title="Obligatorio">*</span>
+            <FontAwesomeIcon
+              v-if="!campo.editable"
+              :icon="fieldTypeIcons.calculado"
+              class="w-3 h-3 text-gray-400"
+              title="Campo calculado (solo lectura)"
+            />
+            <span
+              v-if="faltaCaptura"
+              title="Falta registrar su posición en el Excel (columna/fila) — no se insertará al Excel hasta configurarla"
+              class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 text-[10px] font-semibold shrink-0"
+            >
+              <FontAwesomeIcon :icon="faTriangleExclamation" class="w-2.5 h-2.5" />
+              Sin posición Excel
+            </span>
+          </div>
+          <CampoEstadoIA
+            v-if="estadoIA"
+            :estado="estadoIA"
+            :editable="editableExample"
+            @ver-detalle="enfocarEditorValor"
+            @confirmar="onConfirmarIA"
+            @agregar-valor="enfocarEditorValor"
           />
-          <span
-            v-if="faltaCaptura"
-            title="Falta registrar su posición en el Excel (columna/fila) — no se insertará al Excel hasta configurarla"
-            class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 text-[10px] font-semibold shrink-0"
-          >
-            <FontAwesomeIcon :icon="faTriangleExclamation" class="w-2.5 h-2.5" />
-            Sin posición Excel
-          </span>
         </div>
         <div class="text-xs text-muted mt-1 flex items-center gap-2">
           <span>{{ typeLabel }}</span>
@@ -239,7 +294,12 @@ function handleClick() {
           />
         </div>
 
-        <div v-if="showExampleValue && !esCalculadaPorExcel" class="mt-2 p-2.5 rounded-lg bg-brand-100/70 border border-brand-200" @click.stop>
+        <div
+          v-if="showExampleValue && !esCalculadaPorExcel"
+          ref="valorEditorEl"
+          class="mt-2 p-2.5 rounded-lg bg-brand-100/70 border border-brand-200"
+          @click.stop
+        >
           <div class="flex items-center justify-between">
             <span class="text-[10px] font-bold uppercase tracking-wider text-brand-600">Valor de ejemplo</span>
             <button
@@ -254,23 +314,30 @@ function handleClick() {
               Mejorar con IA
             </button>
           </div>
-          <div v-if="!editableExample" class="text-sm text-heading mt-0.5">
+          <!-- Tabla/coordenadas/imagen tienen forma propia — un volcado de texto plano mostraría el
+               JSON crudo de la tabla, ilegible. Siempre se renderiza el widget real; si no es
+               editable (tab "Ejemplos" del cliente, ficha en solo lectura), se envuelve en un
+               <fieldset disabled> nativo: se ve exactamente igual pero ningún control responde,
+               sin tener que duplicar la lógica de cada editor de tabla en una versión de solo lectura. -->
+          <fieldset
+            v-if="isCoordField || isImagenField || (isTableField && campo.configTabla)"
+            :disabled="!editableExample"
+            class="m-0 p-0 border-0 min-w-0 mt-1.5"
+          >
+            <CampoCoordenadasInput v-if="isCoordField" :value="displayValue || ''" :editable="editableExample" @change="emit('update-example-value', $event)" />
+            <CampoImagenInput v-else-if="isImagenField" :value="displayValue || ''" :editable="editableExample" @change="emit('update-example-value', $event)" />
+            <ExampleTableEditor
+              v-else-if="isTableField && campo.configTabla"
+              :config="(campo.configTabla as ConfigTabla)"
+              :model-value="displayValue || ''"
+              :hoja="hoja"
+              @update:model-value="emit('update-example-value', $event)"
+            />
+          </fieldset>
+          <div v-else-if="!editableExample" class="text-sm text-heading mt-0.5">
             {{ displayValue || '' }}
             <span v-if="!displayValue" class="text-muted italic">Sin valor</span>
           </div>
-          <div v-else-if="isCoordField" class="mt-1.5">
-            <CampoCoordenadasInput :value="displayValue || ''" :editable="editableExample" @change="emit('update-example-value', $event)" />
-          </div>
-          <div v-else-if="isImagenField" class="mt-1.5">
-            <CampoImagenInput :value="displayValue || ''" :editable="editableExample" @change="emit('update-example-value', $event)" />
-          </div>
-          <ExampleTableEditor
-            v-else-if="isTableField && campo.configTabla"
-            :config="(campo.configTabla as ConfigTabla)"
-            :model-value="displayValue || ''"
-            :hoja="hoja"
-            @update:model-value="emit('update-example-value', $event)"
-          />
           <template v-else>
             <CampoListaInput
               v-if="tieneLista"

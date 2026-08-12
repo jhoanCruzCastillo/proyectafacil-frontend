@@ -291,6 +291,20 @@ function campoFromDoc(rawCampo: unknown): Campo {
   return campo;
 }
 
+// Nota (4.11): la contraparte de la rama `tipo === 'nota'` en schemaExport.ts's buildCampo — sin
+// id, sin captura, sin tipo/editable. Su texto entra directo a `valorEjemplo`, igual que en export.
+function notaFromDoc(rawNota: unknown): Campo {
+  const raw = rawNota as Record<string, unknown>;
+  return {
+    id: generateId(),
+    identificador: '',
+    etiqueta: '',
+    tipo: 'nota',
+    editable: true,
+    valorEjemplo: typeof raw.nota === 'string' ? raw.nota : '',
+  };
+}
+
 function parseEtiquetas(raw: unknown): { opciones?: string[]; etiquetasBooleano?: { true: string; false: string } } {
   if (Array.isArray(raw)) {
     const opciones = raw.map(String).filter((o) => o !== '');
@@ -313,13 +327,15 @@ function seccionFromDoc(rawSeccion: unknown, index: number): Seccion {
   const subsecciones: Subseccion[] = [];
   const camposSueltos: Campo[] = [];
 
+  const campoOrNotaFromDoc = (c: unknown) => ((c as Record<string, unknown>).tipo_nodo === 'nota' ? notaFromDoc(c) : campoFromDoc(c));
+
   for (const item of items) {
     const it = item as Record<string, unknown>;
     if (it.tipo_nodo === 'grupo') {
-      const campos = Array.isArray(it.campos) ? it.campos.map(campoFromDoc) : [];
+      const campos = Array.isArray(it.campos) ? it.campos.map(campoOrNotaFromDoc) : [];
       subsecciones.push({ id: generateId(), codigo: String(it.id ?? ''), nombre: String(it.nombre ?? ''), campos });
-    } else if (it.tipo_nodo === 'campo') {
-      camposSueltos.push(campoFromDoc(it));
+    } else if (it.tipo_nodo === 'campo' || it.tipo_nodo === 'nota') {
+      camposSueltos.push(campoOrNotaFromDoc(it));
     }
   }
 
@@ -335,7 +351,7 @@ function seccionFromDoc(rawSeccion: unknown, index: number): Seccion {
     numero: String(raw.id ?? String(index + 1).padStart(2, '0')),
     nombre: String(raw.nombre ?? ''),
     hoja: typeof raw.hoja === 'string' && raw.hoja ? raw.hoja : undefined,
-    cantidadCampos: subsecciones.reduce((sum, s) => sum + s.campos.length, 0),
+    cantidadCampos: subsecciones.reduce((sum, s) => sum + s.campos.filter((c) => c.tipo !== 'nota').length, 0),
     subsecciones,
   };
 }

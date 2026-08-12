@@ -10,7 +10,8 @@ interface ToastItem {
 }
 
 export const useUiStore = defineStore('ui', () => {
-  const sidebarHidden = ref(false);
+  // Colapsado = el riel se encoge a solo íconos, nunca desaparece del todo (ver Sidebar.vue).
+  const sidebarCollapsed = ref(false);
   const toasts = ref<ToastItem[]>([]);
 
   function toast(message: string, type: ToastType = 'success') {
@@ -21,13 +22,9 @@ export const useUiStore = defineStore('ui', () => {
     }, 2500);
   }
 
-  function hideSidebar() {
-    sidebarHidden.value = true;
+  function toggleSidebar() {
+    sidebarCollapsed.value = !sidebarCollapsed.value;
   }
 
-  function showSidebar() {
-    sidebarHidden.value = false;
-  }
-
-  return { sidebarHidden, toasts, toast, hideSidebar, showSidebar };
+  return { sidebarCollapsed, toasts, toast, toggleSidebar };
 });

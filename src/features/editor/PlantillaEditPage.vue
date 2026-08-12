@@ -34,7 +34,7 @@ const {
   archivoExcelAsignado, showExcelCatalogModal, showPreview, showInsertConfirm, isInserting, insertProgress,
   previewFileUrl, previewFileName,
   handleLeftResize, handleRightResize, handleExamplesResize, handleTabChange, handleSectionSelect,
-  goToPrevSection, goToNextSection, handleFieldUpdate, handleAddCampo, handleDuplicarCampo, handleDeleteCampo,
+  goToPrevSection, goToNextSection, handleFieldUpdate, handleAddCampo, handleAddNota, handleDuplicarCampo, handleDeleteCampo,
   handleSectionNameChange, handleSectionHojaChange, handleSubsectionNameChange,
   handleSubseccionAyudaChange, handleAddSubsection, handleDeleteSubsection, handleAddSection, handleDuplicarSeccion,
   handleExampleValueChange, handleCreateExample, handleDeleteEjemplo, handleToggleEjemploEstado,
@@ -111,8 +111,8 @@ const verContextosIA = ref(false);
 
       <ResizeHandle @resize="handleLeftResize" />
 
-      <div class="flex-1 min-w-0 flex flex-col overflow-hidden">
-        <div class="flex-1 overflow-y-auto bg-white p-6">
+      <div class="flex-1 min-w-0 flex flex-col overflow-hidden bg-white">
+        <div class="flex-1 overflow-y-auto bg-white p-6 mr-1.5">
           <SectionContent
             v-if="seccionActiva"
             :key="seccionActiva.id"
@@ -124,6 +124,7 @@ const verContextosIA = ref(false);
             :highlight-missing-captura="highlightMissingCaptura"
             @select-campo="(c) => { selectedCampo = c; isNewCampo = false; }"
             @add-campo="handleAddCampo"
+            @add-nota="handleAddNota"
             @delete-campo="handleDeleteCampo"
             @duplicate-campo="handleDuplicarCampo"
             @section-name-change="handleSectionNameChange"

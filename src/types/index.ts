@@ -13,7 +13,8 @@ export type TipoCampo =
   | 'calculado'
   | 'imagen'
   | 'firma'
-  | 'mapa_coordenadas';
+  | 'mapa_coordenadas'
+  | 'nota';
 
 export type TipoSector = 'Sectorial' | 'General';
 
@@ -222,6 +223,75 @@ export interface Campo {
   etiquetasBooleano?: { true: string; false: string };
   /** Cantidad de decimales con que se muestra/escribe el valor numérico de este campo */
   decimales?: number;
+}
+
+// --- Fuente de la verdad / llenado automático con IA ---
+
+/** Documento (PDF/TXT/MD) que el cliente cargó como fuente de la verdad de su proyecto. */
+export interface ArchivoFuenteVerdad {
+  id: string;
+  nombre: string;
+  extension: 'pdf' | 'txt' | 'md';
+  tamanoBytes: number;
+}
+
+export interface FuenteVerdad {
+  archivos: ArchivoFuenteVerdad[];
+  textoAdicional: string;
+}
+
+export interface ResumenSeccionLlenadoIA {
+  seccionId: string;
+  nombre: string;
+  campos: number;
+  llenados: number;
+}
+
+export interface ResultadoLlenadoIA {
+  valores: Record<string, string>;
+  /** Estado semántico por identificador (extraido / inferido / …) cuando el backend lo envía. */
+  estados?: Record<string, EstadoCampoIA>;
+  /** Confianza 0–1 por identificador, si viene del modelo. */
+  confianza?: Record<string, number>;
+  secciones: ResumenSeccionLlenadoIA[];
+}
+
+/** Estado por campo que declara el prompt de llenado IA (y se muestra en el editor del cliente). */
+export type EstadoCampoIA =
+  | 'extraido'
+  | 'inferido'
+  | 'requiere_confirmacion'
+  | 'no_encontrado';
+
+/** Detalle por campo para el informe de resultados (post-llenado). */
+export type CategoriaResultadoCampoIA =
+  | 'alta_confianza'
+  | 'revision'
+  | 'ya_existian'
+  | 'sin_informacion';
+
+export interface CampoResultadoLlenadoIA {
+  id: string;
+  etiqueta: string;
+  seccionId: string;
+  tipo: TipoCampo;
+  valorPropuesto: string | null;
+  /** 0–1 cuando el backend lo provea; null si aún no hay señal de confianza. */
+  confianza: number | null;
+  categoria: CategoriaResultadoCampoIA;
+  /** Estado semántico del prompt; hoy se deriva de `categoria` hasta que el backend lo envíe. */
+  estado: EstadoCampoIA;
+  motivo?: string;
+}
+
+export interface ResumenResultadoLlenadoIA {
+  documentosAnalizados: number;
+  camposCompletados: number;
+  altaConfianza: number;
+  requierenRevision: number;
+  yaExistian: number;
+  sinInformacion: number;
+  campos: CampoResultadoLlenadoIA[];
 }
 
 export interface Ejemplo {
@@ -469,23 +539,34 @@ export interface Docente {
 }
 
 // --- Contextos IA ---
+//
+// El markdown de cada contexto vive como archivo .md en Cloudinary — estos tipos solo traen la
+// `url`; el contenido se descarga y cachea aparte (ver `src/lib/markdownCache.ts`).
 
-/** Contexto reutilizable por cualquier ficha (ej. "Invierte.pe", "Finanzas"). */
+/** Contexto reutilizable por cualquier ficha de cualquier sector (ej. "Invierte.pe", "Finanzas"). */
 export interface ContextoGlobalIA {
   id: string;
   nombre: string;
   /** Clave de `sectorIcons`, o null */
   icono?: string | null;
-  markdown: string;
+  url: string | null;
   /** Cuántas secciones lo tienen asociado */
   usos: number;
+  actualizadoEn?: string | null;
+}
+
+/** Contexto propio de UNA ficha (aplica a todas sus secciones, no se comparte con otras fichas). */
+export interface ContextoGeneralIA {
+  id: string;
+  nombre: string;
+  url: string | null;
   actualizadoEn?: string | null;
 }
 
 /** Contexto propio de UNA sección de UNA ficha. */
 export interface ContextoSeccionIA {
   seccionId: string;
-  markdown: string;
+  url: string | null;
   /** IDs de los contextos globales asociados */
   globales: string[];
   actualizadoEn?: string | null;
@@ -493,6 +574,7 @@ export interface ContextoSeccionIA {
 
 export interface ContextosIAPlantilla {
   secciones: ContextoSeccionIA[];
+  generales: ContextoGeneralIA[];
   globales: ContextoGlobalIA[];
 }
 

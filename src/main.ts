@@ -43,3 +43,6 @@ try {
 }
 
 app.mount('#app')
+
+// Permite otro auto-reload si vuelve a aparecer un chunk stale tras un rebuild futuro.
+sessionStorage.removeItem('pf:chunk-reload')

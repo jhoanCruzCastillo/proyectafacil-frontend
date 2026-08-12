@@ -67,7 +67,7 @@ function preguntarPorSubseccion(subId: string) {
   );
 }
 
-// Primero se consulta a Claude a través del backend, que le inyecta el contexto que el administrador
+// Primero se consulta a la IA (OpenAI) a través del backend, que le inyecta el contexto que el administrador
 // redactó para esta sección. Si la IA no está configurada o falla, se cae al glosario local de
 // siempre: el chat nunca se queda mudo por un problema de red o por falta de clave.
 async function enviarPregunta() {

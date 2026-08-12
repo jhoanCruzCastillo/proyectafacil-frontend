@@ -18,6 +18,9 @@ export default defineConfig(({ mode }) => {
         '/api': {
           target: env.CI4_BACKEND_URL || 'http://localhost:8080',
           changeOrigin: true,
+          // Llenado IA: N secciones × ~hasta 120 s c/u en el backend.
+          timeout: 600_000,
+          proxyTimeout: 600_000,
         },
       },
     },
@@ -28,6 +31,8 @@ export default defineConfig(({ mode }) => {
         '/api': {
           target: env.CI4_BACKEND_URL || 'http://localhost:8080',
           changeOrigin: true,
+          timeout: 600_000,
+          proxyTimeout: 600_000,
         },
       },
     },
