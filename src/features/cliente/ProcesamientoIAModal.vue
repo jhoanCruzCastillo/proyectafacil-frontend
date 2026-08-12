@@ -44,32 +44,27 @@ const porcentaje = computed(() => {
 
 const tiempoEstimado = computed(() => {
   if (props.fase !== 'procesando') return null;
-  if (props.esperandoServidor) return 'Cerrando el análisis con el servidor…';
   const restantes = props.secciones.filter((s) => s.estado === 'pendiente' || s.estado === 'procesando').length;
+  if (restantes <= 1) return 'Casi listo…';
   if (restantes <= 2) return 'Menos de 1 minuto';
-  if (restantes <= 6) return '1 - 2 minutos más';
-  if (restantes <= 12) return '2 - 4 minutos más';
+  if (restantes <= 6) return '1 - 3 minutos más';
+  if (restantes <= 12) return '3 - 6 minutos más';
   return 'Varios minutos más';
 });
 
 const tituloEstado = computed(() => {
   if (props.fase === 'error') return 'El procesamiento se interrumpió';
   if (props.fase === 'completado') return 'Procesamiento finalizado';
-  if (props.esperandoServidor) {
-    return 'Última sección en curso: consolidando la respuesta de la IA.';
-  }
-  return 'La IA está analizando tus documentos y completando la ficha técnica.';
+  return 'La IA está analizando tus documentos, sección por sección.';
 });
 
 function toggleExpand(id: string) {
   expandidaId.value = expandidaId.value === id ? null : id;
 }
 
-function etiquetaEstado(estado: EstadoSeccionProgreso, esUltima: boolean): string {
+function etiquetaEstado(estado: EstadoSeccionProgreso, _esUltima: boolean): string {
   if (estado === 'completada') return 'Completada';
-  if (estado === 'procesando') {
-    return props.esperandoServidor && esUltima ? 'Finalizando…' : 'Procesando…';
-  }
+  if (estado === 'procesando') return 'Procesando…';
   if (estado === 'error') return 'Con error';
   return 'Pendiente';
 }
@@ -216,12 +211,7 @@ function numeroSeccion(idx: number): string {
                       <p class="text-muted">Los nombres de los campos llenados aparecerán al terminar el análisis.</p>
                     </template>
                     <template v-else-if="s.estado === 'procesando'">
-                      <p class="text-muted">
-                        <span v-if="esperandoServidor && idx === secciones.length - 1">
-                          Consolidando resultados del servidor…
-                        </span>
-                        <span v-else>Analizando documentos y aplicando la guía de esta sección…</span>
-                      </p>
+                      <p class="text-muted">Analizando documentos y aplicando la guía de esta sección…</p>
                     </template>
                     <template v-else-if="s.estado === 'error'">
                       <p class="text-muted">No se pudo completar esta sección. Revisa la fuente de la verdad e inténtalo de nuevo.</p>
@@ -274,7 +264,7 @@ function numeroSeccion(idx: number): string {
               Procesando…
             </button>
             <button
-              v-else-if="fase === 'completado'"
+              v-else-if="fase === 'completado' || (fase === 'error' && completadas > 0)"
               type="button"
               class="px-5 py-2.5 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-700 transition-colors"
               @click="emit('ver-resultados')"

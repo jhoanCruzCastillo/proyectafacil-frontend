@@ -25,7 +25,7 @@ export const fuenteVerdadHttp: FuenteVerdadApi = {
     });
   },
 
-  // Llenado: 1 llamada IA por sección. `seccionIds` acota el alcance; `signal` cancela / timeout.
+  // Una sección por petición (el cliente itera). `seccionIds` acota; `signal` cancela / timeout.
   llenarConIA(ejemploId, opts: LlenarConIAOptions = {}) {
     const { seccionIds, ...init } = opts;
     const body =

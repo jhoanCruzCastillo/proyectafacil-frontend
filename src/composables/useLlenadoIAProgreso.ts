@@ -8,18 +8,21 @@ import type {
   Plantilla,
   ResultadoLlenadoIA,
   ResumenResultadoLlenadoIA,
+  ResumenSeccionLlenadoIA,
 } from '@/types';
 import type { SeccionProgresoIA } from '@/features/cliente/ProcesamientoIAModal.vue';
 
 export type FaseLlenadoIA = 'idle' | 'procesando' | 'completado' | 'error';
 
-/** El backend hace 1 llamada OpenAI por sección (~10–30 s c/u). Tope de espera en el cliente. */
-const TIMEOUT_LLENADO_MS = 15 * 60 * 1000;
+/** Tope por sección (1 llamada OpenAI). Evita 504 del gateway en deploy. */
+const TIMEOUT_POR_SECCION_MS = 3 * 60 * 1000;
+/** Tope total del lote de secciones. */
+const TIMEOUT_LOTE_MS = 30 * 60 * 1000;
 
 /**
- * Orquesta progreso + resultados del llenado con IA en el editor del cliente.
- * El backend responde al final (una sola petición larga); la UI avanza sección a sección
- * a un ritmo alineado a esa duración, y al terminar abre el informe.
+ * Orquesta progreso + resultados del llenado con IA.
+ * Una petición HTTP por sección (el backend ya soporta `seccionIds` parcial)
+ * para no exceder el timeout del proxy/gateway en producción (~60–100 s).
  */
 export function useLlenadoIAProgreso(plantilla: Ref<Plantilla | null | undefined>) {
   const ui = useUiStore();
@@ -34,34 +37,24 @@ export function useLlenadoIAProgreso(plantilla: Ref<Plantilla | null | undefined
   /** Estados por identificador — sobreviven al cerrar el informe para pintar badges en el editor. */
   const estadosCamposIA = ref<Record<string, EstadoCampoIA>>({});
 
-  let tickTimer: ReturnType<typeof setInterval> | null = null;
-  let abortSimulacion = false;
+  let abortLote = false;
   let abortRequest: AbortController | null = null;
-  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  let timeoutLoteHandle: ReturnType<typeof setTimeout> | null = null;
 
   const haySesionIA = computed(
     () => fase.value !== 'idle' || showResultado.value || Object.keys(estadosCamposIA.value).length > 0,
   );
 
-  /** Última sección en curso y el resto ya completadas → aún esperamos al POST. */
+  /** True mientras hay una sección en vuelo esperando al servidor. */
   const esperandoServidor = computed(() => {
-    if (fase.value !== 'procesando' || secciones.value.length === 0) return false;
-    const last = secciones.value[secciones.value.length - 1];
-    if (last.estado !== 'procesando') return false;
-    return secciones.value.slice(0, -1).every((s) => s.estado === 'completada');
+    if (fase.value !== 'procesando') return false;
+    return secciones.value.some((s) => s.estado === 'procesando');
   });
 
-  function limpiarTick() {
-    if (tickTimer) {
-      clearInterval(tickTimer);
-      tickTimer = null;
-    }
-  }
-
-  function limpiarTimeoutRequest() {
-    if (timeoutHandle) {
-      clearTimeout(timeoutHandle);
-      timeoutHandle = null;
+  function limpiarTimeoutLote() {
+    if (timeoutLoteHandle) {
+      clearTimeout(timeoutLoteHandle);
+      timeoutLoteHandle = null;
     }
   }
 
@@ -77,61 +70,20 @@ export function useLlenadoIAProgreso(plantilla: Ref<Plantilla | null | undefined
       }));
   }
 
-  /**
-   * Ritmo de la barra: ~4 min para recorrer N-1 secciones (la última espera al servidor).
-   * Evita llegar al final en ~80 s mientras el backend sigue en las primeras secciones.
-   */
-  function intervaloProgresoMs(n: number): number {
-    const pasos = Math.max(1, n - 1);
-    const objetivo = 4 * 60 * 1000;
-    return Math.min(20_000, Math.max(6_000, Math.round(objetivo / pasos)));
+  function marcarSeccion(id: string, patch: Partial<SeccionProgresoIA>) {
+    secciones.value = secciones.value.map((s) => (s.id === id ? { ...s, ...patch } : s));
   }
 
-  function iniciarSimulacionProgreso() {
-    limpiarTick();
-    abortSimulacion = false;
-    if (secciones.value.length === 0) return;
-    secciones.value[0] = { ...secciones.value[0], estado: 'procesando' };
-
-    const every = intervaloProgresoMs(secciones.value.length);
-    tickTimer = setInterval(() => {
-      if (abortSimulacion || fase.value !== 'procesando') {
-        limpiarTick();
-        return;
-      }
-      const idx = secciones.value.findIndex((s) => s.estado === 'procesando');
-      if (idx < 0) {
-        limpiarTick();
-        return;
-      }
-      // La última sección se queda en "procesando" hasta que responda el servidor.
-      if (idx >= secciones.value.length - 1) return;
-
-      secciones.value = secciones.value.map((s, i) => {
-        if (i === idx) return { ...s, estado: 'completada' as const };
-        if (i === idx + 1) return { ...s, estado: 'procesando' as const };
-        return s;
-      });
-    }, every);
-  }
-
-  function aplicarResumenServidor(resultado: ResultadoLlenadoIA) {
-    const resumen = resultado.secciones ?? [];
-    const porId = new Map(resumen.map((r) => [r.seccionId, r]));
-    const nombresPorSeccion = plantilla.value
-      ? nombresCamposLlenadosPorSeccion(plantilla.value, resultado.valores ?? {})
-      : {};
-
-    secciones.value = secciones.value.map((s) => {
-      const r = porId.get(s.id);
-      const nombres = nombresPorSeccion[s.id] ?? [];
-      return {
-        ...s,
-        estado: 'completada' as const,
-        campos: r?.campos,
-        llenados: r?.llenados ?? nombres.length,
-        camposLlenadosNombres: nombres,
-      };
+  function aplicarSeccionCompletada(seccionId: string, resultado: ResultadoLlenadoIA) {
+    const resumen = (resultado.secciones ?? []).find((r) => r.seccionId === seccionId);
+    const nombres = plantilla.value
+      ? (nombresCamposLlenadosPorSeccion(plantilla.value, resultado.valores ?? {})[seccionId] ?? [])
+      : [];
+    marcarSeccion(seccionId, {
+      estado: 'completada',
+      campos: resumen?.campos,
+      llenados: resumen?.llenados ?? nombres.length,
+      camposLlenadosNombres: nombres,
     });
   }
 
@@ -153,10 +105,7 @@ export function useLlenadoIAProgreso(plantilla: Ref<Plantilla | null | undefined
     documentosAnalizados: number,
     seccionIds?: string[] | null,
   ) {
-    abortSimulacion = true;
-    limpiarTick();
-    limpiarTimeoutRequest();
-    aplicarResumenServidor(resultado);
+    limpiarTimeoutLote();
 
     resumenResultado.value = plantilla.value
       ? construirResumenResultadoLlenado(plantilla.value, resultado, documentosAnalizados, seccionIds)
@@ -166,7 +115,6 @@ export function useLlenadoIAProgreso(plantilla: Ref<Plantilla | null | undefined
       ...mapaEstadosDesdeResumen(resumenResultado.value),
     };
 
-    // Primero el modal de progreso con la lista de campos por sección; el usuario pasa al informe.
     fase.value = 'completado';
     showResultado.value = false;
     showProgreso.value = true;
@@ -177,28 +125,70 @@ export function useLlenadoIAProgreso(plantilla: Ref<Plantilla | null | undefined
     void queryClient.invalidateQueries({ queryKey: ['ejemplos'] });
   }
 
-  function finalizarError(msg: string) {
-    abortSimulacion = true;
-    limpiarTick();
-    limpiarTimeoutRequest();
+  function finalizarError(msg: string, resultadoParcial?: ResultadoLlenadoIA | null, seccionIds?: string[] | null, documentosAnalizados = 0) {
+    limpiarTimeoutLote();
     mensajeError.value = msg;
     secciones.value = secciones.value.map((s) =>
       s.estado === 'procesando' || s.estado === 'pendiente'
         ? { ...s, estado: s.estado === 'procesando' ? ('error' as const) : s.estado }
         : s,
     );
+
+    if (resultadoParcial && Object.keys(resultadoParcial.valores ?? {}).length > 0 && plantilla.value) {
+      resumenResultado.value = construirResumenResultadoLlenado(
+        plantilla.value,
+        resultadoParcial,
+        documentosAnalizados,
+        seccionIds,
+      );
+      estadosCamposIA.value = {
+        ...estadosCamposIA.value,
+        ...mapaEstadosDesdeResumen(resumenResultado.value),
+      };
+      void queryClient.invalidateQueries({ queryKey: ['ejemplos'] });
+    }
+
     fase.value = 'error';
     showProgreso.value = true;
     showResultado.value = false;
     ui.toast(msg, 'error');
   }
 
+  function mensajeErrorLlenado(e: unknown): string {
+    if (
+      (e instanceof DOMException && e.name === 'AbortError') ||
+      (e instanceof Error && e.name === 'AbortError')
+    ) {
+      return 'El llenado con IA se canceló por tiempo de espera. Las secciones ya completadas se conservan; vuelve a intentar el resto.';
+    }
+    const raw = e instanceof Error ? e.message : 'No se pudo llenar la ficha con IA';
+    if (/504|timeout|timed out|gateway/i.test(raw)) {
+      return 'El servidor cortó la petición por tiempo (504). Prueba de nuevo; si se repite, llena menos secciones a la vez.';
+    }
+    return raw;
+  }
+
+  async function llenarUnaSeccion(ejemploId: string, seccionId: string): Promise<ResultadoLlenadoIA> {
+    const ctrl = new AbortController();
+    abortRequest = ctrl;
+    const timer = setTimeout(() => ctrl.abort(), TIMEOUT_POR_SECCION_MS);
+    try {
+      return await fuenteVerdadHttp.llenarConIA(ejemploId, {
+        seccionIds: [seccionId],
+        signal: ctrl.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+      if (abortRequest === ctrl) abortRequest = null;
+    }
+  }
+
   async function iniciar(ejemploId: string, seccionIds?: string[] | null) {
     const ids = seccionIds && seccionIds.length > 0 ? [...seccionIds] : null;
-    abortSimulacion = false;
+    abortLote = false;
     abortRequest?.abort();
-    abortRequest = new AbortController();
-    limpiarTimeoutRequest();
+    abortRequest = null;
+    limpiarTimeoutLote();
     mensajeError.value = null;
     resumenResultado.value = null;
     showResultado.value = false;
@@ -210,11 +200,11 @@ export function useLlenadoIAProgreso(plantilla: Ref<Plantilla | null | undefined
 
     fase.value = 'procesando';
     showProgreso.value = true;
-    iniciarSimulacionProgreso();
 
-    timeoutHandle = setTimeout(() => {
+    timeoutLoteHandle = setTimeout(() => {
+      abortLote = true;
       abortRequest?.abort();
-    }, TIMEOUT_LLENADO_MS);
+    }, TIMEOUT_LOTE_MS);
 
     let documentosAnalizados = 0;
     try {
@@ -224,24 +214,55 @@ export function useLlenadoIAProgreso(plantilla: Ref<Plantilla | null | undefined
       documentosAnalizados = 0;
     }
 
+    const valoresAcum: Record<string, string> = {};
+    const estadosAcum: Record<string, EstadoCampoIA> = {};
+    const confianzaAcum: Record<string, number> = {};
+    const resumenSecciones: ResumenSeccionLlenadoIA[] = [];
+    const idsProcesados: string[] = [];
+
     try {
-      const resultado = await fuenteVerdadHttp.llenarConIA(ejemploId, {
-        seccionIds: ids ?? undefined,
-        signal: abortRequest.signal,
-      });
-      finalizarExito(resultado, documentosAnalizados, ids);
+      for (const seccion of secciones.value) {
+        if (abortLote) {
+          throw new DOMException('El llenado con IA se canceló por tiempo de espera del lote.', 'AbortError');
+        }
+
+        marcarSeccion(seccion.id, { estado: 'procesando' });
+        const parcial = await llenarUnaSeccion(ejemploId, seccion.id);
+
+        Object.assign(valoresAcum, parcial.valores ?? {});
+        Object.assign(estadosAcum, parcial.estados ?? {});
+        Object.assign(confianzaAcum, parcial.confianza ?? {});
+        for (const r of parcial.secciones ?? []) {
+          resumenSecciones.push(r);
+        }
+        idsProcesados.push(seccion.id);
+        aplicarSeccionCompletada(seccion.id, parcial);
+      }
+
+      finalizarExito(
+        {
+          valores: valoresAcum,
+          estados: estadosAcum,
+          confianza: confianzaAcum,
+          secciones: resumenSecciones,
+        },
+        documentosAnalizados,
+        ids ?? idsProcesados,
+      );
     } catch (e) {
-      const aborted =
-        (e instanceof DOMException && e.name === 'AbortError') ||
-        (e instanceof Error && e.name === 'AbortError');
-      const msg = aborted
-        ? 'El llenado con IA tardó demasiado y se canceló. Vuelve a intentar; si se repite, reduce el tamaño de la fuente de la verdad.'
-        : e instanceof Error
-          ? e.message
-          : 'No se pudo llenar la ficha con IA';
-      finalizarError(msg);
+      finalizarError(
+        mensajeErrorLlenado(e),
+        {
+          valores: valoresAcum,
+          estados: estadosAcum,
+          confianza: confianzaAcum,
+          secciones: resumenSecciones,
+        },
+        idsProcesados.length > 0 ? idsProcesados : ids,
+        documentosAnalizados,
+      );
     } finally {
-      limpiarTimeoutRequest();
+      limpiarTimeoutLote();
       abortRequest = null;
     }
   }
@@ -253,7 +274,6 @@ export function useLlenadoIAProgreso(plantilla: Ref<Plantilla | null | undefined
       return true;
     }
     if (fase.value === 'completado' && resumenResultado.value) {
-      // Preferir el progreso con nombres de campos si aún no abrió el informe.
       if (!showResultado.value) {
         showProgreso.value = true;
         return true;
@@ -278,9 +298,10 @@ export function useLlenadoIAProgreso(plantilla: Ref<Plantilla | null | undefined
   }
 
   function verResultados() {
+    if (!resumenResultado.value) return;
     showProgreso.value = false;
-    if (resumenResultado.value) {
-      showResultado.value = true;
+    showResultado.value = true;
+    if (fase.value !== 'error') {
       fase.value = 'completado';
     }
   }
@@ -291,9 +312,8 @@ export function useLlenadoIAProgreso(plantilla: Ref<Plantilla | null | undefined
 
   /** Cierra la sesión de llenado IA por completo; Contexto IA vuelve a abrir la fuente de verdad. */
   function terminarProceso() {
-    abortSimulacion = true;
-    limpiarTick();
-    limpiarTimeoutRequest();
+    abortLote = true;
+    limpiarTimeoutLote();
     abortRequest?.abort();
     abortRequest = null;
     showProgreso.value = false;
@@ -324,9 +344,8 @@ export function useLlenadoIAProgreso(plantilla: Ref<Plantilla | null | undefined
   }
 
   onUnmounted(() => {
-    abortSimulacion = true;
-    limpiarTick();
-    limpiarTimeoutRequest();
+    abortLote = true;
+    limpiarTimeoutLote();
     abortRequest?.abort();
   });
 
