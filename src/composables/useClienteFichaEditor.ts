@@ -8,6 +8,7 @@ import { usePushActividad } from '@/composables/useActividad';
 import { useUsuariosQuery } from '@/composables/useUsuarios';
 import { useEstadoEntrenamiento } from '@/composables/useEstadoEntrenamiento';
 import { useExcelVivo, useAltoDeBloqueExcel, EXCEL_VIVO } from '@/composables/useListasExcel';
+import { useMapaValoresExcelDebounced, type ResolverValorCampo } from '@/composables/useMapaValoresExcelDebounced';
 import { useSessionStore } from '@/stores/session';
 import { useUiStore } from '@/stores/ui';
 import { generateId } from '@/api/mock/_shared';
@@ -16,7 +17,6 @@ import { puedeVerHistorial } from '@/lib/planAcceso';
 import { insertarValoresEnExcel, type AvisoLista } from '@/lib/excelWriter';
 import { mensajeAvisoListas } from '@/lib/xlsxListas';
 import { calcularCambios } from '@/lib/historialFicha';
-import { indexarCeldasDeTabla } from '@/lib/tableRowHelpers';
 import { validarValoresPlantilla, calcularProgresoValores } from '@/lib/valorValidation';
 
 const MIN_LEFT = 180;
@@ -84,30 +84,26 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
   });
   const fuenteExcelVivo = computed(() => archivoExcelAsignado.value?.dataUrl ?? null);
   const altoDeBloqueExcel = useAltoDeBloqueExcel(fuenteExcelVivo);
-  const valoresPorCelda = computed(() => {
-    if (!plantilla.value) return null;
-    const valores = activeTab.value === 'ejemplos' ? (referenciaEjemplo.value?.valores ?? {}) : editedValores.value;
-    const mapa = new Map<string, string>();
-    for (const sec of plantilla.value.secciones) {
-      if (!sec.hoja) continue;
-      for (const sub of sec.subsecciones) {
-        for (const campo of sub.campos) {
-          const crudo = valores[campo.identificador] ?? campo.valorEjemplo ?? '';
-          const cap = campo.captura;
-          if (cap?.columna && cap.fila) {
-            mapa.set(`${sec.hoja}!${cap.columna}${cap.fila}`, crudo);
-            continue;
-          }
-          indexarCeldasDeTabla(mapa, sec.hoja, campo, crudo, altoDeBloqueExcel.value);
-        }
-      }
-    }
-    return mapa;
+  const excelMapTrigger = ref(0);
+  const resolverValorExcel = computed<ResolverValorCampo>(() => {
+    const valores =
+      activeTab.value === 'ejemplos' ? (referenciaEjemplo.value?.valores ?? {}) : editedValores.value;
+    return (identificador, valorEjemplo) => valores[identificador] ?? valorEjemplo ?? '';
   });
+  const valoresPorCelda = useMapaValoresExcelDebounced(
+    plantilla,
+    altoDeBloqueExcel,
+    resolverValorExcel,
+    excelMapTrigger,
+    300,
+  );
   provide(EXCEL_VIVO, useExcelVivo(fuenteExcelVivo, valoresPorCelda));
 
   watch(ejemplo, (ej) => {
-    if (ej) editedValores.value = { ...ej.valores };
+    if (ej) {
+      editedValores.value = { ...ej.valores };
+      excelMapTrigger.value++;
+    }
   });
 
   // En modo entrenamiento el solucionario es el punto central del ejercicio — se preselecciona
@@ -144,6 +140,7 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
   function goToNextSection() { activeSectionIndex.value = Math.min(secciones.value.length - 1, activeSectionIndex.value + 1); }
   function handleValueChange(campoIdentificador: string, value: string) {
     editedValores.value = { ...editedValores.value, [campoIdentificador]: value };
+    excelMapTrigger.value++;
   }
 
   async function handleSave() {

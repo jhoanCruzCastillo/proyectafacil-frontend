@@ -10,8 +10,8 @@ import { buildDocumento } from '@/lib/schemaExport';
 import { insertarValoresEnExcel, type AvisoLista } from '@/lib/excelWriter';
 import { usePushActividad } from '@/composables/useActividad';
 import { useExcelVivo, useAltoDeBloqueExcel, EXCEL_VIVO, type ModoCalculoExcel } from '@/composables/useListasExcel';
+import { useMapaValoresExcelDebounced, type ResolverValorCampo } from '@/composables/useMapaValoresExcelDebounced';
 import { mensajeAvisoListas } from '@/lib/xlsxListas';
-import { indexarCeldasDeTabla } from '@/lib/tableRowHelpers';
 import { useAutoguardado } from '@/composables/useAutoguardado';
 import { useUiStore } from '@/stores/ui';
 import type { VersionTab, Campo, Plantilla, Ejemplo, Seccion, TipologiaIoarr } from '@/types';
@@ -113,32 +113,22 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     localStorage.setItem(MODO_CALCULO_KEY_PREFIX + plantillaId.value, modo);
   }
 
-  // Entradas del cálculo en vivo, indexadas por la celda a la que apunta cada campo. En Estructura
-  // son los valores por defecto de la plantilla; en Ejemplos son los del ejemplo activo tal como se
-  // están editando, para que las fórmulas del Excel se recalculen mientras se escribe.
-  const valoresPorCelda = computed(() => {
-    if (!editData.value) return null;
+  // Entradas del cálculo en vivo. Se reindexan con debounce: indexar Anexo 2 entero en cada
+  // persist de tabla trababa el hilo principal; las fórmulas/listas pueden ir ~300 ms detrás.
+  const excelMapTrigger = ref(0);
+  const resolverValorExcel = computed<ResolverValorCampo>(() => {
     const enEjemplos = activeTab.value === 'ejemplos';
     const valores = editedValores.value;
-    const mapa = new Map<string, string>();
-    for (const sec of editData.value.secciones) {
-      if (!sec.hoja) continue;
-      for (const sub of sec.subsecciones) {
-        for (const campo of sub.campos) {
-          // Mismo criterio que FieldCard.displayValue: manda lo tecleado en el ejemplo y, si ahí no
-          // hay nada, se cae al valor por defecto de la estructura.
-          const crudo = (enEjemplos ? valores[campo.identificador] : undefined) ?? campo.valorEjemplo ?? '';
-          const cap = campo.captura;
-          if (cap?.columna && cap.fila) {
-            mapa.set(`${sec.hoja}!${cap.columna}${cap.fila}`, crudo);
-            continue;
-          }
-          indexarCeldasDeTabla(mapa, sec.hoja, campo, crudo, altoDeBloque.value);
-        }
-      }
-    }
-    return mapa;
+    return (identificador, valorEjemplo) =>
+      (enEjemplos ? valores[identificador] : undefined) ?? valorEjemplo ?? '';
   });
+  const valoresPorCelda = useMapaValoresExcelDebounced(
+    editData,
+    altoDeBloque,
+    resolverValorExcel,
+    excelMapTrigger,
+    300,
+  );
 
   // Se lee el Excel del catálogo (no la copia del ejemplo): es el mismo archivo en cuanto a opciones
   // y fórmulas, pero no cambia al insertar valores, así que la caché sigue válida toda la sesión.
@@ -224,6 +214,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
 
   function handleExampleValueChange(identificador: string, value: string) {
     editedValores.value = { ...editedValores.value, [identificador]: value };
+    excelMapTrigger.value++;
   }
 
   async function handleCreateExample(nombre: string, subtitulo: string, detalle: string, tipologiasIoarr?: TipologiaIoarr[]) {
@@ -380,6 +371,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     activeTab.value = tab;
     selectedCampo.value = null;
     isNewCampo.value = false;
+    excelMapTrigger.value++;
   }
 
   const secciones = computed(() => editData.value?.secciones ?? []);
@@ -401,9 +393,32 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     const next = deepClone(editData.value);
     fn(next);
     editData.value = next;
+    excelMapTrigger.value++;
+  }
+
+  /** Solo `valorEjemplo`: mutación in-place (sin deepClone de toda la plantilla). */
+  function actualizarSoloValorEjemplo(campoId: string, valorEjemplo: string | undefined) {
+    if (!editData.value) return;
+    for (const sec of editData.value.secciones) {
+      for (const sub of sec.subsecciones) {
+        const campo = sub.campos.find((c) => c.id === campoId);
+        if (!campo) continue;
+        campo.valorEjemplo = valorEjemplo;
+        if (selectedCampo.value?.id === campoId) {
+          selectedCampo.value = { ...selectedCampo.value, valorEjemplo };
+        }
+        excelMapTrigger.value++;
+        return;
+      }
+    }
   }
 
   function handleFieldUpdate(campoId: string, updates: Partial<Campo>) {
+    const keys = Object.keys(updates);
+    if (keys.length === 1 && keys[0] === 'valorEjemplo') {
+      actualizarSoloValorEjemplo(campoId, updates.valorEjemplo);
+      return;
+    }
     mutate((p) => {
       for (const sec of p.secciones) {
         const campo = sec.subsecciones.flatMap((s) => s.campos).find((c) => c.id === campoId);
