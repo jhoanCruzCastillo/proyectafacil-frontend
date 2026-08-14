@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faEye, faSave, faArrowLeft, faFileCode, faFileExport, faFileImport, faSpinner, faWandMagicSparkles } from '@/lib/icons';
+import { faEye, faSave, faArrowLeft, faFileCode, faFileExport, faFileImport, faSpinner, faWandMagicSparkles, faBolt, faCheck } from '@/lib/icons';
 import VersionTabs from '@/components/VersionTabs.vue';
 import { useSessionStore } from '@/stores/session';
 import { puedeAccederGestionUsuarios } from '@/lib/permisos';
 import type { EstadoAutoguardado } from '@/composables/useAutoguardado';
+import type { ModoEdicionEditor } from '@/composables/usePlantillaEditor';
 import type { VersionTab, Plantilla } from '@/types';
 
 const props = defineProps<{
@@ -19,6 +20,8 @@ const props = defineProps<{
   tieneExcelAsignado?: boolean;
   /** Estado del autoguardado — se enseña en pequeño, no como toast: a esta frecuencia molestaría */
   estadoGuardado?: EstadoAutoguardado;
+  /** live = cálculo al editar; confirmar = borrador hasta Confirmar en cada campo */
+  modoEdicion?: ModoEdicionEditor;
 }>();
 
 const emit = defineEmits<{
@@ -29,6 +32,7 @@ const emit = defineEmits<{
   'insert-excel': [];
   'volcar-estructura': [];
   'toggle-contextos-ia': [];
+  'update:modo-edicion': [ModoEdicionEditor];
 }>();
 
 const session = useSessionStore();
@@ -93,6 +97,34 @@ const colorGuardado = computed(() => (props.estadoGuardado === 'error' ? 'text-r
             dark
             @change="emit('change-tab', $event)"
           />
+        </div>
+        <div
+          v-if="!contextosIA"
+          class="flex rounded-lg border border-white/15 overflow-hidden"
+          title="Live: el Excel vivo se actualiza al editar. Confirmar: los cambios quedan en borrador hasta pulsar Confirmar en cada campo."
+        >
+          <button
+            type="button"
+            class="px-3 py-2 text-sm font-medium flex items-center gap-1.5 transition-colors"
+            :class="(modoEdicion ?? 'live') === 'live'
+              ? 'bg-brand-600 text-white'
+              : 'bg-transparent text-white/70 hover:bg-white/10 hover:text-white'"
+            @click="emit('update:modo-edicion', 'live')"
+          >
+            <FontAwesomeIcon :icon="faBolt" class="w-3 h-3" />
+            Live
+          </button>
+          <button
+            type="button"
+            class="px-3 py-2 text-sm font-medium flex items-center gap-1.5 transition-colors"
+            :class="modoEdicion === 'confirmar'
+              ? 'bg-brand-600 text-white'
+              : 'bg-transparent text-white/70 hover:bg-white/10 hover:text-white'"
+            @click="emit('update:modo-edicion', 'confirmar')"
+          >
+            <FontAwesomeIcon :icon="faCheck" class="w-3 h-3" />
+            Confirmar
+          </button>
         </div>
         <button
           v-if="esSuperusuario && !contextosIA"

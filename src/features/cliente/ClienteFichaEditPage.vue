@@ -137,7 +137,7 @@ function onValueChange(campoIdentificador: string, value: string) {
             :referencia-valores="activeTab === 'mi-ficha' ? referenciaEjemplo?.valores : undefined"
             :permite-mejora-i-a="activeTab === 'mi-ficha' && permiteMejoraIA"
             :estados-i-a="activeTab === 'mi-ficha' ? estadosCamposIA : undefined"
-            @update-example-value="onValueChange"
+            @update-example-value="(_campoId, identificador, value) => onValueChange(identificador, value)"
             @confirmar-ia="confirmarCampoIA"
           />
         </div>

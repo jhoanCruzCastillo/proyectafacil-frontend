@@ -4,6 +4,7 @@ import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faCircleQuestion, faTrash, faPlus, faNoteSticky } from '@/lib/icons';
 import FieldCard from './FieldCard.vue';
 import AyudaSubseccionModal from './AyudaSubseccionModal.vue';
+import type { ModoEdicionEditor } from '@/composables/usePlantillaEditor';
 import type { Campo, ConfigTabla, EstadoCampoIA, Seccion } from '@/types';
 
 // Edición de nombre de sección/subsección, hoja de Excel, agregar/eliminar subsecciones y campos,
@@ -26,6 +27,10 @@ const props = defineProps<{
   permiteMejoraIA?: boolean;
   /** Estados del llenado IA por identificador (solo cliente, tras un llenado) */
   estadosIA?: Record<string, EstadoCampoIA>;
+  /** Admin: live | confirmar — el cliente no lo pasa (queda live) */
+  modoEdicion?: ModoEdicionEditor;
+  /** Admin: borradores pendientes por campo.id en modo confirmar */
+  borradoresPorCampo?: Record<string, string>;
 }>();
 
 const emit = defineEmits<{
@@ -44,9 +49,11 @@ const emit = defineEmits<{
   'add-subsection': [seccionId: string];
   'delete-subsection': [subseccionId: string, seccionId: string];
   'update-default-value': [campoId: string, value: string];
-  'update-example-value': [identificador: string, value: string];
+  /** campoId + identificador: el id sirve para borradores en modo confirmar */
+  'update-example-value': [campoId: string, identificador: string, value: string];
   'update-config-tabla': [campoId: string, config: ConfigTabla];
   'confirmar-ia': [identificador: string];
+  'confirmar-borrador': [campoId: string, identificador: string];
 }>();
 
 const ayudaAbiertaId = ref<string | null>(null);
@@ -129,13 +136,16 @@ const subseccionAyuda = computed(() => props.seccion.subsecciones.find((s) => s.
           :referencia-valor="referenciaValores?.[campo.identificador]"
           :permite-mejora-i-a="permiteMejoraIA"
           :estado-i-a="estadosIA?.[campo.identificador] ?? null"
+          :modo-edicion="modoEdicion"
+          :valor-borrador="borradoresPorCampo?.[campo.id]"
           @click="emit('select-campo', campo)"
           @delete="emit('delete-campo', campo.id, sub.id)"
           @duplicate="emit('duplicate-campo', campo.id, sub.id)"
           @update-default-value="emit('update-default-value', campo.id, $event)"
-          @update-example-value="emit('update-example-value', campo.identificador, $event)"
+          @update-example-value="emit('update-example-value', campo.id, campo.identificador, $event)"
           @update-config-tabla="emit('update-config-tabla', campo.id, $event)"
           @confirmar-ia="emit('confirmar-ia', campo.identificador)"
+          @confirmar-borrador="emit('confirmar-borrador', campo.id, campo.identificador)"
         />
         <!-- Mismos botones que los del final de la subsección, pero pegados al campo seleccionado:
              lo nuevo entra justo detrás de él, no al final. -->

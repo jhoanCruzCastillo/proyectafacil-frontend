@@ -16,6 +16,9 @@ import { useAutoguardado } from '@/composables/useAutoguardado';
 import { useUiStore } from '@/stores/ui';
 import type { VersionTab, Campo, Plantilla, Ejemplo, Seccion, TipologiaIoarr } from '@/types';
 
+/** live = escribe al Excel vivo al editar; confirmar = borrador hasta pulsar Confirmar en el campo */
+export type ModoEdicionEditor = 'live' | 'confirmar';
+
 const MIN_LEFT = 180;
 const MIN_RIGHT = 300;
 const MIN_EXAMPLES = 220;
@@ -113,6 +116,74 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     localStorage.setItem(MODO_CALCULO_KEY_PREFIX + plantillaId.value, modo);
   }
 
+  // Modo de edición de valores: 'live' escribe al instante (Excel vivo + autoguardado); 'confirmar'
+  // guarda borradores por campo hasta que el usuario pulse Confirmar — varios campos pueden quedar
+  // pendientes a la vez. Por ficha, en localStorage.
+  const MODO_EDICION_KEY_PREFIX = 'pf_modo_edicion_';
+  const modoEdicion = ref<ModoEdicionEditor>('live');
+  /** Borradores pendientes en modo confirmar — clave = campo.id */
+  const borradoresPorCampo = ref<Record<string, string>>({});
+  watch(plantillaId, (id) => {
+    const guardado = localStorage.getItem(MODO_EDICION_KEY_PREFIX + id);
+    modoEdicion.value = guardado === 'confirmar' ? 'confirmar' : 'live';
+    borradoresPorCampo.value = {};
+  }, { immediate: true });
+  function setModoEdicion(modo: ModoEdicionEditor) {
+    modoEdicion.value = modo;
+    localStorage.setItem(MODO_EDICION_KEY_PREFIX + plantillaId.value, modo);
+    // Al volver a live se descartan borradores: no se confirman solos (evitar sorpresa de calc masivo).
+    if (modo === 'live') borradoresPorCampo.value = {};
+  }
+  function limpiarBorradores() {
+    borradoresPorCampo.value = {};
+  }
+  function setBorradorCampo(campoId: string, value: string, valorConfirmado: string) {
+    if (value === (valorConfirmado || '')) {
+      if (!(campoId in borradoresPorCampo.value)) return;
+      const next = { ...borradoresPorCampo.value };
+      delete next[campoId];
+      borradoresPorCampo.value = next;
+      return;
+    }
+    borradoresPorCampo.value = { ...borradoresPorCampo.value, [campoId]: value };
+  }
+  function confirmarBorradorCampo(campoId: string, identificador: string) {
+    if (!(campoId in borradoresPorCampo.value)) return;
+    const value = borradoresPorCampo.value[campoId];
+    const next = { ...borradoresPorCampo.value };
+    delete next[campoId];
+    borradoresPorCampo.value = next;
+    if (activeTab.value === 'ejemplos') {
+      handleExampleValueChange(identificador, value);
+    } else {
+      handleFieldUpdate(campoId, { valorEjemplo: value });
+    }
+  }
+  function handleUpdateDefaultValue(campoId: string, value: string) {
+    if (modoEdicion.value === 'confirmar') {
+      const campo = editData.value?.secciones
+        .flatMap((s) => s.subsecciones)
+        .flatMap((s) => s.campos)
+        .find((c) => c.id === campoId);
+      setBorradorCampo(campoId, value, campo?.valorEjemplo || '');
+      return;
+    }
+    handleFieldUpdate(campoId, { valorEjemplo: value });
+  }
+  function handleUpdateExampleValue(campoId: string, identificador: string, value: string) {
+    if (modoEdicion.value === 'confirmar') {
+      const confirmado = Object.prototype.hasOwnProperty.call(editedValores.value, identificador)
+        ? (editedValores.value[identificador] ?? '')
+        : (editData.value?.secciones
+            .flatMap((s) => s.subsecciones)
+            .flatMap((s) => s.campos)
+            .find((c) => c.id === campoId)?.valorEjemplo || '');
+      setBorradorCampo(campoId, value, confirmado);
+      return;
+    }
+    handleExampleValueChange(identificador, value);
+  }
+
   // Entradas del cálculo en vivo. Se reindexan con debounce: indexar Anexo 2 entero en cada
   // persist de tabla trababa el hilo principal; las fórmulas/listas pueden ir ~300 ms detrás.
   const excelMapTrigger = ref(0);
@@ -203,6 +274,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     if (ej && ej.id === ejemploCargadoId) return;
     ejemploCargadoId = ej?.id ?? null;
     editedValores.value = ej?.valores && Object.keys(ej.valores).length > 0 ? { ...ej.valores } : getDefaultValores();
+    limpiarBorradores();
   });
   // `immediate: true` — sin esto, si `ejemplos` ya trae datos en el momento en que este watch se
   // registra (la consulta resolvió más rápido de lo esperado), el watch nunca ve el cambio de "sin
@@ -371,6 +443,8 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     activeTab.value = tab;
     selectedCampo.value = null;
     isNewCampo.value = false;
+    // Estructura y Ejemplos escriben en sitios distintos; no mezclar borradores entre tabs.
+    limpiarBorradores();
     excelMapTrigger.value++;
   }
 
@@ -735,6 +809,8 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     editData, activeTab, activeSectionIndex, selectedCampo, isNewCampo, editingHojaSeccionId,
     leftWidth, rightWidth, examplesWidth, highlightMissingCaptura, ejemplosCount, jsonPreview,
     showImportEstructura, modoCalculo, setModoCalculo,
+    modoEdicion, setModoEdicion, borradoresPorCampo, confirmarBorradorCampo,
+    handleUpdateDefaultValue, handleUpdateExampleValue,
     secciones, safeIdx, seccionActiva, isFirst, isLast, showExamples,
     ejemplos, activeEjemplo, editedValores, showNuevoEjemplo, deleteTarget, volcarTarget, volcarEstructura,
     archivoExcelAsignado, showExcelCatalogModal, showPreview, showInsertConfirm, isInserting, insertProgress,
