@@ -3,8 +3,8 @@ import { leerImagenesDeHoja, imagenParaFila, type ImagenIncrustada } from './xls
 import { aFechaISO, aAnio, aPorcentaje } from './conversionesExcel';
 import { parseCoords, serializarCoords } from './coords';
 import {
-  esCeldaPartida, esJerarquica, getPeriodos, parseTree, posicionesArbol, posicionDe, agrupadorProfundidad, posicionesGrupos, alturaFilaBase,
-  type FilaDinamica, type GrupoFilas, type TreeNode,
+  esCeldaPartida, esJerarquica, getPeriodos, parseTree, posicionesArbol, posicionDe, agrupadorProfundidad, posicionesGrupos, alturaFilaBase, repartoAgrupador,
+  type FilaDinamica, type GrupoFilas, type TreeNode, type ValorCelda,
 } from './tableRowHelpers';
 import type { Plantilla, Campo, Seccion, ConfigTabla, ColumnaTabla, TipoCampo, TipoColumna } from '@/types';
 
@@ -407,6 +407,12 @@ function rellenarGrupos(
   filaFisicaInicial: number,
   periodos: string[],
 ): TablaAgrupadaLeida {
+  // Misma ancla que el escritor: la fila de título arranca en `columnaInicial` (o la primera
+  // columna con Excel) y se fusiona `agrupadorAbarcaColumnas` columnas reales — ahí vive el
+  // "Nombre del grupo". Las celdas libres a la derecha (`primeraCabeceraLibre`) son valoresGrupo.
+  const columnaInicial = config.captura?.columnaInicial
+    ?? config.columnas.find((c) => c.columnaExcel)?.columnaExcel;
+  const reparto = repartoAgrupador(config, periodos);
   const primera = config.columnas.find((c) => c.columnaExcel)?.columnaExcel;
   const posiciones = posicionesGrupos(actuales, filaFisicaInicial, (fila) =>
     alturaFilaBase(config, primera ? libro.fusion(hoja, `${primera}${fila}`)?.filas : undefined),
@@ -417,10 +423,34 @@ function rellenarGrupos(
     const pos = posiciones[gi];
     const salida: GrupoFilas = { grupo: g.grupo, filas: [] };
 
-    // Fila de título: puede traer valores propios en las columnas libres a su derecha.
     if (pos?.filaTitulo != null) {
-      const propios = leerFilaTabla(libro, hoja, config, pos.filaTitulo, periodos);
-      if (propios.tieneDatos) { salida.valoresGrupo = propios.valores; filasConDatos++; }
+      // Nombre del grupo: celda ancla de la fusión de título (no es una columna de datos).
+      if (columnaInicial) {
+        const celdaNombre = celdaVolcable(libro, hoja, `${columnaInicial}${pos.filaTitulo}`);
+        const nombre = celdaNombre ? valorParaColumna('texto_corto', celdaNombre).trim() : '';
+        if (nombre !== '') {
+          salida.grupo = nombre;
+          filasConDatos++;
+        }
+      }
+
+      // Solo las cabeceras a la derecha del corte del título — espejo de GroupedRowsEditor /
+      // excelWriter (repartoAgrupador). Si leemos todas las columnas, el texto del título caería
+      // en la primera columna de valoresGrupo y el nombre del grupo seguiría vacío.
+      const filaTitulo = leerFilaTabla(libro, hoja, config, pos.filaTitulo, periodos);
+      const valoresGrupo: FilaDinamica = {};
+      let tienePropios = false;
+      for (let i = reparto.primeraCabeceraLibre; i < config.columnas.length; i++) {
+        const col = config.columnas[i];
+        const v = filaTitulo.valores[col.id];
+        if (v === undefined) continue;
+        valoresGrupo[col.id] = v;
+        if (valorCeldaConDato(v)) tienePropios = true;
+      }
+      if (tienePropios) {
+        salida.valoresGrupo = valoresGrupo;
+        filasConDatos++;
+      }
     }
 
     salida.filas = g.filas.map((fila, fi) => {
@@ -434,6 +464,14 @@ function rellenarGrupos(
   });
 
   return { grupos, filasConDatos };
+}
+
+/** ¿Hay al menos un valor no vacío en una celda de fila (texto, períodos o partes)? */
+function valorCeldaConDato(v: ValorCelda | undefined): boolean {
+  if (v == null) return false;
+  if (typeof v === 'string') return v !== '';
+  if (Array.isArray(v)) return v.some((x) => x !== '');
+  return Object.values(v).some((x) => x !== '' && x != null);
 }
 
 // --- Tablas jerárquicas ---
