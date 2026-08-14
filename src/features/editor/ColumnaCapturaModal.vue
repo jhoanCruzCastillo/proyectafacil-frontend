@@ -108,9 +108,11 @@ function quitarSub(idx: number) {
 
 <template>
   <Transition name="fade">
-    <div v-if="isOpen && columna" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" @click="emit('close')">
+    <!-- Sin cierre por click en el backdrop: al seleccionar texto en un input y soltar
+         fuera, el click termina en el overlay y cerraba el modal por accidente. -->
+    <div v-if="isOpen && columna" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <Transition name="pop" appear>
-        <div class="bg-white rounded-2xl shadow-modal w-full max-w-xs" @click.stop>
+        <div class="bg-white rounded-2xl shadow-modal w-full max-w-xs">
           <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100">
             <div class="flex items-center gap-2">
               <FontAwesomeIcon :icon="faGear" class="w-3.5 h-3.5 text-brand-600" />
