@@ -44,6 +44,7 @@ export interface ColumnaTabla {
   nombre: string;
   tipo: TipoColumna;
   nivel?: NivelColumna;
+  /** Ancho visual en el editor (px). Solo UI: no afecta al Excel ni a la captura. */
   ancho?: number;
   requerido?: boolean;
   fuenteCatalogo?: string;

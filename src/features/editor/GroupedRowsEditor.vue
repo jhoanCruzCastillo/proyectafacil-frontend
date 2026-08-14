@@ -114,8 +114,19 @@ function renamePeriodo(pi: number, value: string) {
   periodos[pi] = value;
   emit('update:config', { ...props.config, periodos });
 }
+function resizeColumna(colId: string, anchoPx: number) {
+  // Solo UI en sesión: no escribe en config/plantilla (evita autoguardado masivo al arrastrar).
+  anchosLocales.value = { ...anchosLocales.value, [colId]: anchoPx };
+}
 
 const periodos = computed(() => getPeriodos(props.config));
+const anchosLocales = ref<Record<string, number>>({});
+const columnasVista = computed(() =>
+  props.config.columnas.map((c) => ({
+    ...c,
+    ancho: anchosLocales.value[c.id] ?? c.ancho,
+  })),
+);
 // Total de columnas realmente renderizadas en el encabezado (la dinámica se expande por período),
 // para calcular cuántas quedan sueltas a la derecha de la fila de grupo.
 const totalCols = computed(() => props.config.columnas.reduce((sum, c) => sum + (c.id === props.config.columnaDinamicaId && periodos.value.length > 0 ? periodos.value.length : 1), 0));
@@ -193,10 +204,10 @@ function valorGrupoMostrado(gi: number, col: ColumnaTabla, opciones: string[] | 
 <template>
   <div class="mt-2">
     <div class="overflow-x-auto rounded-lg border border-brand-200">
-      <table class="w-full text-xs">
+      <table class="w-full text-xs border-separate border-spacing-0" :class="columnasVista.some((c) => c.ancho) ? 'table-fixed' : ''">
         <thead>
           <TableHeaderRow
-            :cols="config.columnas"
+            :cols="columnasVista"
             :periodos="periodos"
             :columna-dinamica-id="config.columnaDinamicaId"
             :cabeceras="config.cabeceras"
@@ -204,6 +215,7 @@ function valorGrupoMostrado(gi: number, col: ColumnaTabla, opciones: string[] | 
             :show-add-periodo="puedeEditarPeriodos"
             @rename-periodo="renamePeriodo"
             @add-periodo="addPeriodo"
+            @resize-columna="resizeColumna"
           />
         </thead>
         <tbody>
@@ -275,7 +287,7 @@ function valorGrupoMostrado(gi: number, col: ColumnaTabla, opciones: string[] | 
             <TableRow
               v-for="(row, ri) in grupo.filas"
               :key="ri"
-              :cols="config.columnas"
+              :cols="columnasVista"
               :row="row"
               :row-index="ri"
               :periodos="periodos"

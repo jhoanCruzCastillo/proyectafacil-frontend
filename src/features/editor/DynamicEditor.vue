@@ -59,9 +59,18 @@ function bindScrollEl(el: Element | null) {
 
 const periodos = computed(() => getPeriodos(props.config));
 
+/** Anchos arrastrados en esta sesión; pisan `col.ancho` del config (y sirven si el padre no persiste config). */
+const anchosLocales = ref<Record<string, number>>({});
+const columnasVista = computed(() =>
+  props.config.columnas.map((c) => ({
+    ...c,
+    ancho: anchosLocales.value[c.id] ?? c.ancho,
+  })),
+);
+
 /** Celdas físicas por fila (misma lógica que TableHeaderRow) + columna de borrar. */
 const colspanSpacer = computed(() => {
-  const n = props.config.columnas.reduce((s, c) => {
+  const n = columnasVista.value.reduce((s, c) => {
     if (c.id === props.config.columnaDinamicaId) return s + Math.max(periodos.value.length, 1);
     return s + (c.subcolumnas?.length || 1);
   }, 0);
@@ -162,6 +171,11 @@ function renamePeriodo(pi: number, value: string) {
   emit('update:config', { ...props.config, periodos: periodosNext });
 }
 
+function resizeColumna(colId: string, anchoPx: number) {
+  // Solo UI en sesión: no escribe en config/plantilla (evita autoguardado masivo al arrastrar).
+  anchosLocales.value = { ...anchosLocales.value, [colId]: anchoPx };
+}
+
 onBeforeUnmount(() => {
   flushPersist();
 });
@@ -176,10 +190,13 @@ onBeforeUnmount(() => {
       :style="virtualActivo ? { maxHeight: `${viewportMaxPx}px` } : undefined"
       @scroll="onScroll"
     >
-      <table class="w-full text-xs border-separate border-spacing-0">
+      <table
+        class="w-full text-xs border-separate border-spacing-0"
+        :class="columnasVista.some((c) => c.ancho) ? 'table-fixed' : ''"
+      >
         <thead class="sticky top-0 z-10">
           <TableHeaderRow
-            :cols="config.columnas"
+            :cols="columnasVista"
             :periodos="periodos"
             :columna-dinamica-id="config.columnaDinamicaId"
             :cabeceras="config.cabeceras"
@@ -187,6 +204,7 @@ onBeforeUnmount(() => {
             :show-add-periodo="puedeEditarPeriodos"
             @rename-periodo="renamePeriodo"
             @add-periodo="addPeriodo"
+            @resize-columna="resizeColumna"
           />
         </thead>
         <tbody>
@@ -199,7 +217,7 @@ onBeforeUnmount(() => {
           <TableRow
             v-for="item in ventana"
             :key="item.ri"
-            :cols="config.columnas"
+            :cols="columnasVista"
             :row="rows[item.ri]"
             :row-index="item.ri"
             :periodos="periodos"

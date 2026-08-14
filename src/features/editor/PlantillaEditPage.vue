@@ -168,6 +168,7 @@ const verContextosIA = ref(false);
             :campo="selectedCampo"
             :auto-focus-etiqueta="isNewCampo"
             :ejemplos-count="ejemplosCount"
+            :modo-edicion="modoEdicion"
             @update="handleFieldUpdate"
           />
           <div v-else class="flex items-center justify-center h-full text-muted text-sm text-center px-4">

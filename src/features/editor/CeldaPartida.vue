@@ -6,6 +6,7 @@ import CampoListaInput from '@/components/CampoListaInput.vue';
 import { EXCEL_VIVO } from '@/composables/useListasExcel';
 import { etiquetaDeValor } from '@/lib/conversionesExcel';
 import { valorSubcolumna, type ValorCelda } from '@/lib/tableRowHelpers';
+import { estiloAnchoColumna } from '@/lib/tableColumnWidth';
 import type { ColumnaTabla, SubcolumnaTabla } from '@/types';
 
 // Una columna partida (convención 4.8) dibujada como una celda por parte.
@@ -24,6 +25,8 @@ const props = defineProps<{
   hoja?: string;
   /** Fila de Excel que ocupa esta fila de la tabla */
   filaExcel?: number;
+  /** Ancho visual total de la columna padre (px), repartido entre partes */
+  anchoColumna?: number;
 }>();
 
 const emit = defineEmits<{
@@ -32,6 +35,10 @@ const emit = defineEmits<{
 }>();
 
 const excel = inject(EXCEL_VIVO, undefined);
+
+function estiloParte() {
+  return estiloAnchoColumna(props.anchoColumna, props.col.subcolumnas?.length || 1);
+}
 
 /** Celda de Excel de una parte, o null si no se puede ubicar */
 function refDe(sub: SubcolumnaTabla): string | null {
@@ -64,10 +71,11 @@ function mostrado(sub: SubcolumnaTabla, ops: string[] | null): string {
   <td
     v-for="(sub, si) in col.subcolumnas"
     :key="`${col.id}-${sub.id}`"
-    class="px-1 py-0.5 align-top group/celda relative"
+    :style="estiloParte()"
+    class="px-1 py-0.5 align-top group/celda relative min-w-0 border-r border-brand-100"
     :class="calculo(sub) ? 'bg-sky-50/50' : ''"
   >
-    <div class="flex items-start gap-0.5">
+    <div class="flex items-start gap-0.5 min-w-0">
       <!-- Parte que calcula el Excel -->
       <div v-if="calculo(sub)" class="flex items-start gap-1 px-1 py-1 flex-1 min-w-0">
         <FontAwesomeIcon
@@ -75,8 +83,8 @@ function mostrado(sub: SubcolumnaTabla, ops: string[] | null): string {
           class="w-2.5 h-2.5 text-sky-500 shrink-0 mt-0.5"
           title="Lo calcula el Excel"
         />
-        <span v-if="!calculo(sub)!.soportado" class="text-[11px] text-sky-800/60 italic">Lo calcula el Excel</span>
-        <span v-else-if="calculo(sub)!.error" class="text-[11px] text-amber-700 font-mono">{{ calculo(sub)!.error }}</span>
+        <span v-if="!calculo(sub)!.soportado" class="text-[11px] text-sky-800/60 italic break-words">Lo calcula el Excel</span>
+        <span v-else-if="calculo(sub)!.error" class="text-[11px] text-amber-700 font-mono break-words">{{ calculo(sub)!.error }}</span>
         <span v-else-if="calculo(sub)!.texto" class="text-xs text-heading break-words">{{ calculo(sub)!.texto }}</span>
         <span v-else class="text-[11px] text-muted">—</span>
       </div>
@@ -98,7 +106,7 @@ function mostrado(sub: SubcolumnaTabla, ops: string[] | null): string {
         rows="1"
         :placeholder="sub.nombre || '—'"
         :title="sub.nombre"
-        class="block w-full px-1.5 py-1 rounded border border-transparent hover:border-gray-200 focus:border-brand-300 text-xs text-heading focus:outline-none focus:ring-1 focus:ring-brand-500/30 bg-transparent resize-none overflow-y-auto max-h-[15lh] [field-sizing:content]"
+        class="block w-full min-w-0 px-1.5 py-1 rounded border border-transparent hover:border-gray-200 focus:border-brand-300 text-xs text-heading focus:outline-none focus:ring-1 focus:ring-brand-500/30 bg-transparent resize-none overflow-y-auto max-h-[15lh] [field-sizing:content] break-words"
       />
       <!-- El engranaje vive en la primera parte y NO depende de cómo se dibuje la celda: es la única
            salida para volver a fusionar la fila, y sin él una fila partida cuya primera parte la

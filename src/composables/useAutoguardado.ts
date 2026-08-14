@@ -65,7 +65,12 @@ export function useAutoguardado(opciones: OpcionesAutoguardado): Autoguardado {
     if (actual === null || actual === huellaGuardada) { primerCambioEn = null; return; }
     // Nunca dos guardados a la vez: si se solaparan, el más viejo podría llegar el último y
     // deshacer lo recién escrito. El que quede pendiente se reprograma al terminar este.
-    if (enVuelo) return;
+    if (enVuelo) {
+      // Había un timer que venció mientras volaba otro guardado: sin reprogramar, el cambio
+      // quedaría colgado en "Guardando…" / pendiente para siempre si el finally no ve diferencia.
+      programar();
+      return;
+    }
 
     enVuelo = true;
     estado.value = 'guardando';

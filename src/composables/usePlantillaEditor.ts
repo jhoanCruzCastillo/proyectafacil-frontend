@@ -74,6 +74,9 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
   const ejemplosCount = computed(() => ejemplos.value.length);
   const activeEjemplo = ref<Ejemplo | null>(null) as Ref<Ejemplo | null>;
   const editedValores = ref<Record<string, string>>({});
+  // Baselines del autoguardado — se declaran pronto porque el watch de carga de ejemplo las escribe.
+  let estructuraGuardada: string | null = null;
+  let ejemploGuardado: string | null = null;
   const showNuevoEjemplo = ref(false);
   const deleteTarget = ref<Ejemplo | null>(null) as Ref<Ejemplo | null>;
   const volcarTarget = ref<Ejemplo | null>(null) as Ref<Ejemplo | null>;
@@ -274,7 +277,10 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     if (ej && ej.id === ejemploCargadoId) return;
     ejemploCargadoId = ej?.id ?? null;
     editedValores.value = ej?.valores && Object.keys(ej.valores).length > 0 ? { ...ej.valores } : getDefaultValores();
+    // Baseline del ejemplo recién cargado: no es un cambio del usuario.
+    ejemploGuardado = ej ? JSON.stringify(editedValores.value) : null;
     limpiarBorradores();
+    queueMicrotask(() => autoguardado.marcarGuardado());
   });
   // `immediate: true` — sin esto, si `ejemplos` ya trae datos en el momento en que este watch se
   // registra (la consulta resolvió más rápido de lo esperado), el watch nunca ve el cambio de "sin
@@ -729,12 +735,23 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
   // La estructura pesa ~95 KB y el ejemplo activo unos pocos; casi nunca cambian a la vez. Por eso
   // cada parte lleva su propia huella y solo se manda la que de verdad cambió: escribir valores en
   // un ejemplo no reenvía la plantilla entera cada dos segundos.
-  let estructuraGuardada: string | null = null;
-  let ejemploGuardado: string | null = null;
+  // (estructuraGuardada / ejemploGuardado están declarados arriba, junto a editedValores.)
 
   const huellaEstructura = () => (editData.value ? JSON.stringify(editData.value) : null);
+  // La huella del ejemplo NO depende del tab activo: si al entrar/salir de Ejemplos cambiara,
+  // el autoguardado creería que hay ediciones y mandaría el JSON entero (tablas de cientos de
+  // filas) solo por cambiar de pestaña — "Guardando…" eterno.
   const huellaEjemplo = () =>
-    activeTab.value === 'ejemplos' && activeEjemplo.value ? JSON.stringify(editedValores.value) : null;
+    activeEjemplo.value ? JSON.stringify(editedValores.value) : null;
+
+  watch(
+    editData,
+    (d) => {
+      if (!d) return;
+      if (estructuraGuardada === null) estructuraGuardada = JSON.stringify(d);
+    },
+    { immediate: true },
+  );
 
   /** Manda al servidor lo que haya cambiado. Sin toasts ni registro de actividad: eso es cosa del
    * botón Guardar, que el autoguardado no debe imitar. */
@@ -752,6 +769,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     if (ejemplo !== null && ejemplo !== ejemploGuardado && activeEjemplo.value) {
       const valores = { ...editedValores.value };
       await actualizarEjemplo.mutateAsync({ id: activeEjemplo.value.id, data: { valores } });
+      // Misma id → el watch de carga no reinicia editedValores (guarda ejemploCargadoId).
       activeEjemplo.value = { ...activeEjemplo.value, valores };
       ejemploGuardado = ejemplo;
     }
@@ -761,7 +779,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     huella: () => {
       const e = huellaEstructura();
       if (e === null) return null;
-      return `${e} ${huellaEjemplo() ?? ''}`;
+      return `${e}\0${activeEjemplo.value?.id ?? ''}\0${huellaEjemplo() ?? ''}`;
     },
     guardar: persistir,
   });

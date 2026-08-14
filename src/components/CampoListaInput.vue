@@ -129,11 +129,11 @@ function alternar() {
       :disabled="!editable"
       type="button"
       :title="fueraDeLista && compacto ? 'Este valor no está entre las opciones del Excel' : undefined"
-      class="w-full text-left flex items-center gap-2 transition-colors disabled:cursor-default"
+      class="w-full text-left flex gap-2 transition-colors disabled:cursor-default"
       :class="[
         compacto
-          ? 'px-1.5 py-1 rounded border text-xs'
-          : 'mt-1 px-2 py-1.5 rounded border bg-white text-sm',
+          ? 'items-start px-1.5 py-1 rounded border text-xs'
+          : 'items-center mt-1 px-2 py-1.5 rounded border bg-white text-sm',
         fueraDeLista
           ? 'border-amber-400 text-heading'
           : compacto
@@ -141,13 +141,17 @@ function alternar() {
             : 'border-brand-200 text-heading hover:border-brand-400',
       ]"
     >
-      <span v-if="value" class="flex-1 truncate">{{ value }}</span>
+      <span
+        v-if="value"
+        class="flex-1 min-w-0"
+        :class="compacto ? 'break-words whitespace-normal' : 'truncate'"
+      >{{ value }}</span>
       <span v-else class="flex-1 text-gray-400">{{ compacto ? '—' : 'Elige una opción del Excel...' }}</span>
       <FontAwesomeIcon
         v-if="editable"
         :icon="faChevronDown"
         class="w-2.5 h-2.5 text-gray-400 shrink-0 transition-transform"
-        :class="abierto ? 'rotate-180' : ''"
+        :class="[abierto ? 'rotate-180' : '', compacto ? 'mt-0.5' : '']"
       />
     </button>
 
