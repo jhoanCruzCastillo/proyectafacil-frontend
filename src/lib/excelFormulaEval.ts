@@ -8,14 +8,14 @@
 //
 // NO es un motor de Excel completo, y no pretende serlo. Cubre exactamente lo que usa la hoja de
 // Datos Generales (IF, VLOOKUP, TODAY, concatenación con &, comparaciones, referencias entre hojas
-// y rangos con nombre). Cualquier otra cosa devuelve `no-soportado` en vez de un valor inventado:
-// es preferible no mostrar nada a mostrar algo distinto de lo que dará el Excel real.
+// y rangos con nombre). Si la fórmula sale de ese subconjunto, se muestra el valor cacheado del
+// .xlsx cuando exista; solo se deja el placeholder vacío si tampoco hay caché.
 //
 // Distinto de lib/formula.ts, que evalúa NUESTRAS fórmulas de campos calculados (aritmética sobre
 // identificadores de campo). Aquí el lenguaje es el de Excel y los operandos son celdas.
 
 import type { LibroLeido } from './xlsxXmlReader';
-import { aPorcentaje, dateASerialExcel, dePorcentaje } from './conversionesExcel';
+import { aAnio, aFechaISO, aPorcentaje, dateASerialExcel, dePorcentaje } from './conversionesExcel';
 
 export class ErrorExcel {
   codigo: string;
@@ -690,9 +690,39 @@ export function evaluarTexto(
 }
 
 /**
+ * Valor que Excel dejó cacheado en la celda (última vez que se abrió/guardó el archivo).
+ * Cuando nuestra mini-calculadora no cubre la fórmula, es lo más fiel que podemos mostrar —
+ * p. ej. "Validación - OK" en una celda con IF/TEXT complejos que aún no evaluamos.
+ */
+function textoCacheado(libro: LibroLeido, hoja: string, ref: string): string | null {
+  const celda = libro.celda(hoja, ref);
+  if (!celda) return null;
+  const crudo = celda.valor.trim();
+  if (crudo === '') return null;
+  if (celda.soloAnio) return aAnio(celda.valor, true) ?? crudo;
+  if (celda.esFecha) return aFechaISO(celda.valor, true) ?? celda.valor;
+  if (celda.esPorcentaje) return aPorcentaje(celda.valor, celda.decimales) ?? crudo;
+  return celda.valor;
+}
+
+function conCacheSiHaceFalta(
+  libro: LibroLeido,
+  hoja: string,
+  ref: string,
+  fallo: ResultadoCelda,
+): ResultadoCelda {
+  const cache = textoCacheado(libro, hoja, ref);
+  if (cache !== null) return { texto: cache, soportado: true };
+  return fallo;
+}
+
+/**
  * Calcula lo que el Excel mostraría en esa celda, usando como entradas los valores que tenemos
  * mapeados en la estructura. Devuelve undefined si la celda no tiene fórmula (no hay nada que
  * calcular: su valor es simplemente el que el usuario escriba).
+ *
+ * Si la fórmula sale del subconjunto que sabemos evaluar, se muestra el valor cacheado del
+ * .xlsx cuando exista — mejor eso que el placeholder "Lo calcula el Excel".
  */
 export function calcularCelda(
   libro: LibroLeido,
@@ -711,9 +741,15 @@ export function calcularCelda(
   // superior-izquierda, que en una celda fusionada es justo donde vive el valor.
   const v = esRango(bruto) ? escalar(bruto, ctx) : bruto;
 
-  if (v === NO_SOPORTADO) return { texto: '', soportado: false };
-  if (esRango(v)) return { texto: '', soportado: false };
-  if (v instanceof ErrorExcel) return { texto: '', soportado: true, error: v.codigo };
+  if (v === NO_SOPORTADO) {
+    return conCacheSiHaceFalta(libro, hoja, ref, { texto: '', soportado: false });
+  }
+  if (esRango(v)) {
+    return conCacheSiHaceFalta(libro, hoja, ref, { texto: '', soportado: false });
+  }
+  if (v instanceof ErrorExcel) {
+    return conCacheSiHaceFalta(libro, hoja, ref, { texto: '', soportado: true, error: v.codigo });
+  }
 
   const formato = libro.formatoFecha(hoja, ref);
   if (formato?.esFecha && typeof v === 'number') {
@@ -730,5 +766,11 @@ export function calcularCelda(
     }
     return { texto: decimales !== undefined ? v.toFixed(decimales) : String(Number(v.toPrecision(12))), soportado: true };
   }
-  return { texto: texto(v), soportado: true };
+  const t = texto(v);
+  // Eval vacía pero el archivo sí trae resultado cacheado (fórmulas parciales / dependencias
+  // aún no mapeadas): preferimos lo que Excel dejó escrito.
+  if (t.trim() === '') {
+    return conCacheSiHaceFalta(libro, hoja, ref, { texto: '', soportado: true });
+  }
+  return { texto: t, soportado: true };
 }

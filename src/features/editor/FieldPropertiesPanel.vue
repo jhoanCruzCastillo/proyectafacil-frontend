@@ -102,12 +102,22 @@ const jsonTextarea = ref<HTMLTextAreaElement | null>(null);
 
 function focusEtiqueta() {
   if (!props.autoFocusEtiqueta) return;
-  if (vista.value.tipo === 'nota') { notaInput.value?.focus(); return; }
-  etiquetaInput.value?.focus();
-  etiquetaInput.value?.select();
+  // Doble tick: el panel derecho puede montarse/scrollar después del primer paint.
+  nextTick(() => {
+    nextTick(() => {
+      if (vista.value.tipo === 'nota') {
+        notaInput.value?.focus();
+        notaInput.value?.scrollIntoView({ block: 'nearest' });
+        return;
+      }
+      etiquetaInput.value?.focus();
+      etiquetaInput.value?.select();
+    });
+  });
 }
 onMounted(focusEtiqueta);
 watch(() => props.campo.id, () => nextTick(focusEtiqueta));
+watch(() => props.autoFocusEtiqueta, (v) => { if (v) nextTick(focusEtiqueta); });
 
 function syncJsonFromLocal() {
   const pretty = stringifyCampoJson(local.value);

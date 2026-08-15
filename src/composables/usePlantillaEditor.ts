@@ -760,9 +760,12 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
 
     const estructura = huellaEstructura();
     if (estructura !== null && estructura !== estructuraGuardada) {
-      const fechaActualizacion = new Date().toLocaleDateString('es-PE');
+      // ISO `Y-m-d`: la columna DATE de PostgreSQL rechaza `d/m/Y` de toLocaleDateString('es-PE')
+      // (ej. "14/8/2026") y el PUT de plantilla fallaba — bloqueando también el guardado del ejemplo.
+      const fechaActualizacion = new Date().toISOString().slice(0, 10);
       await actualizarPlantilla.mutateAsync({ id: editData.value.id, data: { ...editData.value, fechaActualizacion } });
-      estructuraGuardada = estructura;
+      editData.value = { ...editData.value, fechaActualizacion };
+      estructuraGuardada = huellaEstructura();
     }
 
     const ejemplo = huellaEjemplo();
@@ -786,8 +789,13 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
 
   async function handleSave() {
     if (!editData.value) return;
-    await persistir();
-    autoguardado.marcarGuardado();
+    try {
+      await persistir();
+      autoguardado.marcarGuardado();
+    } catch (e) {
+      ui.toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error');
+      return;
+    }
 
     await pushActividad.mutateAsync({ mensaje: `Se guardó la plantilla ${editData.value.codigo} — ${editData.value.nombre}`, color: 'blue' });
 

@@ -23,6 +23,8 @@ function updateColumn(colId: string, updates: Partial<ColumnaTabla>) {
   config.value = { ...config.value, columnas: cols.value.map((c) => (c.id === colId ? { ...c, ...updates } : c)) };
 }
 
+const focusColId = ref<string | null>(null);
+
 function removeColumn(colId: string) {
   const nextCabeceras = cabeceras.value
     .map((g) => ({ ...g, hijoIds: g.hijoIds.filter((h) => h !== colId) }))
@@ -34,6 +36,18 @@ function addColumn(name: string) {
   if (!name.trim()) return;
   const newCol: ColumnaTabla = { id: generateId(), nombre: name.trim(), tipo: 'texto_corto', requerido: false };
   config.value = { ...config.value, columnas: [...cols.value, newCol] };
+  focusColId.value = newCol.id;
+}
+
+/** Enter en el título de una cabecera: inserta otra columna vacía justo después, lista para escribir. */
+function addColumnAfter(afterId: string) {
+  const idx = cols.value.findIndex((c) => c.id === afterId);
+  if (idx < 0) return;
+  const newCol: ColumnaTabla = { id: generateId(), nombre: '', tipo: 'texto_corto', requerido: false };
+  const next = [...cols.value];
+  next.splice(idx + 1, 0, newCol);
+  config.value = { ...config.value, columnas: next };
+  focusColId.value = newCol.id;
 }
 
 function dropColumnAt(targetIndex: number) {
@@ -113,12 +127,15 @@ const siblingOptions = computed(() => {
                 :key="col.id"
                 :col="col"
                 :row-span="2"
+                :auto-focus="focusColId === col.id"
                 @dragstart="dragIndex = cols.indexOf(col)"
                 @drop="dropColumnAt(cols.indexOf(col))"
                 @update-nombre="updateColumn(col.id, { nombre: $event })"
                 @update-tipo="updateColumn(col.id, { tipo: $event })"
                 @configure="configuringColId = col.id"
                 @remove="removeColumn(col.id)"
+                @enter="addColumnAfter(col.id)"
+                @focused="focusColId = null"
               />
             </template>
             <TableAddColumnButton :row-span="2" @add="addColumn" />
@@ -132,12 +149,15 @@ const siblingOptions = computed(() => {
                     :key="col.id"
                     :col="col"
                     :row-span="1"
+                    :auto-focus="focusColId === col.id"
                     @dragstart="dragIndex = cols.indexOf(col)"
                     @drop="dropColumnAt(cols.indexOf(col))"
                     @update-nombre="updateColumn(col.id, { nombre: $event })"
                     @update-tipo="updateColumn(col.id, { tipo: $event })"
                     @configure="configuringColId = col.id"
                     @remove="removeColumn(col.id)"
+                    @enter="addColumnAfter(col.id)"
+                    @focused="focusColId = null"
                   />
                 </template>
               </template>
@@ -148,12 +168,15 @@ const siblingOptions = computed(() => {
                 :key="col.id"
                 :col="col"
                 :row-span="1"
+                :auto-focus="focusColId === col.id"
                 @dragstart="dragIndex = cols.indexOf(col)"
                 @drop="dropColumnAt(cols.indexOf(col))"
                 @update-nombre="updateColumn(col.id, { nombre: $event })"
                 @update-tipo="updateColumn(col.id, { tipo: $event })"
                 @configure="configuringColId = col.id"
                 @remove="removeColumn(col.id)"
+                @enter="addColumnAfter(col.id)"
+                @focused="focusColId = null"
               />
               <TableAddColumnButton :row-span="1" @add="addColumn" />
             </template>

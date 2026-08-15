@@ -81,6 +81,19 @@ function addColumn(name: string) {
   if (!name.trim()) return;
   const newCol: ColumnaTabla = { id: generateId(), nombre: name.trim(), tipo: 'texto_corto', requerido: false };
   config.value = { ...config.value, columnas: [...cols.value, newCol] };
+  focusColId.value = newCol.id;
+}
+
+const focusColId = ref<string | null>(null);
+
+function addColumnAfter(afterId: string) {
+  const idx = cols.value.findIndex((c) => c.id === afterId);
+  if (idx < 0) return;
+  const newCol: ColumnaTabla = { id: generateId(), nombre: '', tipo: 'texto_corto', requerido: false };
+  const next = [...cols.value];
+  next.splice(idx + 1, 0, newCol);
+  config.value = { ...config.value, columnas: next };
+  focusColId.value = newCol.id;
 }
 
 function dropColumnAt(targetIndex: number) {
@@ -200,6 +213,7 @@ const siblingOptions = computed(() => {
                   :col="u.col"
                   :row-span="2"
                   :col-span="Math.max(columnasDinamicas.length, 1)"
+                  :auto-focus="focusColId === u.col.id"
                   @dragstart="dragIndex = u.index"
                   @drop="dropColumnAt(u.index)"
                   @update-nombre="updateColumn(u.col.id, { nombre: $event })"
@@ -207,17 +221,22 @@ const siblingOptions = computed(() => {
                   @configure="configuringColId = u.col.id; soloGrupoMode = false"
                   @remove="removeColumn(u.col.id)"
                   @toggle-dinamica="toggleDinamica(u.col.id)"
+                  @enter="addColumnAfter(u.col.id)"
+                  @focused="focusColId = null"
                 />
                 <TableColumnHeaderCell
                   v-else
                   :col="u.col"
                   :row-span="totalRows"
+                  :auto-focus="focusColId === u.col.id"
                   @dragstart="dragIndex = u.index"
                   @drop="dropColumnAt(u.index)"
                   @update-nombre="updateColumn(u.col.id, { nombre: $event })"
                   @update-tipo="updateColumn(u.col.id, { tipo: $event })"
                   @configure="configuringColId = u.col.id; soloGrupoMode = false"
                   @remove="removeColumn(u.col.id)"
+                  @enter="addColumnAfter(u.col.id)"
+                  @focused="focusColId = null"
                 >
                   <template #extra>
                     <button @click="toggleDinamica(u.col.id)" type="button" title="Marcar como dinámica" class="w-4 h-4 rounded flex items-center justify-center text-gray-300 hover:text-amber-500 shrink-0">
@@ -236,6 +255,7 @@ const siblingOptions = computed(() => {
                 :col="u.col"
                 :row-span="rowNombresSpan(u)"
                 :col-span="Math.max(columnasDinamicas.length, 1)"
+                  :auto-focus="focusColId === u.col.id"
                 @dragstart="dragIndex = u.index"
                 @drop="dropColumnAt(u.index)"
                 @update-nombre="updateColumn(u.col.id, { nombre: $event })"
@@ -243,17 +263,22 @@ const siblingOptions = computed(() => {
                 @configure="configuringColId = u.col.id; soloGrupoMode = false"
                 @remove="removeColumn(u.col.id)"
                 @toggle-dinamica="toggleDinamica(u.col.id)"
+                  @enter="addColumnAfter(u.col.id)"
+                  @focused="focusColId = null"
               />
               <TableColumnHeaderCell
                 v-else
                 :col="u.col"
                 :row-span="rowNombresSpan(u)"
+                  :auto-focus="focusColId === u.col.id"
                 @dragstart="dragIndex = u.index"
                 @drop="dropColumnAt(u.index)"
                 @update-nombre="updateColumn(u.col.id, { nombre: $event })"
                 @update-tipo="updateColumn(u.col.id, { tipo: $event })"
                 @configure="configuringColId = u.col.id; soloGrupoMode = false"
                 @remove="removeColumn(u.col.id)"
+                @enter="addColumnAfter(u.col.id)"
+                @focused="focusColId = null"
               >
                 <template #extra>
                   <button @click="toggleDinamica(u.col.id)" type="button" title="Marcar como dinámica" class="w-4 h-4 rounded flex items-center justify-center text-gray-300 hover:text-amber-500 shrink-0">
