@@ -321,6 +321,12 @@ export interface Ejemplo {
    * estado de la Plantilla. Solo se gestiona en el catálogo de ejemplos de referencia del admin
    * (propietarioId ausente) — las fichas de cliente no muestran este control. */
   estado?: 'publicado' | 'archivado';
+  /**
+   * true = la copia de Excel del ejemplo está al día con `valores` (tras Insertar).
+   * false = hubo ediciones sin insertar — el header muestra reloj / botón Insertar.
+   * Se persiste en BD (`ejemplos.excel_actualizado`); no incluye historial ni autor.
+   */
+  excelActualizado?: boolean;
 }
 
 export type RolUsuario = 'superusuario' | 'administrador' | 'cliente' | 'administrativo_asesorias' | 'asesor';

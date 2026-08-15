@@ -76,7 +76,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
   const editedValores = ref<Record<string, string>>({});
   // true = el ejemplo tiene ediciones que todavía no se insertaron en su copia de Excel — editar un
   // campo (live o al confirmar un borrador) lo marca desactualizado; "Insertar" lo vuelve a poner
-  // al día. Es indicador de sesión, no se persiste: al cambiar de ejemplo se reinicia con su carga.
+  // al día. Se carga desde `ejemplo.excelActualizado` y se persiste al guardar / insertar.
   const excelDesactualizado = ref(false);
   // Baselines del autoguardado — se declaran pronto porque el watch de carga de ejemplo las escribe.
   let estructuraGuardada: string | null = null;
@@ -283,7 +283,8 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     editedValores.value = ej?.valores && Object.keys(ej.valores).length > 0 ? { ...ej.valores } : getDefaultValores();
     // Baseline del ejemplo recién cargado: no es un cambio del usuario.
     ejemploGuardado = ej ? JSON.stringify(editedValores.value) : null;
-    excelDesactualizado.value = false;
+    // Invertido: excelActualizado=true → UI al día (check); false/ausente con false explícito → reloj.
+    excelDesactualizado.value = ej ? ej.excelActualizado === false : false;
     limpiarBorradores();
     queueMicrotask(() => autoguardado.marcarGuardado());
   });
@@ -297,8 +298,17 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
 
   function handleExampleValueChange(identificador: string, value: string) {
     editedValores.value = { ...editedValores.value, [identificador]: value };
-    excelDesactualizado.value = true;
+    marcarExcelDesactualizado();
     excelMapTrigger.value++;
+  }
+
+  /** Marca el ejemplo como pendiente de Insertar (local + se persistirá en el próximo guardar). */
+  function marcarExcelDesactualizado() {
+    if (excelDesactualizado.value) return;
+    excelDesactualizado.value = true;
+    if (activeEjemplo.value) {
+      activeEjemplo.value = { ...activeEjemplo.value, excelActualizado: false };
+    }
   }
 
   async function handleCreateExample(nombre: string, subtitulo: string, detalle: string, tipologiasIoarr?: TipologiaIoarr[]) {
@@ -396,7 +406,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     }
 
     editedValores.value = { ...editedValores.value, ...valores };
-    excelDesactualizado.value = true;
+    marcarExcelDesactualizado();
     ui.toast(`${n} ${n === 1 ? 'campo volcado' : 'campos volcados'} desde el Excel — recuerda guardar`);
   }
 
@@ -419,6 +429,12 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
         (avisos) => { avisosListas.value = avisos; },
       );
       await setExcelEjemplo.mutateAsync({ ejemploId: activeEjemplo.value.id, archivo: { ...archivo, dataUrl: nuevaDataUrl } });
+      // Persistir el bit de estado ya (no esperar al próximo Guardar de valores).
+      await actualizarEjemplo.mutateAsync({
+        id: activeEjemplo.value.id,
+        data: { excelActualizado: true },
+      });
+      activeEjemplo.value = { ...activeEjemplo.value, excelActualizado: true };
       await pushActividad.mutateAsync({ mensaje: `Se insertaron los valores del ejemplo "${activeEjemplo.value.nombre}" en su Excel`, color: 'blue' });
       excelDesactualizado.value = false;
       ui.toast('Valores insertados en el Excel del ejemplo');
@@ -779,9 +795,13 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     const ejemplo = huellaEjemplo();
     if (ejemplo !== null && ejemplo !== ejemploGuardado && activeEjemplo.value) {
       const valores = { ...editedValores.value };
-      await actualizarEjemplo.mutateAsync({ id: activeEjemplo.value.id, data: { valores } });
+      const excelActualizado = !excelDesactualizado.value;
+      await actualizarEjemplo.mutateAsync({
+        id: activeEjemplo.value.id,
+        data: { valores, excelActualizado },
+      });
       // Misma id → el watch de carga no reinicia editedValores (guarda ejemploCargadoId).
-      activeEjemplo.value = { ...activeEjemplo.value, valores };
+      activeEjemplo.value = { ...activeEjemplo.value, valores, excelActualizado };
       ejemploGuardado = ejemplo;
     }
   }

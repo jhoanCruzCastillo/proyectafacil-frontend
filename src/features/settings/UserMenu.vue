@@ -25,7 +25,7 @@ function iniciales(nombre: string): string {
   return nombre.split(' ').slice(0, 2).map((p) => p[0]).join('').toUpperCase();
 }
 
-defineProps<{ collapsed?: boolean }>();
+const props = defineProps<{ collapsed?: boolean }>();
 const session = useSessionStore();
 const router = useRouter();
 const menuAbierto = ref(false);
@@ -33,6 +33,40 @@ const showAjustes = ref(false);
 const showContacto = ref(false);
 const showInfo = ref(false);
 const rootEl = ref<HTMLElement | null>(null);
+const menuEl = ref<HTMLElement | null>(null);
+
+// El menú se teletransporta a <body>: el <aside> del sidebar tiene overflow-hidden (necesario para
+// la animación de ancho al colapsar/expandir), así que un dropdown posicionado dentro de él quedaba
+// recortado en vez de flotar por encima. Al vivir fuera, hay que calcular su posición a mano a
+// partir del botón que lo abre en vez de depender de CSS relativo al padre.
+const menuStyle = ref<Record<string, string>>({});
+function actualizarPosicionMenu() {
+  const el = rootEl.value;
+  if (!el) return;
+  const rect = el.getBoundingClientRect();
+  if (props.collapsed) {
+    // +16 en vez de calzar el borde inferior justo con el del avatar: así el menú queda un poco
+    // más arriba, con aire respecto al borde inferior de la ventana, en vez de pegado a él.
+    menuStyle.value = {
+      left: `${rect.right + 8}px`,
+      bottom: `${window.innerHeight - rect.bottom + 16}px`,
+      width: '224px',
+    };
+  } else {
+    menuStyle.value = {
+      left: `${rect.left + 12}px`,
+      right: `${window.innerWidth - rect.right + 12}px`,
+      bottom: `${window.innerHeight - rect.top + 8}px`,
+    };
+  }
+}
+function toggleMenu() {
+  if (!menuAbierto.value) actualizarPosicionMenu();
+  menuAbierto.value = !menuAbierto.value;
+}
+function handleResize() {
+  if (menuAbierto.value) actualizarPosicionMenu();
+}
 
 const { data: usuariosData } = useUsuariosQuery();
 const cuentaId = computed(() => {
@@ -43,12 +77,21 @@ const { data: facturacionData } = useFacturacionQuery(cuentaId);
 const plan = computed(() => planes.find((p) => p.id === facturacionData.value?.planId));
 
 function handleClickOutside(e: MouseEvent) {
-  if (rootEl.value && !rootEl.value.contains(e.target as Node)) {
-    menuAbierto.value = false;
-  }
+  const target = e.target as Node;
+  // El menú vive teletransportado a <body>, ya no es descendiente de rootEl — hay que revisar
+  // ambos para no cerrarlo al hacer clic en una de sus propias opciones.
+  if (rootEl.value?.contains(target)) return;
+  if (menuEl.value?.contains(target)) return;
+  menuAbierto.value = false;
 }
-onMounted(() => document.addEventListener('mousedown', handleClickOutside));
-onUnmounted(() => document.removeEventListener('mousedown', handleClickOutside));
+onMounted(() => {
+  document.addEventListener('mousedown', handleClickOutside);
+  window.addEventListener('resize', handleResize);
+});
+onUnmounted(() => {
+  document.removeEventListener('mousedown', handleClickOutside);
+  window.removeEventListener('resize', handleResize);
+});
 
 function handleLogout() {
   session.logout();
@@ -63,46 +106,49 @@ function handleLogout() {
     class="relative border-t border-white/10"
     :class="collapsed ? 'px-2 py-4' : 'px-4 py-4'"
   >
-    <Transition name="pop">
-      <div
-        v-if="menuAbierto"
-        class="absolute bg-sidebar rounded-xl shadow-modal border border-white/10 overflow-hidden z-50"
-        :class="collapsed ? 'left-full ml-2 bottom-0 w-56' : 'left-3 right-3 bottom-full mb-2'"
-      >
-        <button
-          @click="menuAbierto = false; showAjustes = true"
-          class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-white/85 hover:bg-white/10 hover:text-white transition-colors duration-75"
+    <Teleport to="body">
+      <Transition name="pop">
+        <div
+          v-if="menuAbierto"
+          ref="menuEl"
+          :style="menuStyle"
+          class="fixed bg-sidebar rounded-2xl border border-brand-500/40 shadow-[0_0_0_1px_rgba(34,197,94,0.15),0_10px_15px_-3px_rgba(0,0,0,0.5),0_0_24px_-4px_rgba(34,197,94,0.35)] overflow-hidden z-50"
         >
-          <FontAwesomeIcon :icon="faGear" class="w-4 text-center" />
-          Ajustes
-        </button>
-        <button
-          @click="menuAbierto = false; showContacto = true"
-          class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-white/85 hover:bg-white/10 hover:text-white transition-colors duration-75"
-        >
-          <FontAwesomeIcon :icon="faHeadset" class="w-4 text-center" />
-          Contacto
-        </button>
-        <button
-          @click="menuAbierto = false; showInfo = true"
-          class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-white/85 hover:bg-white/10 hover:text-white transition-colors duration-75"
-        >
-          <FontAwesomeIcon :icon="faCircleInfo" class="w-4 text-center" />
-          Más información
-        </button>
-        <div class="border-t border-white/10" />
-        <button
-          @click="handleLogout"
-          class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-white/85 hover:bg-white/10 hover:text-white transition-colors duration-75"
-        >
-          <FontAwesomeIcon :icon="faRightFromBracket" class="w-4 text-center" />
-          Cerrar sesión
-        </button>
-      </div>
-    </Transition>
+          <button
+            @click="menuAbierto = false; showAjustes = true"
+            class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-white/85 hover:bg-white/10 hover:text-white transition-colors duration-75"
+          >
+            <FontAwesomeIcon :icon="faGear" class="w-4 text-center" />
+            Ajustes
+          </button>
+          <button
+            @click="menuAbierto = false; showContacto = true"
+            class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-white/85 hover:bg-white/10 hover:text-white transition-colors duration-75"
+          >
+            <FontAwesomeIcon :icon="faHeadset" class="w-4 text-center" />
+            Contacto
+          </button>
+          <button
+            @click="menuAbierto = false; showInfo = true"
+            class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-white/85 hover:bg-white/10 hover:text-white transition-colors duration-75"
+          >
+            <FontAwesomeIcon :icon="faCircleInfo" class="w-4 text-center" />
+            Más información
+          </button>
+          <div class="border-t border-white/10" />
+          <button
+            @click="handleLogout"
+            class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-white/85 hover:bg-white/10 hover:text-white transition-colors duration-75"
+          >
+            <FontAwesomeIcon :icon="faRightFromBracket" class="w-4 text-center" />
+            Cerrar sesión
+          </button>
+        </div>
+      </Transition>
+    </Teleport>
 
     <button
-      @click="menuAbierto = !menuAbierto"
+      @click="toggleMenu"
       :title="collapsed ? session.sesion.nombre : undefined"
       class="w-full flex items-center text-left rounded-lg hover:bg-white/5 transition-colors duration-75 -mx-1 px-1 py-1"
       :class="collapsed ? 'justify-center' : 'gap-3'"
