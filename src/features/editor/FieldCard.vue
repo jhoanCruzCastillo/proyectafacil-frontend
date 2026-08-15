@@ -119,6 +119,14 @@ const calculoExcel = computed(() =>
   celdaExcel.value ? excel?.value?.calculado(celdaExcel.value.hoja, celdaExcel.value.ref) : undefined,
 );
 const esCalculadaPorExcel = computed(() => calculoExcel.value !== undefined);
+// Preferimos el resultado vivo; si no hay (fórmula no soportada / sin caché en el Excel asignado),
+// usamos el valor volcado o el valor por defecto ya guardado en el JSON.
+const textoCalculadoMostrar = computed(() => {
+  const vivo = calculoExcel.value?.texto?.trim() ?? '';
+  if (vivo) return vivo;
+  const guardado = (displayValue.value || '').trim();
+  return guardado || '';
+});
 const esCampoTexto = computed(() => props.campo.tipo === 'texto_corto' || props.campo.tipo === 'texto_largo');
 const esTextoLargo = computed(() => props.campo.tipo === 'texto_largo');
 
@@ -267,17 +275,18 @@ const claseContenedor = computed(() => {
         <!-- Celda que el Excel calcula solo: no se edita, se muestra el resultado en vivo. Aplica
              igual en Estructura y en Ejemplos — en Ejemplos reemplaza al input de "Valor de
              ejemplo", porque teclear ahí no tendría efecto: al insertar en el Excel las fórmulas se
-             respetan y se recalculan solas. -->
+             respetan y se recalculan solas. Si la mini-calculadora no cubre la fórmula, se muestra
+             el valor volcado/cacheado (displayValue) cuando exista. -->
         <div v-if="(editableDefault || showExampleValue) && esCalculadaPorExcel" class="mt-2 p-2.5 rounded-lg bg-sky-50/60 border border-sky-200" @click.stop>
           <span class="text-[10px] font-bold uppercase tracking-wider text-sky-700 flex items-center gap-1">
             <FontAwesomeIcon :icon="fieldTypeIcons.calculado" class="w-2.5 h-2.5" />
             Lo calcula el Excel
           </span>
-          <p v-if="calculoExcel && !calculoExcel.soportado" class="text-xs text-sky-800/70 italic mt-1">
+          <p v-if="textoCalculadoMostrar" class="text-sm text-heading mt-1 break-words whitespace-pre-wrap">{{ textoCalculadoMostrar }}</p>
+          <p v-else-if="calculoExcel?.error" class="text-xs text-amber-700 mt-1 font-mono">{{ calculoExcel.error }}</p>
+          <p v-else-if="calculoExcel && !calculoExcel.soportado" class="text-xs text-sky-800/70 italic mt-1">
             La fórmula de esta celda usa algo que todavía no sabemos calcular — su valor aparecerá al abrir el Excel.
           </p>
-          <p v-else-if="calculoExcel?.error" class="text-xs text-amber-700 mt-1 font-mono">{{ calculoExcel.error }}</p>
-          <p v-else-if="calculoExcel?.texto" class="text-sm text-heading mt-1 break-words whitespace-pre-wrap">{{ calculoExcel.texto }}</p>
           <p v-else class="text-xs text-muted italic mt-1">Vacío — depende de otros campos que aún no tienen valor.</p>
         </div>
 

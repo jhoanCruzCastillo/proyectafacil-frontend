@@ -840,13 +840,29 @@ export async function leerValoresDeExcel(
       if (TIPOS_TABLA.includes(campo.tipo)) continue;
       // Las imágenes ya se resolvieron arriba, por anclaje y no por celda.
       if (campo.tipo === 'imagen') continue;
-      // Un campo calculado guarda su fórmula (ej. "=6.01.10-6.01.01"), no un dato tecleado:
-      // sobrescribirlo con el número que Excel dejó cacheado rompería el cálculo.
-      if (campo.tipo === 'calculado' || !campo.editable) continue;
       if (!campo.captura?.columna || !campo.captura.fila) continue;
 
       const fila = campo.captura.fila + shift(campo.captura.fila);
-      const celda = celdaVolcable(libro, hoja, `${campo.captura.columna}${fila}`);
+      const ref = `${campo.captura.columna}${fila}`;
+
+      // Calculado / no editable: no se "teclea" en el Excel (el escritor respeta la fórmula), pero
+      // sí traemos el valor cacheado del .xlsx para mostrarlo en la UI cuando nuestra mini-
+      // calculadora no puede evaluar VLOOKUP/IFERROR/etc. (p. ej. D104→LIMA vía Padron_web).
+      if (campo.tipo === 'calculado' || !campo.editable) {
+        const cache = libro.celda(hoja, ref);
+        if (!cache) {
+          if (libro.formulaDe(hoja, ref)) libro.sinCalcular.total++;
+          resultado.camposVacios++;
+          continue;
+        }
+        const valorCache = valorParaCampo(campo, cache);
+        if (valorCache === null) { resultado.camposVacios++; continue; }
+        resultado.valores[campo.identificador] = valorCache;
+        resultado.camposLeidos++;
+        continue;
+      }
+
+      const celda = celdaVolcable(libro, hoja, ref);
       if (!celda) { resultado.camposVacios++; continue; }
 
       const valor = valorParaCampo(campo, celda);
