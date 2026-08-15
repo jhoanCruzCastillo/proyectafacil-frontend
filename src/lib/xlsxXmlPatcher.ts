@@ -495,8 +495,16 @@ export interface ResultadoEdicion {
 
 // Aplica todas las ediciones acumuladas (celdas + fusiones nuevas) directamente sobre el XML de
 // cada hoja del ZIP, preservando estilos.xml, tema, macros y cualquier otra celda intacta.
-export async function aplicarEdicionesXlsx(dataUrl: string, ediciones: LibroEdits): Promise<ResultadoEdicion> {
+/**
+ * @param onProgress fracción 0–1 solo de esta fase (abrir ZIP → parchear hojas → comprimir).
+ */
+export async function aplicarEdicionesXlsx(
+  dataUrl: string,
+  ediciones: LibroEdits,
+  onProgress?: (fraction: number) => void,
+): Promise<ResultadoEdicion> {
   const omitidasPorFormula: string[] = [];
+  onProgress?.(0);
   const { mime, buffer } = await extraerMimeYBuffer(dataUrl);
   const zip = await JSZip.loadAsync(buffer);
   const mapaHojas = await leerMapaHojas(zip);
@@ -504,17 +512,31 @@ export async function aplicarEdicionesXlsx(dataUrl: string, ediciones: LibroEdit
   const serializer = new XMLSerializer();
   // styles.xml es común a todo el libro: se lee una sola vez para todas las hojas.
   const numericos = await estilosNumericos(zip);
+  onProgress?.(0.08);
 
-  for (const [nombreHoja, edits] of ediciones.entries()) {
+  const hojas = [...ediciones.entries()];
+  const totalHojas = Math.max(1, hojas.length);
+  let hojaIdx = 0;
+
+  for (const [nombreHoja, edits] of hojas) {
     const path = mapaHojas.get(nombreHoja);
-    if (!path) continue; // hoja no encontrada en el libro asignado — se omite silenciosamente
+    if (!path) {
+      hojaIdx++;
+      continue; // hoja no encontrada en el libro asignado — se omite silenciosamente
+    }
     const file = zip.file(path);
-    if (!file) continue;
+    if (!file) {
+      hojaIdx++;
+      continue;
+    }
     const xmlStr = await file.async('string');
     const doc = parser.parseFromString(xmlStr, 'application/xml');
     const worksheet = doc.documentElement;
     const sheetData = worksheet.getElementsByTagName('sheetData')[0];
-    if (!sheetData) continue;
+    if (!sheetData) {
+      hojaIdx++;
+      continue;
+    }
 
     // Insertar filas de mayor a menor `despuesDeFila`: así cada inserción solo desplaza contenido
     // que está debajo de ella, sin invalidar los puntos de inserción de las tablas de más arriba.
@@ -571,9 +593,21 @@ export async function aplicarEdicionesXlsx(dataUrl: string, ediciones: LibroEdit
     for (const imagen of edits.imagenes) {
       await insertarImagenEnHoja(zip, nombreHoja, imagen);
     }
+
+    hojaIdx++;
+    // 8% → 75% mientras se parchean hojas; el resto es la compresión DEFLATE.
+    onProgress?.(0.08 + (hojaIdx / totalHojas) * 0.67);
+    await new Promise((resolve) => setTimeout(resolve, 0));
   }
 
-  const outBuffer = await zip.generateAsync({ type: 'base64', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+  const outBuffer = await zip.generateAsync(
+    { type: 'base64', compression: 'DEFLATE', compressionOptions: { level: 6 } },
+    (meta) => {
+      // meta.percent es 0–100 de la generación del ZIP.
+      onProgress?.(0.75 + (meta.percent / 100) * 0.25);
+    },
+  );
+  onProgress?.(1);
   return { dataUrl: `data:${mime};base64,${outBuffer}`, omitidasPorFormula };
 }
 

@@ -41,14 +41,20 @@ function usarCredencialDev(id: string) {
 
 async function handleSubmit() {
   if (!usuario.value.trim() || !password.value) return;
-  const nueva = await session.login(usuario.value, password.value);
-  if (!nueva) {
+  error.value = '';
+  try {
+    const nueva = await session.login(usuario.value, password.value);
+    if (!nueva) {
+      error.value = 'Usuario o contraseña incorrectos';
+      password.value = '';
+      return;
+    }
+    ui.toast(`Bienvenido, ${nueva.nombre} — ${rolUsuarioLabels[nueva.rol]}`);
+    router.replace({ name: 'home' });
+  } catch {
     error.value = 'Usuario o contraseña incorrectos';
     password.value = '';
-    return;
   }
-  ui.toast(`Bienvenido, ${nueva.nombre} — ${rolUsuarioLabels[nueva.rol]}`);
-  router.replace({ name: 'home' });
 }
 </script>
 

@@ -420,6 +420,11 @@ export interface Sesion {
   iniciadaEn?: string;
 }
 
+/** Respuesta de POST /api/auth/login — Sesion + token Bearer para localStorage. */
+export interface LoginResponse extends Sesion {
+  token: string;
+}
+
 export type EstadoFactura = 'Pagado' | 'Pendiente';
 
 export interface FacturaMock {

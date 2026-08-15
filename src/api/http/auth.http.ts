@@ -1,20 +1,34 @@
 import { apiFetch } from './_shared';
 import type { AuthApi } from '../contracts/auth';
-import type { Sesion } from '@/types';
+import type { LoginResponse, Sesion } from '@/types';
+import { clearAuthToken, getAuthToken, setAuthToken } from '@/lib/authToken';
+
+function sinToken(res: LoginResponse): Sesion {
+  const { token: _t, ...sesion } = res;
+  return sesion;
+}
 
 export const authHttp: AuthApi = {
-  login(usuario, password) {
-    return apiFetch<Sesion | null>('auth/login', {
+  async login(usuario, password) {
+    const res = await apiFetch<LoginResponse>('auth/login', {
       method: 'POST',
       body: JSON.stringify({ usuario, password }),
     });
+    if (!res?.token) return null;
+    setAuthToken(res.token);
+    return sinToken(res);
   },
 
-  me() {
+  async me() {
+    if (!getAuthToken()) return null;
     return apiFetch<Sesion | null>('auth/me');
   },
 
   async logout() {
-    await apiFetch<unknown>('auth/logout', { method: 'POST' });
+    try {
+      await apiFetch<unknown>('auth/logout', { method: 'POST' });
+    } finally {
+      clearAuthToken();
+    }
   },
 };

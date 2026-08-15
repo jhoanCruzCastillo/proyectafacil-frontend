@@ -26,7 +26,7 @@ const {
   ejemplo, plantilla, archivoEjemplo, esNivel0, diasRestantes,
   soloLectura, permiteMejoraIA, muestraHistorial, showHistorial, showFuenteVerdad,
   esPropietario, ejemplosReferencia, referenciaId, referenciaEjemplo,
-  editedValores, leftWidth, activeTab, examplesWidth, showPreview, showInsertConfirm, isInserting, insertProgress,
+  editedValores, leftWidth, activeTab, examplesWidth, showPreview, showInsertConfirm, isInserting, insertProgress, insertProgressLabel,
   errores, erroresCount, progreso, erroresPorSeccion,
   secciones, safeIdx, seccionActiva, isFirst, isLast,
   handleLeftResize, handleExamplesResize, handleSectionSelect, goToPrevSection, goToNextSection, handleValueChange,
@@ -50,7 +50,7 @@ const {
   terminarProceso: terminarProcesoLlenadoIA,
   confirmarCampoIA,
   alEditarCampoIA,
-} = useLlenadoIAProgreso(plantilla);
+} = useLlenadoIAProgreso(plantilla, ejemploId);
 
 function abrirContextoIA() {
   if (abrirSiHaySesion()) return;
@@ -179,6 +179,7 @@ function onValueChange(campoIdentificador: string, value: string) {
         : `Se sobreescribirán todos los datos actuales del Excel de &quot;${ejemplo.nombre}&quot; con lo que llenaste. Esta acción no se puede deshacer.`"
       confirm-label="Insertar"
       :progress="isInserting ? insertProgress : null"
+      :progress-label="isInserting ? insertProgressLabel : null"
       @confirm="handleInsert"
       @close="showInsertConfirm = false"
     />

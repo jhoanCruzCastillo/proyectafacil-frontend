@@ -1,13 +1,34 @@
-// Helper compartido por todos los `api/http/*.http.ts`: fetch contra /api/* con la cookie de sesión
+// Helper compartido por todos los `api/http/*.http.ts`: fetch contra /api/* con Bearer token
 // (mismo origen gracias al proxy de Vite, ver vite.config.ts) y manejo uniforme de errores JSON.
+// Sin token no se llama al backend (salvo login/logout): medida de seguridad del lado cliente.
+
+import { clearAuthToken, getAuthToken } from '@/lib/authToken';
+
+/** Rutas que no exigen Bearer (entrada/salida de sesión). Todo lo demás requiere token. */
+function esRutaPublicaAuth(path: string): boolean {
+  return path === 'auth/login' || path.startsWith('auth/login?') || path === 'auth/logout' || path.startsWith('auth/logout?');
+}
 
 export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers as Record<string, string> | undefined),
+  };
+
+  const token = getAuthToken();
+  if (!esRutaPublicaAuth(path) && !token) {
+    throw new Error('No autenticado: falta token de sesión');
+  }
+  if (token && !headers.Authorization) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
   let res: Response;
   try {
     res = await fetch(`/api/${path}`, {
       credentials: 'same-origin',
       ...options,
-      headers: { 'Content-Type': 'application/json', ...options.headers },
+      headers,
     });
   } catch (e) {
     const aborted =
@@ -17,14 +38,12 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
     throw new Error(e instanceof Error ? e.message : `No se pudo conectar con /api/${path}`);
   }
 
-  // DEBUG TEMPORAL — quitar cuando se resuelva el issue de producción devolviendo datos mock.
-  // Si este log NUNCA aparece para un recurso (ej. usuarios), es la prueba de que ese recurso está
-  // en modo mock (VITE_MOCK_* sin definir) y ni siquiera está intentando llamar al backend real.
-  console.log(`[DEBUG apiFetch] ${options.method ?? 'GET'} /api/${path} ->`, res.status);
-
   if (!res.ok) {
+    // Token inválido/expirado: limpiar para que el próximo restaurar/me no recree una sesión fantasma.
+    if (res.status === 401 && !path.startsWith('auth/login')) {
+      clearAuthToken();
+    }
     const body = await res.json().catch(() => null);
-    console.log(`[DEBUG apiFetch] error body /api/${path}:`, body);
     throw new Error(body?.error ?? `Error ${res.status} en /api/${path}`);
   }
 

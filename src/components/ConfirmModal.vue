@@ -10,8 +10,10 @@ const props = withDefaults(
     confirmLabel?: string;
     /** 0-100: si se define, reemplaza los botones por una barra de progreso y bloquea el cierre */
     progress?: number | null;
+    /** Texto de fase bajo la barra (ej. "Subiendo Excel…") */
+    progressLabel?: string | null;
   }>(),
-  { confirmLabel: 'Eliminar', progress: null },
+  { confirmLabel: 'Eliminar', progress: null, progressLabel: null },
 );
 
 const emit = defineEmits<{ confirm: []; close: [] }>();
@@ -42,9 +44,15 @@ function handleOverlayClick() {
 
           <div v-if="progress != null" class="mt-6">
             <div class="h-2 rounded-full bg-gray-100 overflow-hidden">
-              <div class="h-full bg-brand-600 rounded-full transition-[width] duration-150" :style="{ width: `${progress}%` }" />
+              <div
+                class="h-full bg-brand-600 rounded-full transition-[width] duration-200 ease-out"
+                :style="{ width: `${Math.min(100, Math.max(0, progress))}%` }"
+              />
             </div>
-            <p class="text-xs text-muted mt-2 text-right">{{ progress }}%</p>
+            <div class="mt-2 flex items-center justify-between gap-3 text-xs text-muted">
+              <span class="truncate">{{ progressLabel || 'Procesando…' }}</span>
+              <span class="shrink-0 font-medium tabular-nums">{{ Math.min(100, Math.max(0, progress)) }}%</span>
+            </div>
           </div>
           <div v-else class="flex justify-end gap-3 mt-6">
             <button

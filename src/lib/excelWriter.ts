@@ -461,8 +461,8 @@ function writeCampo(
 // formato del original: .xlsx o .xlsm). A diferencia de una reescritura completa del libro con
 // SheetJS (que descarta todo el formato visual), aquí solo se editan quirúrgicamente los nodos de
 // celda que cambian — el resto del archivo (estilos, colores, macros) queda intacto.
-// `onProgress` (0 a 1) se reporta a medida que se acumulan los cambios de cada campo, cediendo el
-// hilo principal entre lotes para que la barra de carga se repinte con progreso real.
+// `onProgress` (0 a 1, opcionalmente con etiqueta de fase) cubre solo el trabajo local del writer.
+// Se detiene ~en 0.85: el caller (subida Cloudinary / PATCH) debe llevar el tramo final a 100%.
 // Un valor fuera de lista se escribe igual (Excel no lo rechaza al escribir el XML), pero rompe las
 // fórmulas que dependen de esa celda — en el formato oficial los desplegables de Problema-Objetivo
 // se resuelven con INDIRECT sobre lo que haya en su celda padre.
@@ -495,14 +495,21 @@ function revisarListas(
   return { avisos, correcciones };
 }
 
+export type InsertProgressCb = (fraction: number, fase?: string) => void;
+
 export async function insertarValoresEnExcel(
   dataUrl: string,
   plantilla: Plantilla,
   valores: Record<string, string>,
-  onProgress?: (fraction: number) => void,
+  onProgress?: InsertProgressCb,
   onAvisos?: (avisos: AvisoLista[]) => void,
 ): Promise<string> {
+  const report = (fraction: number, fase?: string) => {
+    onProgress?.(Math.min(0.85, Math.max(0, fraction)), fase);
+  };
+
   const ediciones = new LibroEdits();
+  report(0.02, 'Preparando…');
 
   const tareas: { hoja: string | undefined; campo: Campo }[] = [];
   for (const seccion of plantilla.secciones) {
@@ -526,7 +533,11 @@ export async function insertarValoresEnExcel(
   // tabla jerárquica. Se leen del propio archivo de destino para no tener que declararlos en la
   // estructura: así funciona igual en cualquier plantilla, y una tabla sin bloques se comporta
   // como antes (1 fila por ítem).
+  report(0.05, 'Leyendo Excel…');
   const libroOrigen = await leerLibroXlsx(dataUrl);
+  report(0.1, 'Validando listas…');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
   const altoDeBloque = (hoja: string, columna: string | undefined, fila: number): number | undefined =>
     (columna ? libroOrigen.fusion(hoja, `${columna}${fila}`)?.filas : undefined);
 
@@ -561,19 +572,27 @@ export async function insertarValoresEnExcel(
   const resolverFormula = crearResolver(tareas.map((t) => t.campo), (id) => conDefaults[id]);
   const tareasPorId = new Map(tareas.map((t) => [t.campo.identificador, t]));
 
+  // 10% → 55%: acumular ediciones de campos en memoria.
   const total = tareas.length || 1;
-  const loteSize = Math.max(1, Math.ceil(total / 30)); // ~30 repintados como máximo durante la acumulación
+  const loteSize = Math.max(1, Math.ceil(total / 30));
+  report(0.12, 'Escribiendo campos…');
   for (let i = 0; i < tareas.length; i++) {
     const { hoja, campo } = tareas[i];
     writeCampo(ediciones, hoja, campo, conDefaults, resolverFormula, tareasPorId, altoDeBloque);
     if ((i + 1) % loteSize === 0 || i === tareas.length - 1) {
-      onProgress?.(((i + 1) / total) * 0.9); // el 10% restante es el parcheo del ZIP
+      report(0.12 + ((i + 1) / total) * 0.43, 'Escribiendo campos…');
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
   }
 
-  const { dataUrl: salida, omitidasPorFormula } = await aplicarEdicionesXlsx(dataUrl, ediciones);
-  onProgress?.(1);
+  // 55% → 85%: parchear ZIP + comprimir (suele ser lo más lento en fichas grandes).
+  report(0.55, 'Generando archivo Excel…');
+  const { dataUrl: salida, omitidasPorFormula } = await aplicarEdicionesXlsx(
+    dataUrl,
+    ediciones,
+    (f) => report(0.55 + f * 0.3, 'Generando archivo Excel…'),
+  );
+  report(0.85, 'Archivo listo…');
   // Se informa por consola en vez de fallar: omitir una celda con fórmula es el comportamiento
   // correcto, no un error — pero conviene poder ver cuáles al depurar una plantilla nueva.
   if (omitidasPorFormula.length > 0) {

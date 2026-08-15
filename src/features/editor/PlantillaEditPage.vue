@@ -33,7 +33,7 @@ const {
   handleUpdateDefaultValue, handleUpdateExampleValue,
   secciones, safeIdx, seccionActiva, isFirst, isLast, showExamples,
   ejemplos, activeEjemplo, editedValores, excelDesactualizado, showNuevoEjemplo, deleteTarget, volcarTarget, volcarEstructura,
-  archivoExcelAsignado, showExcelCatalogModal, showPreview, showInsertConfirm, isInserting, insertProgress,
+  archivoExcelAsignado, showExcelCatalogModal, showPreview, showInsertConfirm, isInserting, insertProgress, insertProgressLabel,
   previewFileUrl, previewFileName,
   handleLeftResize, handleRightResize, handleExamplesResize, handleTabChange, handleSectionSelect,
   goToPrevSection, goToNextSection, handleFieldUpdate, handleAddCampo, handleAddNota, handleDuplicarCampo, handleDeleteCampo,
@@ -222,6 +222,7 @@ const verContextosIA = ref(false);
       :message="`Se sobreescribirán todos los datos actuales del Excel asignado al ejemplo &quot;${activeEjemplo?.nombre}&quot;. Esta acción no se puede deshacer.`"
       confirm-label="Insertar"
       :progress="isInserting ? insertProgress : null"
+      :progress-label="isInserting ? insertProgressLabel : null"
       @close="showInsertConfirm = false"
       @confirm="handleInsertExcel"
     />

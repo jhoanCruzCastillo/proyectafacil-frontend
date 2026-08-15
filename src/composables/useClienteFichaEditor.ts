@@ -66,6 +66,7 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
   const showInsertConfirm = ref(false);
   const isInserting = ref(false);
   const insertProgress = ref(0);
+  const insertProgressLabel = ref('Procesando…');
   const referenciaId = ref('');
   const referenciaEjemplo = computed(() => ejemplosReferencia.value.find((e) => e.id === referenciaId.value));
 
@@ -178,6 +179,7 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
     }
     isInserting.value = true;
     insertProgress.value = 0;
+    insertProgressLabel.value = 'Preparando…';
     try {
       // Se inserta siempre sobre la copia propia de la ficha (tomada al crearla), no sobre el
       // archivo que esté asignado hoy en el catálogo — así el resultado no se rompe si el admin
@@ -187,11 +189,21 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
         archivoEjemplo.value.dataUrl,
         plantilla.value,
         editedValores.value,
-        (fraction) => { insertProgress.value = Math.round(fraction * 100); },
+        (fraction, fase) => {
+          insertProgress.value = Math.round(fraction * 100);
+          if (fase) insertProgressLabel.value = fase;
+        },
         (a) => { avisos = a; },
       );
+      insertProgress.value = 88;
+      insertProgressLabel.value = 'Subiendo Excel…';
       await setExcelEjemplo.mutateAsync({ ejemploId: ejemplo.value.id, archivo: { ...archivoEjemplo.value, dataUrl: nuevaDataUrl } });
+      insertProgress.value = 95;
+      insertProgressLabel.value = 'Guardando…';
       await pushActividad.mutateAsync({ mensaje: `Se insertaron los valores de "${ejemplo.value.nombre}" en su Excel`, color: 'blue' });
+      insertProgress.value = 100;
+      insertProgressLabel.value = 'Listo';
+      await new Promise((r) => setTimeout(r, 250));
       ui.toast('Valores insertados en el Excel');
       // El aviso llega aparte y en rojo: la inserción sí se hizo, pero conviene revisar esos valores.
       const aviso = mensajeAvisoListas(avisos);
@@ -200,6 +212,7 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
       ui.toast(e instanceof Error ? e.message : 'No se pudo insertar los valores en el Excel', 'error');
     } finally {
       isInserting.value = false;
+      insertProgressLabel.value = 'Procesando…';
       showInsertConfirm.value = false;
     }
   }
@@ -208,7 +221,7 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
     ejemplo, plantilla, archivoEjemplo, esNivel0, vencido, diasRestantes, numeroNivel,
     soloLectura, permiteMejoraIA, muestraHistorial, showHistorial, showFuenteVerdad,
     esPropietario, ejemplosReferencia, referenciaId, referenciaEjemplo,
-    activeSectionIndex, editedValores, leftWidth, activeTab, examplesWidth, showPreview, showInsertConfirm, isInserting, insertProgress,
+    activeSectionIndex, editedValores, leftWidth, activeTab, examplesWidth, showPreview, showInsertConfirm, isInserting, insertProgress, insertProgressLabel,
     errores, erroresCount, progreso, erroresPorSeccion,
     secciones, safeIdx, seccionActiva, isFirst, isLast,
     handleLeftResize, handleExamplesResize, handleSectionSelect, goToPrevSection, goToNextSection, handleValueChange,

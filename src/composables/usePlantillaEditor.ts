@@ -92,6 +92,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
   const showInsertConfirm = ref(false);
   const isInserting = ref(false);
   const insertProgress = ref(0);
+  const insertProgressLabel = ref('Procesando…');
   /** Valores que no coincidieron con las opciones del desplegable de su celda en la última inserción */
   const avisosListas = ref<AvisoLista[]>([]);
 
@@ -416,6 +417,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     if (!archivo) { ui.toast('Este ejemplo no tiene una copia de Excel asociada', 'error'); showInsertConfirm.value = false; return; }
     isInserting.value = true;
     insertProgress.value = 0;
+    insertProgressLabel.value = 'Preparando…';
     avisosListas.value = [];
     try {
       // Siempre se inserta sobre el Excel original del catálogo (no sobre la copia ya insertada
@@ -425,11 +427,19 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
         archivoExcelAsignado.value.dataUrl,
         editData.value,
         editedValores.value,
-        (fraction) => { insertProgress.value = Math.round(fraction * 100); },
+        (fraction, fase) => {
+          insertProgress.value = Math.round(fraction * 100);
+          if (fase) insertProgressLabel.value = fase;
+        },
         (avisos) => { avisosListas.value = avisos; },
       );
+      // Tramo final (85→100): subida a Cloudinary + persistir estado — antes la barra llegaba a
+      // 100% al terminar el writer y se congelaba varios segundos en silencio.
+      insertProgress.value = 88;
+      insertProgressLabel.value = 'Subiendo Excel…';
       await setExcelEjemplo.mutateAsync({ ejemploId: activeEjemplo.value.id, archivo: { ...archivo, dataUrl: nuevaDataUrl } });
-      // Persistir el bit de estado ya (no esperar al próximo Guardar de valores).
+      insertProgress.value = 95;
+      insertProgressLabel.value = 'Guardando estado…';
       await actualizarEjemplo.mutateAsync({
         id: activeEjemplo.value.id,
         data: { excelActualizado: true },
@@ -437,6 +447,9 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
       activeEjemplo.value = { ...activeEjemplo.value, excelActualizado: true };
       await pushActividad.mutateAsync({ mensaje: `Se insertaron los valores del ejemplo "${activeEjemplo.value.nombre}" en su Excel`, color: 'blue' });
       excelDesactualizado.value = false;
+      insertProgress.value = 100;
+      insertProgressLabel.value = 'Listo';
+      await new Promise((r) => setTimeout(r, 250));
       ui.toast('Valores insertados en el Excel del ejemplo');
       // El aviso llega aparte y en rojo: la inserción sí se hizo, pero conviene revisar esos valores.
       const aviso = mensajeAvisoListas(avisosListas.value);
@@ -448,6 +461,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
       ui.toast(e instanceof Error ? e.message : 'No se pudo insertar los valores en el Excel', 'error');
     } finally {
       isInserting.value = false;
+      insertProgressLabel.value = 'Procesando…';
       showInsertConfirm.value = false;
     }
   }
@@ -867,7 +881,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     handleUpdateDefaultValue, handleUpdateExampleValue,
     secciones, safeIdx, seccionActiva, isFirst, isLast, showExamples,
     ejemplos, activeEjemplo, editedValores, excelDesactualizado, showNuevoEjemplo, deleteTarget, volcarTarget, volcarEstructura,
-    archivoExcelAsignado, showExcelCatalogModal, showPreview, showInsertConfirm, isInserting, insertProgress,
+    archivoExcelAsignado, showExcelCatalogModal, showPreview, showInsertConfirm, isInserting, insertProgress, insertProgressLabel,
     previewFileUrl, previewFileName,
     handleLeftResize, handleRightResize, handleExamplesResize, handleTabChange, handleSectionSelect,
     goToPrevSection, goToNextSection, handleFieldUpdate, handleAddCampo, handleAddNota, handleDuplicarCampo, handleDeleteCampo,

@@ -87,6 +87,9 @@ const valorDefaultMostrado = computed(() =>
   props.valorBorrador !== undefined ? props.valorBorrador : (props.campo.valorEjemplo || ''),
 );
 const isTableField = computed(() => props.campo.tipo === 'tabla' || props.campo.tipo === 'tabla_jerarquica');
+// `configTabla.columnas` es plana: cada columna hija de un grupo (cabecera) o de un nivel
+// padre/hijo ya es una entrada propia ahí, así que contar sus elementos ya cuenta subcolumnas.
+const tablaAncha = computed(() => isTableField.value && (props.campo.configTabla?.columnas.length ?? 0) > 6);
 const isCoordField = computed(() => props.campo.tipo === 'mapa_coordenadas');
 // Campo tipo imagen: el valor es una URL, pero se edita con vista previa y carga de archivo.
 const isImagenField = computed(() => props.campo.tipo === 'imagen');
@@ -165,7 +168,52 @@ const claseContenedor = computed(() => {
   if (props.isSelected) {
     return 'border-brand-500 bg-brand-50/30 outline outline-2 outline-brand-500 -outline-offset-2 shadow-[inset_0_0_14px_rgba(34,197,94,0.28)]';
   }
-  return 'border-gray-100 bg-white';
+  // Tras llenado IA: el card entero refleja el estado (ver mock Extraído / Inferido / No encontrado).
+  switch (props.estadoIA) {
+    case 'extraido':
+      return 'border-emerald-200 bg-emerald-50/60';
+    case 'inferido':
+      return 'border-sky-200 bg-sky-50/60';
+    case 'requiere_confirmacion':
+      return 'border-amber-200 bg-amber-50/50';
+    case 'no_encontrado':
+      return 'border-rose-200 bg-rose-50/60';
+    default:
+      return 'border-gray-100 bg-white';
+  }
+});
+
+/** Caja "Valor de ejemplo": tinte acorde al estado IA (sin pisar el ámbar de borrador pendiente). */
+const claseCajaEjemplo = computed(() => {
+  if (tienePendiente.value) return 'bg-amber-50/70 border-amber-300';
+  switch (props.estadoIA) {
+    case 'extraido':
+      return 'bg-emerald-50/90 border-emerald-200';
+    case 'inferido':
+      return 'bg-sky-50/90 border-sky-200';
+    case 'requiere_confirmacion':
+      return 'bg-amber-50/80 border-amber-200';
+    case 'no_encontrado':
+      return 'bg-rose-50/80 border-rose-200';
+    default:
+      return 'bg-brand-100/70 border-brand-200';
+  }
+});
+
+const claseLabelEjemplo = computed(() => {
+  if (tienePendiente.value) return 'text-amber-700';
+  switch (props.estadoIA) {
+    case 'extraido':
+      return 'text-emerald-700';
+    case 'inferido':
+      return 'text-sky-700';
+    case 'requiere_confirmacion':
+      return 'text-amber-700';
+    case 'no_encontrado':
+      return 'text-rose-700';
+    default:
+      return 'text-brand-600';
+  }
 });
 </script>
 
@@ -236,7 +284,6 @@ const claseContenedor = computed(() => {
             v-if="estadoIA"
             :estado="estadoIA"
             :editable="editableExample"
-            @ver-detalle="enfocarEditorValor"
             @confirmar="onConfirmarIA"
             @agregar-valor="enfocarEditorValor"
           />
@@ -291,7 +338,7 @@ const claseContenedor = computed(() => {
         </div>
 
         <div
-          v-else-if="editableDefault"
+          v-else-if="editableDefault && !tablaAncha"
           class="mt-2 p-2.5 rounded-lg border"
           :class="tienePendiente ? 'bg-amber-50/70 border-amber-300' : 'bg-gray-50 border-gray-200'"
           @click.stop
@@ -348,14 +395,14 @@ const claseContenedor = computed(() => {
         </div>
 
         <div
-          v-if="showExampleValue && !esCalculadaPorExcel"
+          v-if="showExampleValue && !esCalculadaPorExcel && !tablaAncha"
           ref="valorEditorEl"
           class="mt-2 p-2.5 rounded-lg border"
-          :class="tienePendiente ? 'bg-amber-50/70 border-amber-300' : 'bg-brand-100/70 border-brand-200'"
+          :class="claseCajaEjemplo"
           @click.stop
         >
           <div class="flex items-center justify-between">
-            <span class="text-[10px] font-bold uppercase tracking-wider" :class="tienePendiente ? 'text-amber-700' : 'text-brand-600'">Valor de ejemplo</span>
+            <span class="text-[10px] font-bold uppercase tracking-wider" :class="claseLabelEjemplo">Valor de ejemplo</span>
             <div class="flex items-center gap-2">
               <button
                 v-if="tienePendiente"
@@ -489,6 +536,69 @@ const claseContenedor = computed(() => {
           <FontAwesomeIcon :icon="faTrash" class="w-3 h-3" />
         </button>
       </div>
+    </div>
+
+    <!-- Tablas de más de 6 columnas (subcolumnas incluidas) se apretaban en el ancho de la columna
+         de contenido, angosta por el icono a la izquierda y los botones a la derecha. Como bloque
+         aparte, fuera de esa fila, puede ignorar el padding de la tarjeta (-mx-4) y ocupar su ancho
+         completo en vez de quedar comprimida. -->
+    <div
+      v-if="tablaAncha && editableDefault && !esCalculadaPorExcel"
+      class="mt-2 -mx-4 py-2.5 border-t border-b"
+      :class="tienePendiente ? 'bg-amber-50/70 border-amber-300' : 'bg-gray-50 border-gray-200'"
+      @click.stop
+    >
+      <div class="flex items-center justify-between gap-2 px-1.5">
+        <span class="text-[10px] font-bold uppercase tracking-wider text-gray-500">Valor por defecto</span>
+        <button
+          v-if="tienePendiente"
+          type="button"
+          @click.stop="emit('confirmar-borrador')"
+          class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-brand-600 text-white hover:bg-brand-700 transition-colors"
+        >
+          <FontAwesomeIcon :icon="faCheck" class="w-2.5 h-2.5" />
+          Confirmar
+        </button>
+      </div>
+      <ExampleTableEditor
+        v-if="campo.configTabla"
+        :config="(campo.configTabla as ConfigTabla)"
+        :model-value="valorDefaultMostrado"
+        :puede-editar-periodos="true"
+        :hoja="hoja"
+        class="mt-1.5"
+        @update:model-value="emit('update-default-value', $event)"
+        @update:config="emit('update-config-tabla', $event)"
+      />
+    </div>
+    <div
+      v-if="tablaAncha && showExampleValue && !esCalculadaPorExcel"
+      ref="valorEditorEl"
+      class="mt-2 -mx-4 py-2.5 border-t border-b"
+      :class="claseCajaEjemplo"
+      @click.stop
+    >
+      <div class="flex items-center justify-between px-1.5">
+        <span class="text-[10px] font-bold uppercase tracking-wider" :class="claseLabelEjemplo">Valor de ejemplo</span>
+        <button
+          v-if="tienePendiente"
+          type="button"
+          @click.stop="emit('confirmar-borrador')"
+          class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-brand-600 text-white hover:bg-brand-700 transition-colors"
+        >
+          <FontAwesomeIcon :icon="faCheck" class="w-2.5 h-2.5" />
+          Confirmar
+        </button>
+      </div>
+      <fieldset :disabled="!editableExample" class="m-0 p-0 border-0 min-w-0 mt-1.5">
+        <ExampleTableEditor
+          v-if="campo.configTabla"
+          :config="(campo.configTabla as ConfigTabla)"
+          :model-value="displayValue || ''"
+          :hoja="hoja"
+          @update:model-value="emit('update-example-value', $event)"
+        />
+      </fieldset>
     </div>
   </div>
 </template>
