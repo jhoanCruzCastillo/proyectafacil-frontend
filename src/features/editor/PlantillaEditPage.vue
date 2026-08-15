@@ -32,7 +32,7 @@ const {
   modoEdicion, setModoEdicion, borradoresPorCampo, confirmarBorradorCampo,
   handleUpdateDefaultValue, handleUpdateExampleValue,
   secciones, safeIdx, seccionActiva, isFirst, isLast, showExamples,
-  ejemplos, activeEjemplo, editedValores, showNuevoEjemplo, deleteTarget, volcarTarget, volcarEstructura,
+  ejemplos, activeEjemplo, editedValores, excelDesactualizado, showNuevoEjemplo, deleteTarget, volcarTarget, volcarEstructura,
   archivoExcelAsignado, showExcelCatalogModal, showPreview, showInsertConfirm, isInserting, insertProgress,
   previewFileUrl, previewFileName,
   handleLeftResize, handleRightResize, handleExamplesResize, handleTabChange, handleSectionSelect,
@@ -65,11 +65,11 @@ const verContextosIA = ref(false);
       :tiene-excel-asignado="!!archivoExcelAsignado"
       :estado-guardado="estadoGuardado"
       :modo-edicion="modoEdicion"
+      :excel-desactualizado="excelDesactualizado"
       @change-tab="(t) => { verContextosIA = false; handleTabChange(t); }"
       @toggle-contextos-ia="verContextosIA = !verContextosIA"
       @update:modo-edicion="setModoEdicion"
       @save="handleSave"
-      @view-json="handleViewJson"
       @preview-excel="showPreview = true"
       @insert-excel="showInsertConfirm = true"
       @volcar-estructura="handleVolcarEstructura"
@@ -108,6 +108,7 @@ const verContextosIA = ref(false);
           @edit-hoja="editingHojaSeccionId = $event"
           @duplicate-section="handleDuplicarSeccion"
           @import-estructura="showImportEstructura = true"
+          @view-json="handleViewJson"
         />
       </div>
 

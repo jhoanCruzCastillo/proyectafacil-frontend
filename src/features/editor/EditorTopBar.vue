@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faEye, faSave, faArrowLeft, faFileCode, faFileExport, faFileImport, faSpinner, faWandMagicSparkles, faBolt, faCheck } from '@/lib/icons';
+import { faEye, faSave, faArrowLeft, faFileImport, faSpinner, faWandMagicSparkles, faBolt, faCheck, faClock, faCircleCheck } from '@/lib/icons';
 import VersionTabs from '@/components/VersionTabs.vue';
 import { useSessionStore } from '@/stores/session';
 import { puedeAccederGestionUsuarios } from '@/lib/permisos';
@@ -22,12 +22,13 @@ const props = defineProps<{
   estadoGuardado?: EstadoAutoguardado;
   /** live = cálculo al editar; confirmar = borrador hasta Confirmar en cada campo */
   modoEdicion?: ModoEdicionEditor;
+  /** true = el ejemplo tiene cambios sin insertar en su copia de Excel (solo tab Ejemplos) */
+  excelDesactualizado?: boolean;
 }>();
 
 const emit = defineEmits<{
   'change-tab': [VersionTab];
   save: [];
-  'view-json': [];
   'preview-excel': [];
   'insert-excel': [];
   'volcar-estructura': [];
@@ -36,7 +37,6 @@ const emit = defineEmits<{
 }>();
 
 const session = useSessionStore();
-const esSuperusuario = computed(() => session.sesion?.rol === 'superusuario');
 // El contexto que consume la IA lo redacta quien administra el catálogo, no cualquiera que edite
 // una ficha — mismo criterio que la gestión de usuarios (superusuario + administrador).
 const puedeEditarContextos = computed(() => !!session.sesion && puedeAccederGestionUsuarios(session.sesion.rol));
@@ -126,15 +126,6 @@ const colorGuardado = computed(() => (props.estadoGuardado === 'error' ? 'text-r
             Confirmar
           </button>
         </div>
-        <button
-          v-if="esSuperusuario && !contextosIA"
-          @click="emit('view-json')"
-          type="button"
-          class="px-4 py-2 rounded-lg border border-white/15 text-sm font-medium text-white/80 hover:bg-white/10 hover:text-white transition-colors flex items-center gap-2"
-        >
-          <FontAwesomeIcon :icon="faFileCode" class="w-3.5 h-3.5" />
-          Ver JSON
-        </button>
         <!-- Volcar existía solo en Ejemplos (desde la tarjeta del ejemplo). En Estructura el origen
              no se elige: siempre es el Excel asignado, así que vive aquí arriba. -->
         <button
@@ -149,14 +140,22 @@ const colorGuardado = computed(() => (props.estadoGuardado === 'error' ? 'text-r
           Volcar
         </button>
         <button
-          v-if="showInsert && !contextosIA"
+          v-if="showInsert && !contextosIA && excelDesactualizado"
           @click="emit('insert-excel')"
           type="button"
-          class="px-4 py-2 rounded-lg border border-white/15 text-sm font-medium text-white/80 hover:bg-white/10 hover:text-white transition-colors flex items-center gap-2"
+          title="El ejemplo tiene cambios sin insertar en su Excel — clic para insertarlos"
+          class="px-4 py-2 rounded-lg border border-amber-400/30 bg-amber-400/10 text-sm font-medium text-amber-300 hover:bg-amber-400/20 hover:text-amber-200 transition-colors flex items-center gap-2"
         >
-          <FontAwesomeIcon :icon="faFileExport" class="w-3.5 h-3.5" />
+          <FontAwesomeIcon :icon="faClock" class="w-3.5 h-3.5" />
           Insertar
         </button>
+        <span
+          v-else-if="showInsert && !contextosIA"
+          title="El Excel del ejemplo está al día con sus valores"
+          class="w-9 h-9 rounded-full bg-green-500/15 text-green-400 flex items-center justify-center shrink-0"
+        >
+          <FontAwesomeIcon :icon="faCircleCheck" class="w-4 h-4" />
+        </span>
         <button
           v-if="!showInsert && !contextosIA"
           @click="emit('preview-excel')"

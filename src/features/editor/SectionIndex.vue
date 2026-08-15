@@ -1,6 +1,8 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faGear, faPlus, faCircleCheck, faFileImport, faClone } from '@/lib/icons';
+import { faGear, faPlus, faCircleCheck, faFileImport, faFileCode, faClone } from '@/lib/icons';
+import { useSessionStore } from '@/stores/session';
 import type { Seccion } from '@/types';
 
 defineProps<{
@@ -23,7 +25,11 @@ const emit = defineEmits<{
   'edit-hoja': [seccionId: string];
   'duplicate-section': [seccionId: string];
   'import-estructura': [];
+  'view-json': [];
 }>();
+
+const session = useSessionStore();
+const esSuperusuario = computed(() => session.sesion?.rol === 'superusuario');
 </script>
 
 <template>
@@ -32,15 +38,25 @@ const emit = defineEmits<{
       <h3 class="text-xs font-semibold uppercase tracking-widest text-muted">
         Secciones · {{ secciones.length }}
       </h3>
-      <button
-        v-if="showImportEstructura"
-        @click="emit('import-estructura')"
-        type="button"
-        title="Importar estructura desde JSON (reemplaza todo)"
-        class="w-6 h-6 rounded-full flex items-center justify-center text-gray-300 hover:text-brand-600 hover:bg-brand-50 transition-colors shrink-0"
-      >
-        <FontAwesomeIcon :icon="faFileImport" class="w-3 h-3" />
-      </button>
+      <div v-if="showImportEstructura" class="flex items-center gap-1 shrink-0">
+        <button
+          v-if="esSuperusuario"
+          @click="emit('view-json')"
+          type="button"
+          title="Ver JSON de la estructura"
+          class="w-6 h-6 rounded-full flex items-center justify-center text-gray-300 hover:text-brand-600 hover:bg-brand-50 transition-colors shrink-0"
+        >
+          <FontAwesomeIcon :icon="faFileCode" class="w-3 h-3" />
+        </button>
+        <button
+          @click="emit('import-estructura')"
+          type="button"
+          title="Importar estructura desde JSON (reemplaza todo)"
+          class="w-6 h-6 rounded-full flex items-center justify-center text-gray-300 hover:text-brand-600 hover:bg-brand-50 transition-colors shrink-0"
+        >
+          <FontAwesomeIcon :icon="faFileImport" class="w-3 h-3" />
+        </button>
+      </div>
     </div>
     <nav class="flex-1 overflow-y-auto space-y-0.5">
       <div

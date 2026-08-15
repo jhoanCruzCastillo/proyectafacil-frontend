@@ -74,6 +74,10 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
   const ejemplosCount = computed(() => ejemplos.value.length);
   const activeEjemplo = ref<Ejemplo | null>(null) as Ref<Ejemplo | null>;
   const editedValores = ref<Record<string, string>>({});
+  // true = el ejemplo tiene ediciones que todavía no se insertaron en su copia de Excel — editar un
+  // campo (live o al confirmar un borrador) lo marca desactualizado; "Insertar" lo vuelve a poner
+  // al día. Es indicador de sesión, no se persiste: al cambiar de ejemplo se reinicia con su carga.
+  const excelDesactualizado = ref(false);
   // Baselines del autoguardado — se declaran pronto porque el watch de carga de ejemplo las escribe.
   let estructuraGuardada: string | null = null;
   let ejemploGuardado: string | null = null;
@@ -279,6 +283,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     editedValores.value = ej?.valores && Object.keys(ej.valores).length > 0 ? { ...ej.valores } : getDefaultValores();
     // Baseline del ejemplo recién cargado: no es un cambio del usuario.
     ejemploGuardado = ej ? JSON.stringify(editedValores.value) : null;
+    excelDesactualizado.value = false;
     limpiarBorradores();
     queueMicrotask(() => autoguardado.marcarGuardado());
   });
@@ -292,6 +297,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
 
   function handleExampleValueChange(identificador: string, value: string) {
     editedValores.value = { ...editedValores.value, [identificador]: value };
+    excelDesactualizado.value = true;
     excelMapTrigger.value++;
   }
 
@@ -390,6 +396,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     }
 
     editedValores.value = { ...editedValores.value, ...valores };
+    excelDesactualizado.value = true;
     ui.toast(`${n} ${n === 1 ? 'campo volcado' : 'campos volcados'} desde el Excel — recuerda guardar`);
   }
 
@@ -413,6 +420,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
       );
       await setExcelEjemplo.mutateAsync({ ejemploId: activeEjemplo.value.id, archivo: { ...archivo, dataUrl: nuevaDataUrl } });
       await pushActividad.mutateAsync({ mensaje: `Se insertaron los valores del ejemplo "${activeEjemplo.value.nombre}" en su Excel`, color: 'blue' });
+      excelDesactualizado.value = false;
       ui.toast('Valores insertados en el Excel del ejemplo');
       // El aviso llega aparte y en rojo: la inserción sí se hizo, pero conviene revisar esos valores.
       const aviso = mensajeAvisoListas(avisosListas.value);
@@ -838,7 +846,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     modoEdicion, setModoEdicion, borradoresPorCampo, confirmarBorradorCampo,
     handleUpdateDefaultValue, handleUpdateExampleValue,
     secciones, safeIdx, seccionActiva, isFirst, isLast, showExamples,
-    ejemplos, activeEjemplo, editedValores, showNuevoEjemplo, deleteTarget, volcarTarget, volcarEstructura,
+    ejemplos, activeEjemplo, editedValores, excelDesactualizado, showNuevoEjemplo, deleteTarget, volcarTarget, volcarEstructura,
     archivoExcelAsignado, showExcelCatalogModal, showPreview, showInsertConfirm, isInserting, insertProgress,
     previewFileUrl, previewFileName,
     handleLeftResize, handleRightResize, handleExamplesResize, handleTabChange, handleSectionSelect,

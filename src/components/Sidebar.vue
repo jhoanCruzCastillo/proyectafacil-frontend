@@ -71,22 +71,37 @@ const emit = defineEmits<{ toggle: [] }>();
   >
     <div
       class="flex items-center border-b border-white/10"
-      :class="collapsed ? 'flex-col gap-2 px-0 py-4' : 'gap-3 px-5 py-5'"
+      :class="collapsed ? 'justify-center px-0 py-4' : 'gap-3 px-5 py-5'"
     >
-      <img :src="logo" alt="" class="w-9 h-9 object-contain shrink-0" />
-      <div v-if="!collapsed" class="flex-1 min-w-0">
-        <div class="font-bold text-sm leading-tight">
-          <span class="text-white">Proyecta</span><span class="text-brand-400">Fácil</span>
-        </div>
-        <div class="text-[11px] text-white/50 leading-tight">Editor de plantillas</div>
+      <!-- Colapsado: el botón de expandir vive superpuesto sobre el logo, oculto hasta el hover
+           del mismo hueco — así el header no gana una fila extra ni empuja la navegación hacia
+           abajo (antes el botón se apilaba debajo del logo). -->
+      <div v-if="collapsed" class="relative w-9 h-9 shrink-0 group">
+        <img :src="logo" alt="" class="w-9 h-9 object-contain absolute inset-0 transition-opacity duration-100 group-hover:opacity-0" />
+        <button
+          @click="emit('toggle')"
+          class="absolute inset-0 w-9 h-9 rounded-md flex items-center justify-center text-white/50 hover:text-white hover:bg-sidebar-hover transition-opacity duration-100 opacity-0 group-hover:opacity-100"
+          title="Expandir menú"
+        >
+          <FontAwesomeIcon :icon="faAnglesRight" class="w-3.5 h-3.5" />
+        </button>
       </div>
-      <button
-        @click="emit('toggle')"
-        class="w-7 h-7 rounded-md flex items-center justify-center text-white/50 hover:text-white hover:bg-sidebar-hover transition-colors duration-75 shrink-0"
-        :title="collapsed ? 'Expandir menú' : 'Colapsar menú'"
-      >
-        <FontAwesomeIcon :icon="collapsed ? faAnglesRight : faAnglesLeft" class="w-3.5 h-3.5" />
-      </button>
+      <template v-else>
+        <img :src="logo" alt="" class="w-9 h-9 object-contain shrink-0" />
+        <div class="flex-1 min-w-0">
+          <div class="font-bold text-sm leading-tight">
+            <span class="text-white">Proyecta</span><span class="text-brand-400">Fácil</span>
+          </div>
+          <div class="text-[11px] text-white/50 leading-tight">Editor de plantillas</div>
+        </div>
+        <button
+          @click="emit('toggle')"
+          class="w-7 h-7 rounded-md flex items-center justify-center text-white/50 hover:text-white hover:bg-sidebar-hover transition-colors duration-75 shrink-0"
+          title="Colapsar menú"
+        >
+          <FontAwesomeIcon :icon="faAnglesLeft" class="w-3.5 h-3.5" />
+        </button>
+      </template>
     </div>
 
     <nav class="flex-1 px-3 pt-6">
