@@ -3,11 +3,12 @@ import { inject } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faTrash, faGear, fieldTypeIcons } from '@/lib/icons';
 import CampoListaInput from '@/components/CampoListaInput.vue';
+import CampoBooleanoInput from '@/components/CampoBooleanoInput.vue';
 import CeldaPartida from './CeldaPartida.vue';
 import { EXCEL_VIVO } from '@/composables/useListasExcel';
 import { etiquetaDeValor } from '@/lib/conversionesExcel';
 import { estiloAnchoColumna } from '@/lib/tableColumnWidth';
-import type { ColumnaTabla } from '@/types';
+import type { CabeceraGrupo, ColumnaTabla } from '@/types';
 import { esCeldaPartida, valorPlano, type FilaDinamica } from '@/lib/tableRowHelpers';
 
 // Fila compartida entre DynamicEditor (sin agrupador) y GroupedRowsEditor (con agrupador).
@@ -20,6 +21,8 @@ const props = defineProps<{
   rowIndex: number;
   periodos: string[];
   columnaDinamicaId?: string;
+  /** Cabeceras de grupo — sirven para decidir casilla vs Sí/No en booleanos */
+  cabeceras?: CabeceraGrupo[];
   /** Hoja de Excel de la sección — con `filaExcel` localiza cada celda en el archivo */
   hoja?: string;
   /** Fila de Excel que ocupa ESTA fila de la tabla (fila inicial de la captura + índice) */
@@ -33,6 +36,21 @@ const emit = defineEmits<{
   'toggle-partida': [colId: string];
   delete: [];
 }>();
+
+/**
+ * Sí/No por defecto. Casilla (un círculo) solo si la columna comparte cabecera con otras
+ * booleanas sin etiquetas (Rutinario / Periódico / Correctivo).
+ */
+function varianteBooleano(col: ColumnaTabla): 'si_no' | 'casilla' {
+  if (col.etiquetasBooleano) return 'si_no';
+  const grupo = props.cabeceras?.find((g) => g.hijoIds.includes(col.id));
+  if (!grupo) return 'si_no';
+  const hermanas = grupo.hijoIds.filter((id) => {
+    const c = props.cols.find((x) => x.id === id);
+    return c?.tipo === 'booleano' && !c.etiquetasBooleano;
+  });
+  return hermanas.length >= 2 ? 'casilla' : 'si_no';
+}
 
 function periodoValues(colId: string): string[] {
   return Array.isArray(props.row[colId]) ? (props.row[colId] as string[]) : [];
@@ -164,15 +182,14 @@ function valorMostrado(col: ColumnaTabla, opciones: string[] | null): string {
           <span v-else class="text-[11px] text-muted">—</span>
         </div>
       </td>
-      <!-- Columna booleana (4.10): en el Excel oficial es una casilla de verificación (checkbox de
-           formulario) enlazada a una celda TRUE/FALSE — se dibuja como tal en vez de como texto. -->
-      <td v-else-if="col.tipo === 'booleano'" :style="estiloDe(col)" class="px-1 py-0.5 align-top border-r border-brand-100">
-        <input
-          :checked="row[col.id] === 'true'"
-          @change="emit('cell-change', col.id, ($event.target as HTMLInputElement).checked ? 'true' : 'false')"
-          @click.stop
-          type="checkbox"
-          class="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500 mt-0.5"
+      <!-- Columna booleana: Sí/No salvo grupo de varias casillas (Tipo de mantenimiento). -->
+      <td v-else-if="col.tipo === 'booleano'" :style="estiloDe(col)" class="px-1 py-0.5 align-middle text-center border-r border-brand-100">
+        <CampoBooleanoInput
+          :value="(row[col.id] as string) || ''"
+          :etiquetas="col.etiquetasBooleano ?? (varianteBooleano(col) === 'si_no' ? { true: 'Sí', false: 'No' } : null)"
+          :variante="varianteBooleano(col)"
+          compacto
+          @change="emit('cell-change', col.id, $event)"
         />
       </td>
       <!-- Celda con desplegable declarado en el Excel -->

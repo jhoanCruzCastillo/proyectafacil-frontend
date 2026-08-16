@@ -6,8 +6,13 @@ import { faSpinner, faFileExcel, faTriangleExclamation } from '@/lib/icons';
 // Visor de Excel de solo lectura (Luckysheet). Reutilizado por ExcelCatalogModal y (más adelante)
 // por ExcelPreviewModal — cambia de archivo cuando cambia `fileUrl`.
 const props = withDefaults(
-  defineProps<{ fileUrl: string | null; emptyMessage?: string }>(),
-  { emptyMessage: 'Ningún archivo asignado' },
+  defineProps<{
+    fileUrl: string | null;
+    emptyMessage?: string;
+    /** Si false (catálogo de plantilla), no menciona "el botón de arriba" — ahí no hay descarga en el header del visor. */
+    sugerirDescargaArriba?: boolean;
+  }>(),
+  { emptyMessage: 'Ningún archivo asignado', sugerirDescargaArriba: true },
 );
 
 const VENDOR = '/vendor/luckysheet';
@@ -95,7 +100,8 @@ let timeoutTardandoHoja: ReturnType<typeof setTimeout> | null = null;
 let pollLoadingNativo: ReturnType<typeof setInterval> | null = null;
 
 async function descargarConProgreso(url: string): Promise<ArrayBuffer> {
-  const res = await fetch(url);
+  const { fetchBinario } = await import('@/lib/fetchBinario');
+  const res = await fetchBinario(url);
   if (!res.ok) throw new Error(`No se pudo cargar el archivo (${res.status})`);
   const total = Number(res.headers.get('content-length') ?? 0);
   if (!total || !res.body) return res.arrayBuffer(); // sin Content-Length no hay % real posible
@@ -305,7 +311,12 @@ function handleRetry() {
         <div v-if="tardandoMucho" class="mt-2 max-w-sm flex items-start gap-2 px-3 py-2.5 rounded-lg bg-amber-50 border border-amber-200 text-left">
           <FontAwesomeIcon :icon="faTriangleExclamation" class="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
           <p class="text-xs text-amber-800">
-            Esto está tardando más de lo esperado — el archivo parece pesado. Si prefieres no esperar, descárgalo con el botón de arriba y ábrelo con Excel de escritorio.
+            <template v-if="sugerirDescargaArriba">
+              Esto está tardando más de lo esperado — el archivo parece pesado. Si prefieres no esperar, descárgalo con el botón de arriba y ábrelo con Excel de escritorio.
+            </template>
+            <template v-else>
+              Esto está tardando más de lo esperado — el archivo parece pesado. Puedes esperar o descargarlo desde la lista de la izquierda y abrirlo con Excel de escritorio.
+            </template>
           </p>
         </div>
       </div>
@@ -319,7 +330,12 @@ function handleRetry() {
         <div v-if="tardandoHoja" class="mt-2 max-w-sm flex items-start gap-2 px-3 py-2.5 rounded-lg bg-amber-50 border border-amber-200 text-left">
           <FontAwesomeIcon :icon="faTriangleExclamation" class="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
           <p class="text-xs text-amber-800">
-            Esto está tardando más de lo esperado — esta hoja parece pesada. Si prefieres no esperar, descarga el archivo con el botón de arriba y ábrelo con Excel de escritorio.
+            <template v-if="sugerirDescargaArriba">
+              Esto está tardando más de lo esperado — esta hoja parece pesada. Si prefieres no esperar, descarga el archivo con el botón de arriba y ábrelo con Excel de escritorio.
+            </template>
+            <template v-else>
+              Esto está tardando más de lo esperado — esta hoja parece pesada. Puedes esperar o descargarlo desde la lista de la izquierda y abrirlo con Excel de escritorio.
+            </template>
           </p>
         </div>
       </div>

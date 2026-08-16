@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import { type MaybeRefOrGetter, toValue } from 'vue';
 import { archivosExcelApi } from '@/api/archivosExcel';
-import type { ArchivoExcel } from '@/types';
+import type { UploadProgressCb } from '@/api/contracts/archivosExcel';
 
 export function useCatalogoExcelQuery(plantillaId: MaybeRefOrGetter<string>) {
   return useQuery({
@@ -15,7 +15,15 @@ export function useCatalogoExcelQuery(plantillaId: MaybeRefOrGetter<string>) {
 export function useAgregarArchivoExcel() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ plantillaId, archivo }: { plantillaId: string; archivo: ArchivoExcel }) => archivosExcelApi.addArchivo(plantillaId, archivo),
+    mutationFn: ({
+      plantillaId,
+      file,
+      onProgress,
+    }: {
+      plantillaId: string;
+      file: File;
+      onProgress?: UploadProgressCb;
+    }) => archivosExcelApi.addArchivo(plantillaId, file, onProgress),
     onSuccess: (_data, { plantillaId }) => queryClient.invalidateQueries({ queryKey: ['archivosExcel', plantillaId] }),
   });
 }

@@ -161,14 +161,14 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
     ui.toast(`"${ejemplo.value.nombre}" guardada`);
   }
 
-  function handleDownload() {
+  async function handleDownload() {
     if (!archivoEjemplo.value) { ui.toast('Esta ficha no tiene una copia de Excel asociada', 'error'); return; }
-    const a = document.createElement('a');
-    a.href = archivoEjemplo.value.dataUrl;
-    a.download = archivoEjemplo.value.nombre;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    try {
+      const { descargarArchivoUrl } = await import('@/lib/fetchBinario');
+      await descargarArchivoUrl(archivoEjemplo.value.dataUrl, archivoEjemplo.value.nombre);
+    } catch {
+      ui.toast('No se pudo descargar el Excel', 'error');
+    }
   }
 
   async function handleInsert() {

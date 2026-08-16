@@ -230,6 +230,9 @@ function handleTypeChange(e: Event) {
   if ((newType === 'tabla' || newType === 'tabla_jerarquica') && !local.value.configTabla) {
     updates.configTabla = { ...defaultTableConfig, subtipo: newType === 'tabla_jerarquica' ? 'jerarquica' : 'filas_dinamicas' };
   }
+  if (newType === 'booleano' && !local.value.etiquetasBooleano) {
+    updates.etiquetasBooleano = { true: 'Sí', false: 'No' };
+  }
   update(updates);
 }
 

@@ -48,7 +48,29 @@ function updateValorGrupoPeriodo(gi: number, colId: string, pi: number, val: str
   }));
 }
 function updateCell(gi: number, ri: number, colId: string, val: string) {
-  persist(grupos.value.map((g, i) => (i !== gi ? g : { ...g, filas: g.filas.map((r, j) => (j === ri ? { ...r, [colId]: val } : r)) })));
+  const col = props.config.columnas.find((c) => c.id === colId);
+  persist(grupos.value.map((g, i) => {
+    if (i !== gi) return g;
+    return {
+      ...g,
+      filas: g.filas.map((r, j) => {
+        if (j !== ri) return r;
+        if (col?.tipo === 'booleano' && !col.etiquetasBooleano && val.trim() !== '') {
+          const grupo = props.config.cabeceras?.find((h) => h.hijoIds.includes(colId));
+          if (grupo) {
+            const next = { ...r, [colId]: val };
+            for (const id of grupo.hijoIds) {
+              if (id === colId) continue;
+              const hermana = props.config.columnas.find((c) => c.id === id);
+              if (hermana?.tipo === 'booleano' && !hermana.etiquetasBooleano) next[id] = '';
+            }
+            return next;
+          }
+        }
+        return { ...r, [colId]: val };
+      }),
+    };
+  }));
 }
 
 // --- Celdas partidas (4.8) — misma lógica que DynamicEditor, aplicada dentro del grupo ---
@@ -292,6 +314,7 @@ function valorGrupoMostrado(gi: number, col: ColumnaTabla, opciones: string[] | 
               :row-index="ri"
               :periodos="periodos"
               :columna-dinamica-id="config.columnaDinamicaId"
+              :cabeceras="config.cabeceras"
               :hoja="hoja"
               :fila-excel="filaExcelDe(gi, ri)"
               @cell-change="(colId, val) => updateCell(gi, ri, colId, val)"

@@ -446,7 +446,8 @@ function parseNombresDefinidos(doc: Document): Map<string, string> {
  * entiende ambas, igual que hace el parcheador. Antes se asumía data URI y se intentaba decodificar
  * la URL como base64, lo que reventaba con "Invalid base64 input, bad content length". */
 export async function leerLibroXlsx(fuente: string): Promise<LibroLeido> {
-  const zip = await JSZip.loadAsync(await (await fetch(fuente)).arrayBuffer());
+  const { fetchBinario } = await import('./fetchBinario');
+  const zip = await JSZip.loadAsync(await (await fetchBinario(fuente)).arrayBuffer());
 
   const shared = parseSharedStrings((await zip.file('xl/sharedStrings.xml')?.async('string')) ?? null);
   const { numFmtPorEstilo, codigoPorNumFmt } = parseEstilos((await zip.file('xl/styles.xml')?.async('string')) ?? null);

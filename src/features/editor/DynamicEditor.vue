@@ -112,6 +112,22 @@ function replaceRow(ri: number, row: FilaDinamica, immediate = false) {
 function updateCell(ri: number, colId: string, val: string) {
   const row = rows.value[ri];
   if (!row || row[colId] === val) return;
+  const col = props.config.columnas.find((c) => c.id === colId);
+  // Casillas booleanas del mismo grupo de cabecera (ej. Rutinario/Periódico/Correctivo):
+  // elegir una limpia las demás, como OptionButtons del mismo GroupName en Excel.
+  if (col?.tipo === 'booleano' && !col.etiquetasBooleano && val.trim() !== '') {
+    const grupo = props.config.cabeceras?.find((g) => g.hijoIds.includes(colId));
+    if (grupo) {
+      const next = { ...row, [colId]: val };
+      for (const id of grupo.hijoIds) {
+        if (id === colId) continue;
+        const hermana = props.config.columnas.find((c) => c.id === id);
+        if (hermana?.tipo === 'booleano' && !hermana.etiquetasBooleano) next[id] = '';
+      }
+      replaceRow(ri, next);
+      return;
+    }
+  }
   replaceRow(ri, { ...row, [colId]: val });
 }
 function updatePeriodo(ri: number, colId: string, pi: number, val: string) {
@@ -222,6 +238,7 @@ onBeforeUnmount(() => {
             :row-index="item.ri"
             :periodos="periodos"
             :columna-dinamica-id="config.columnaDinamicaId"
+            :cabeceras="config.cabeceras"
             :hoja="hoja"
             :fila-excel="config.captura?.filaInicial ? config.captura.filaInicial + item.ri * alturaFilaBase(config) : undefined"
             @cell-change="(colId, val) => updateCell(item.ri, colId, val)"

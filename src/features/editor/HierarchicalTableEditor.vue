@@ -3,6 +3,7 @@ import { computed, inject, nextTick, ref, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faPlus, faTrash, fieldTypeIcons } from '@/lib/icons';
 import CampoListaInput from '@/components/CampoListaInput.vue';
+import CampoBooleanoInput from '@/components/CampoBooleanoInput.vue';
 import { EXCEL_VIVO } from '@/composables/useListasExcel';
 import { etiquetaDeValor } from '@/lib/conversionesExcel';
 import { createNodeChain, parseTree, getPeriodos, agrupadorProfundidad, esJerarquica, posicionesArbol, posicionDe, type TreeNode } from '@/lib/tableRowHelpers';
@@ -141,6 +142,19 @@ const numCols = computed(() => columns.value.length);
 const dinamicaId = computed(() => props.config.columnaDinamicaId);
 const periodos = computed(() => getPeriodos(props.config));
 const agrupadorDepth = computed(() => (props.config.agrupador ? agrupadorProfundidad(columns.value, props.config) : -1));
+
+/** Sí/No por defecto; casilla solo en cabecera con ≥2 booleanas sin etiquetas. */
+function varianteBooleanoCol(col: (typeof columns.value)[number] | undefined): 'si_no' | 'casilla' {
+  if (!col) return 'si_no';
+  if (col.etiquetasBooleano) return 'si_no';
+  const grupo = props.config.cabeceras?.find((g) => g.hijoIds.includes(col.id));
+  if (!grupo) return 'si_no';
+  const hermanas = grupo.hijoIds.filter((id) => {
+    const c = columns.value.find((x) => x.id === id);
+    return c?.tipo === 'booleano' && !c.etiquetasBooleano;
+  });
+  return hermanas.length >= 2 ? 'casilla' : 'si_no';
+}
 
 const roots = ref<TreeNode[]>(parseTree(props.modelValue, columns.value, props.config));
 watch(() => props.modelValue, (v) => { roots.value = parseTree(v, columns.value, props.config); });
@@ -487,12 +501,12 @@ const anchosLocales = ref<Record<string, number>>({});
         :class="Object.keys(anchosLocales).length > 0 || columns.some((c) => c.ancho) ? 'table-fixed' : ''"
       >
         <thead>
-          <tr v-if="hasCabeceras" class="bg-indigo-50">
+          <tr v-if="hasCabeceras" class="bg-brand-900">
             <template v-for="(run, ri) in runs" :key="ri">
               <th
                 v-if="run.grupo"
                 :colspan="run.cols.reduce((s, c) => s + (c.id === dinamicaId ? Math.max(periodos.length, 1) : 1), 0)"
-                class="px-2 py-1.5 text-center font-semibold text-indigo-700 border-2 border-indigo-400 bg-indigo-100 break-words whitespace-normal text-[11px]"
+                class="px-2 py-1.5 text-center font-semibold text-white border border-white/40 bg-brand-900 break-words whitespace-normal text-[11px]"
               >
                 {{ run.grupo.titulo || 'Sin título' }}
               </th>
@@ -500,24 +514,24 @@ const anchosLocales = ref<Record<string, number>>({});
                 <th
                   v-if="col.id === dinamicaId && periodos.length > 0"
                   :colspan="periodos.length"
-                  class="px-3 py-2 text-left font-semibold text-heading border-b border-gray-200 break-words whitespace-normal text-[11px] uppercase tracking-wider align-top"
-                  :class="col.id === columns[numCols - 1].id ? '' : 'border-r border-gray-300'"
+                  class="px-3 py-2 text-left font-semibold text-white border-b border-white/40 bg-brand-700 break-words whitespace-normal text-[11px] uppercase tracking-wider align-top"
+                  :class="col.id === columns[numCols - 1].id ? '' : 'border-r border-white/40'"
                 >
                   {{ col.nombre }}
                 </th>
                 <th
                   v-else
                   rowspan="2"
-                  class="px-3 py-2 text-left font-semibold text-heading border-b-2 border-gray-300 break-words whitespace-normal text-[11px] uppercase tracking-wider align-top"
-                  :class="col.id === columns[numCols - 1].id ? '' : 'border-r border-gray-300'"
+                  class="px-3 py-2 text-left font-semibold text-white border-b-2 border-white/40 bg-brand-700 break-words whitespace-normal text-[11px] uppercase tracking-wider align-middle"
+                  :class="col.id === columns[numCols - 1].id ? '' : 'border-r border-white/40'"
                 >
                   {{ col.nombre }}
                 </th>
               </template>
             </template>
-            <th rowspan="2" class="w-6 border-b-2 border-gray-300" />
+            <th rowspan="2" class="w-6 border-b-2 border-white/40 bg-brand-900" />
           </tr>
-          <tr class="bg-gray-100">
+          <tr class="bg-brand-700">
             <template v-if="hasCabeceras">
               <template v-for="run in runs" :key="run.grupo?.titulo ?? run.cols[0].id">
                 <template v-for="col in (run.grupo ? run.cols : [])" :key="col.id">
@@ -525,7 +539,8 @@ const anchosLocales = ref<Record<string, number>>({});
                     <th
                       v-for="(p, pi) in periodos"
                       :key="`${col.id}-${pi}`"
-                      class="px-1.5 py-1.5 text-left font-medium text-heading border-b border-amber-300 bg-amber-50 break-words whitespace-normal text-[11px]"
+                      :style="estiloDe(col)"
+                      class="relative px-1.5 py-1.5 text-left font-medium text-white border-b border-amber-300 bg-brand-700 break-words whitespace-normal text-[11px]"
                     >
                       <div class="flex items-center gap-1">
                         <input
@@ -535,7 +550,7 @@ const anchosLocales = ref<Record<string, number>>({});
                           @click.stop
                           type="text"
                           placeholder="Nombre..."
-                          class="w-14 px-1 py-0.5 rounded border border-amber-300 bg-white text-[10px] focus:outline-none focus:ring-1 focus:ring-amber-400/40 focus:border-amber-400"
+                          class="w-14 px-1 py-0.5 rounded border border-amber-300 bg-brand-100 text-gray-900 text-[10px] focus:outline-none focus:ring-1 focus:ring-amber-400/40 focus:border-amber-400"
                         />
                         <span v-else class="underline decoration-amber-400">{{ p }}</span>
                         <button
@@ -548,12 +563,17 @@ const anchosLocales = ref<Record<string, number>>({});
                           <FontAwesomeIcon :icon="faPlus" class="w-2 h-2" />
                         </button>
                       </div>
+                      <div
+                        class="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-brand-400/50 active:bg-brand-500/60"
+                        title="Arrastrar para cambiar el ancho"
+                        @mousedown.stop.prevent="onResizeStart(col, $event)"
+                      />
                     </th>
                   </template>
                   <th
                     v-else
-                    class="px-3 py-2 text-left font-semibold text-heading border-b-2 border-gray-300 break-words whitespace-normal text-[11px] uppercase tracking-wider align-top"
-                    :class="col.id === columns[numCols - 1].id ? '' : 'border-r border-gray-300'"
+                    class="px-3 py-2 text-left font-semibold text-white border-b-2 border-white/40 bg-brand-700 break-words whitespace-normal text-[11px] uppercase tracking-wider align-top"
+                    :class="col.id === columns[numCols - 1].id ? '' : 'border-r border-white/40'"
                   >
                     {{ col.nombre }}
                   </th>
@@ -567,8 +587,8 @@ const anchosLocales = ref<Record<string, number>>({});
                     v-for="(p, pi) in periodos"
                     :key="`${col.id}-${pi}`"
                     :style="estiloDe(col)"
-                    class="relative px-1.5 py-1.5 text-left font-medium text-heading border-b border-amber-300 bg-amber-50 break-words whitespace-normal text-[11px] align-top"
-                    :class="ci === numCols - 1 && pi === periodos.length - 1 ? '' : 'border-r border-gray-300'"
+                    class="relative px-1.5 py-1.5 text-left font-medium text-white border-b border-amber-300 bg-brand-700 break-words whitespace-normal text-[11px] align-top"
+                    :class="ci === numCols - 1 && pi === periodos.length - 1 ? '' : 'border-r border-white/40'"
                   >
                     <div class="flex items-start gap-1 min-w-0">
                       <input
@@ -578,7 +598,7 @@ const anchosLocales = ref<Record<string, number>>({});
                         @click.stop
                         type="text"
                         placeholder="Nombre..."
-                        class="min-w-0 flex-1 px-1 py-0.5 rounded border border-amber-300 bg-white text-[10px] focus:outline-none focus:ring-1 focus:ring-amber-400/40 focus:border-amber-400"
+                        class="min-w-0 flex-1 px-1 py-0.5 rounded border border-amber-300 bg-brand-100 text-gray-900 text-[10px] focus:outline-none focus:ring-1 focus:ring-amber-400/40 focus:border-amber-400"
                       />
                       <span v-else class="underline decoration-amber-400 break-words min-w-0">{{ p }}</span>
                       <button
@@ -601,8 +621,8 @@ const anchosLocales = ref<Record<string, number>>({});
                 <th
                   v-else
                   :style="estiloDe(col)"
-                  class="relative px-3 py-2 text-left font-semibold text-heading border-b-2 border-gray-300 break-words whitespace-normal text-[11px] uppercase tracking-wider align-top"
-                  :class="ci === numCols - 1 ? '' : 'border-r border-gray-300'"
+                  class="relative px-3 py-2 text-left font-semibold text-white border-b-2 border-white/40 bg-brand-700 break-words whitespace-normal text-[11px] uppercase tracking-wider align-top"
+                  :class="ci === numCols - 1 ? '' : 'border-r border-white/40'"
                 >
                   {{ col.nombre }}
                   <div
@@ -613,7 +633,7 @@ const anchosLocales = ref<Record<string, number>>({});
                 </th>
               </template>
             </template>
-            <th v-if="!hasCabeceras" class="w-6 border-b-2 border-gray-300" />
+            <th v-if="!hasCabeceras" class="w-6 border-b-2 border-white/40 bg-brand-700" />
           </tr>
         </thead>
         <tbody>
@@ -710,14 +730,14 @@ const anchosLocales = ref<Record<string, number>>({});
                   @change="updateGrupoValor(cell.path, cell.colId, $event)"
                   @click.stop
                 />
-                <!-- Columna booleana (4.10): casilla de verificación en vez de texto -->
-                <input
+                <!-- Columna booleana: con etiquetas → Sí/No; sin ellas → un círculo -->
+                <CampoBooleanoInput
                   v-else-if="columns[ci]?.tipo === 'booleano'"
-                  :checked="cell.value === 'true'"
-                  @change="updateGrupoValor(cell.path, cell.colId, ($event.target as HTMLInputElement).checked ? 'true' : 'false')"
-                  @click.stop
-                  type="checkbox"
-                  class="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                  :value="typeof cell.value === 'string' ? cell.value : ''"
+                  :etiquetas="columns[ci]?.etiquetasBooleano ?? (varianteBooleanoCol(columns[ci]) === 'si_no' ? { true: 'Sí', false: 'No' } : null)"
+                  :variante="varianteBooleanoCol(columns[ci])"
+                  compacto
+                  @change="updateGrupoValor(cell.path, cell.colId, $event)"
                 />
                 <textarea
                   v-else
@@ -802,14 +822,14 @@ const anchosLocales = ref<Record<string, number>>({});
                     @change="updateNodeValue(cell.path, $event)"
                     @click.stop
                   />
-                  <!-- Columna booleana (4.10): casilla de verificación en vez de texto -->
-                  <input
+                  <!-- Columna booleana: con etiquetas → Sí/No; sin ellas → un círculo -->
+                  <CampoBooleanoInput
                     v-else-if="columns[ci]?.tipo === 'booleano'"
-                    :checked="cell.value === 'true'"
-                    @change="updateNodeValue(cell.path, ($event.target as HTMLInputElement).checked ? 'true' : 'false')"
-                    @click.stop
-                    type="checkbox"
-                    class="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500 mt-1"
+                    :value="typeof cell.value === 'string' ? cell.value : ''"
+                    :etiquetas="columns[ci]?.etiquetasBooleano ?? (varianteBooleanoCol(columns[ci]) === 'si_no' ? { true: 'Sí', false: 'No' } : null)"
+                    :variante="varianteBooleanoCol(columns[ci])"
+                    compacto
+                    @change="updateNodeValue(cell.path, $event)"
                   />
                   <!-- textarea con field-sizing: crece con el contenido hasta 15 líneas y luego
                        scrollea. Enter sigue confirmando la edición (handleKeyDown lo intercepta

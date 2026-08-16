@@ -9,6 +9,7 @@ import CampoCoordenadasInput from '@/components/CampoCoordenadasInput.vue';
 import CampoImagenInput from '@/components/CampoImagenInput.vue';
 import CampoListaInput from '@/components/CampoListaInput.vue';
 import CampoEstadoIA from '@/features/cliente/CampoEstadoIA.vue';
+import CampoBooleanoInput from '@/components/CampoBooleanoInput.vue';
 import { EXCEL_VIVO } from '@/composables/useListasExcel';
 import { etiquetaDeValor } from '@/lib/conversionesExcel';
 import type { ModoEdicionEditor } from '@/composables/usePlantillaEditor';
@@ -88,9 +89,22 @@ const valorDefaultMostrado = computed(() =>
 );
 const isTableField = computed(() => props.campo.tipo === 'tabla' || props.campo.tipo === 'tabla_jerarquica');
 // `configTabla.columnas` es plana: cada columna hija de un grupo (cabecera) o de un nivel
-// padre/hijo ya es una entrada propia ahí, así que contar sus elementos ya cuenta subcolumnas.
-const tablaAncha = computed(() => isTableField.value && (props.campo.configTabla?.columnas.length ?? 0) > 6);
+// padre/hijo ya es una entrada propia ahí, así que contar sus elementos ya cuenta subcolumnas. La
+// columna dinámica (columnaDinamicaId) es la excepción: en el array cuenta como UNA entrada, pero
+// se renderiza como una columna física por período — hay que sumar esas de más y restar la entrada
+// original para no contarla dos veces.
+const numColumnasRenderizadas = computed(() => {
+  const cfg = props.campo.configTabla;
+  if (!cfg) return 0;
+  const base = cfg.columnas.length;
+  if (cfg.columnaDinamicaId && cfg.periodos && cfg.periodos.length > 1) {
+    return base - 1 + cfg.periodos.length;
+  }
+  return base;
+});
+const tablaAncha = computed(() => isTableField.value && numColumnasRenderizadas.value > 6);
 const isCoordField = computed(() => props.campo.tipo === 'mapa_coordenadas');
+const isBooleanoField = computed(() => props.campo.tipo === 'booleano');
 // Campo tipo imagen: el valor es una URL, pero se edita con vista previa y carga de archivo.
 const isImagenField = computed(() => props.campo.tipo === 'imagen');
 const faltaCaptura = computed(() => campoFaltaCaptura(props.campo));
@@ -370,6 +384,14 @@ const claseLabelEjemplo = computed(() => {
             @update:model-value="emit('update-default-value', $event)"
             @update:config="emit('update-config-tabla', $event)"
           />
+          <div v-else-if="isBooleanoField" class="mt-1.5">
+            <CampoBooleanoInput
+              :value="valorDefaultMostrado"
+              :etiquetas="campo.etiquetasBooleano ?? { true: 'Sí', false: 'No' }"
+              variante="si_no"
+              @change="emit('update-default-value', $event)"
+            />
+          </div>
           <CampoListaInput
             v-else-if="tieneLista"
             :value="mostrado(valorDefaultMostrado)"
@@ -455,6 +477,14 @@ const claseLabelEjemplo = computed(() => {
               v-if="tieneLista"
               :value="mostrado(displayValue)"
               :opciones="opcionesExcel ?? []"
+              :editable="editableExample"
+              @change="emit('update-example-value', $event)"
+            />
+            <CampoBooleanoInput
+              v-else-if="isBooleanoField"
+              :value="displayValue || ''"
+              :etiquetas="campo.etiquetasBooleano ?? { true: 'Sí', false: 'No' }"
+              variante="si_no"
               :editable="editableExample"
               @change="emit('update-example-value', $event)"
             />

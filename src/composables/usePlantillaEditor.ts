@@ -343,12 +343,12 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
   async function handleDownloadExcel(ejemplo: Ejemplo) {
     const archivo = await excelEjemplosApi.get(ejemplo.id);
     if (!archivo) { ui.toast('Este ejemplo no tiene una copia de Excel asociada', 'error'); return; }
-    const a = document.createElement('a');
-    a.href = archivo.dataUrl;
-    a.download = archivo.nombre;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    try {
+      const { descargarArchivoUrl } = await import('@/lib/fetchBinario');
+      await descargarArchivoUrl(archivo.dataUrl, archivo.nombre);
+    } catch {
+      ui.toast('No se pudo descargar el Excel', 'error');
+    }
   }
 
   function handlePreviewExample(ejemplo: Ejemplo) {
@@ -684,16 +684,80 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
   function handleSubseccionAyudaChange(subseccionId: string, ayuda: string) {
     mutate((p) => { for (const sec of p.secciones) { const sub = sec.subsecciones.find((s) => s.id === subseccionId); if (sub) { sub.ayuda = ayuda; break; } } });
   }
-  function handleAddSubsection(seccionId: string) {
+  function handleAddSubsection(seccionId: string, despuesDeSubseccionId?: string) {
     mutate((p) => {
       const sec = p.secciones.find((s) => s.id === seccionId);
-      if (sec) {
-        const num = String(sec.subsecciones.length + 1).padStart(2, '0');
-        sec.subsecciones.push({ id: generateId(), codigo: `${sec.numero}.${num}`, nombre: 'NUEVA SUBSECCIÓN', campos: [] });
+      if (!sec) return;
+      let maxN = 0;
+      let ancho = 2;
+      for (const s of sec.subsecciones) {
+        const ultimo = s.codigo.split('.').pop() ?? '';
+        const n = Number(ultimo);
+        if (!Number.isFinite(n)) continue;
+        maxN = Math.max(maxN, n);
+        ancho = Math.max(ancho, ultimo.trim().length);
       }
+      const nueva = {
+        id: generateId(),
+        codigo: `${sec.numero}.${String(maxN + 1).padStart(ancho, '0')}`,
+        nombre: 'NUEVA SUBSECCIÓN',
+        campos: [] as Campo[],
+      };
+      if (despuesDeSubseccionId) {
+        const idx = sec.subsecciones.findIndex((s) => s.id === despuesDeSubseccionId);
+        if (idx >= 0) {
+          sec.subsecciones.splice(idx + 1, 0, nueva);
+          return;
+        }
+      }
+      sec.subsecciones.push(nueva);
     });
     ui.toast('Subsección agregada');
   }
+
+  /**
+   * Cambia el código visible de la subsección (ej. 1.04 → 1.05) y reescribe el prefijo de los
+   * identificadores de sus campos. También remapea claves de valores del ejemplo activo.
+   */
+  function handleSubsectionCodigoChange(subseccionId: string, codigo: string) {
+    const nuevo = codigo.trim();
+    if (!nuevo) return;
+    const remapeos: Array<{ from: string; to: string }> = [];
+    mutate((p) => {
+      for (const sec of p.secciones) {
+        const sub = sec.subsecciones.find((s) => s.id === subseccionId);
+        if (!sub) continue;
+        const anterior = sub.codigo;
+        if (anterior === nuevo) return;
+        sub.codigo = nuevo;
+        for (const campo of sub.campos) {
+          if (!campo.identificador) continue;
+          if (campo.identificador === anterior || campo.identificador.startsWith(`${anterior}.`)) {
+            const to = `${nuevo}${campo.identificador.slice(anterior.length)}`;
+            remapeos.push({ from: campo.identificador, to });
+            campo.identificador = to;
+          }
+        }
+        break;
+      }
+    });
+    if (remapeos.length > 0 && Object.keys(editedValores.value).length > 0) {
+      const next = { ...editedValores.value };
+      for (const { from, to } of remapeos) {
+        if (Object.prototype.hasOwnProperty.call(next, from)) {
+          next[to] = next[from]!;
+          delete next[from];
+        }
+      }
+      editedValores.value = next;
+    }
+    if (selectedCampo.value) {
+      const m = remapeos.find((r) => r.from === selectedCampo.value!.identificador);
+      if (m) selectedCampo.value = { ...selectedCampo.value, identificador: m.to };
+    }
+    ui.toast(`Código actualizado a ${nuevo}`);
+  }
+
   function handleDeleteSubsection(subseccionId: string, seccionId: string) {
     mutate((p) => {
       const sec = p.secciones.find((s) => s.id === seccionId);
@@ -886,7 +950,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     handleLeftResize, handleRightResize, handleExamplesResize, handleTabChange, handleSectionSelect,
     goToPrevSection, goToNextSection, handleFieldUpdate, handleAddCampo, handleAddNota, handleDuplicarCampo, handleDeleteCampo,
     handleSectionNameChange, handleSectionHojaChange, handleSubsectionNameChange,
-    handleSubseccionAyudaChange, handleAddSubsection, handleDeleteSubsection, handleAddSection, handleDuplicarSeccion,
+    handleSubseccionAyudaChange, handleAddSubsection, handleSubsectionCodigoChange, handleDeleteSubsection, handleAddSection, handleDuplicarSeccion,
     handleExampleValueChange, handleCreateExample, handleDeleteEjemplo, handleToggleEjemploEstado,
     handleDownloadExcel, handlePreviewExample, handleInsertExcel,
     handleVolcarExcel, handleVolcarEstructura, handleConfirmarVolcado, getDefaultValores,

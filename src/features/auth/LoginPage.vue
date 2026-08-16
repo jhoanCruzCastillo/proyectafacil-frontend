@@ -51,9 +51,17 @@ async function handleSubmit() {
     }
     ui.toast(`Bienvenido, ${nueva.nombre} — ${rolUsuarioLabels[nueva.rol]}`);
     router.replace({ name: 'home' });
-  } catch {
-    error.value = 'Usuario o contraseña incorrectos';
-    password.value = '';
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : '';
+    // apiFetch lanza "Credenciales inválidas" (401) o "Error 502…" / fallos de red.
+    if (/credencial|401/i.test(msg)) {
+      error.value = 'Usuario o contraseña incorrectos';
+      password.value = '';
+    } else if (/502|503|504|ECONNREFUSED|conectar|gateway|network|Failed to fetch/i.test(msg)) {
+      error.value = 'No se pudo conectar con el servidor. ¿Está corriendo el backend (php spark serve)?';
+    } else {
+      error.value = msg || 'No se pudo iniciar sesión. Intenta de nuevo.';
+    }
   }
 }
 </script>

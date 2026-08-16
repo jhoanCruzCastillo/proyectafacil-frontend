@@ -38,7 +38,7 @@ const {
   handleLeftResize, handleRightResize, handleExamplesResize, handleTabChange, handleSectionSelect,
   goToPrevSection, goToNextSection, handleFieldUpdate, handleAddCampo, handleAddNota, handleDuplicarCampo, handleDeleteCampo,
   handleSectionNameChange, handleSectionHojaChange, handleSubsectionNameChange,
-  handleSubseccionAyudaChange, handleAddSubsection, handleDeleteSubsection, handleAddSection, handleDuplicarSeccion,
+  handleSubseccionAyudaChange, handleAddSubsection, handleSubsectionCodigoChange, handleDeleteSubsection, handleAddSection, handleDuplicarSeccion,
   handleCreateExample, handleDeleteEjemplo, handleToggleEjemploEstado,
   handleDownloadExcel, handlePreviewExample, handleInsertExcel,
   handleVolcarExcel, handleVolcarEstructura, handleConfirmarVolcado, getDefaultValores,
@@ -137,6 +137,7 @@ const verContextosIA = ref(false);
             @subsection-name-change="handleSubsectionNameChange"
             @subseccion-ayuda-change="handleSubseccionAyudaChange"
             @add-subsection="handleAddSubsection"
+            @subsection-codigo-change="handleSubsectionCodigoChange"
             @delete-subsection="handleDeleteSubsection"
             @update-default-value="handleUpdateDefaultValue"
             @update-example-value="(campoId, identificador, value) => handleUpdateExampleValue(campoId, identificador, value)"

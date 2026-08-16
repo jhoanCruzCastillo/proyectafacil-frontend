@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faCircleQuestion, faTrash, faPlus, faNoteSticky } from '@/lib/icons';
+import { faCircleQuestion, faTrash, faPlus, faNoteSticky, faGear } from '@/lib/icons';
 import FieldCard from './FieldCard.vue';
 import AyudaSubseccionModal from './AyudaSubseccionModal.vue';
+import EditarCodigoSubseccionModal from './EditarCodigoSubseccionModal.vue';
 import type { ModoEdicionEditor } from '@/composables/usePlantillaEditor';
-import type { Campo, ConfigTabla, EstadoCampoIA, Seccion } from '@/types';
+import type { Campo, ConfigTabla, EstadoCampoIA, Seccion, Subseccion } from '@/types';
 
 // Edición de nombre de sección/subsección, hoja de Excel, agregar/eliminar subsecciones y campos,
 // y edición del valor por defecto y del valor de ejemplo (tab Ejemplos).
@@ -45,8 +46,10 @@ const emit = defineEmits<{
   'section-name-change': [seccionId: string, nombre: string];
   'section-hoja-change': [seccionId: string, hoja: string];
   'subsection-name-change': [subseccionId: string, nombre: string];
+  'subsection-codigo-change': [subseccionId: string, codigo: string];
   'subseccion-ayuda-change': [subseccionId: string, ayuda: string];
-  'add-subsection': [seccionId: string];
+  /** `despuesDeSubseccionId` inserta la nueva justo debajo de esa; sin él, al final de la sección */
+  'add-subsection': [seccionId: string, despuesDeSubseccionId?: string];
   'delete-subsection': [subseccionId: string, seccionId: string];
   'update-default-value': [campoId: string, value: string];
   /** campoId + identificador: el id sirve para borradores en modo confirmar */
@@ -57,7 +60,13 @@ const emit = defineEmits<{
 }>();
 
 const ayudaAbiertaId = ref<string | null>(null);
+const codigoEditandoId = ref<string | null>(null);
 const subseccionAyuda = computed(() => props.seccion.subsecciones.find((s) => s.id === ayudaAbiertaId.value));
+const subseccionCodigo = computed(() => props.seccion.subsecciones.find((s) => s.id === codigoEditandoId.value) ?? null);
+
+function abrirEditorCodigo(sub: Subseccion) {
+  codigoEditandoId.value = sub.id;
+}
 </script>
 
 <template>
@@ -107,6 +116,15 @@ const subseccionAyuda = computed(() => props.seccion.subsecciones.find((s) => s.
           :class="sub.ayuda?.trim() ? 'text-brand-500 hover:text-brand-700 hover:bg-brand-50' : 'text-gray-300 opacity-0 group-hover:opacity-100 hover:text-brand-500 hover:bg-brand-50'"
         >
           <FontAwesomeIcon :icon="faCircleQuestion" class="w-3.5 h-3.5" />
+        </button>
+        <button
+          v-if="editable"
+          @click="abrirEditorCodigo(sub)"
+          type="button"
+          title="Editar identificador de la subsección"
+          class="w-6 h-6 rounded flex items-center justify-center text-gray-400 hover:text-brand-600 hover:bg-brand-50 transition-colors shrink-0"
+        >
+          <FontAwesomeIcon :icon="faGear" class="w-3 h-3" />
         </button>
         <button
           v-if="editable && seccion.subsecciones.length > 1"
@@ -169,38 +187,37 @@ const subseccionAyuda = computed(() => props.seccion.subsecciones.find((s) => s.
           </button>
         </div>
         </template>
-        <div class="flex gap-2">
+        <div v-if="editable && !showExampleValues" class="space-y-2">
+          <div class="flex gap-2">
+            <button
+              @click="emit('add-campo', sub.id, sub.codigo)"
+              type="button"
+              class="flex-1 py-2.5 rounded-lg border-2 border-dashed border-gray-200 text-sm font-medium text-gray-400 hover:border-brand-300 hover:text-brand-600 transition-colors flex items-center justify-center gap-2"
+            >
+              <FontAwesomeIcon :icon="faPlus" class="w-3 h-3" />
+              Agregar campo
+            </button>
+            <button
+              @click="emit('add-nota', sub.id)"
+              type="button"
+              title="Agregar nota"
+              class="px-4 py-2.5 rounded-lg border-2 border-dashed border-gray-200 text-sm font-medium text-gray-400 hover:border-amber-300 hover:text-amber-600 transition-colors flex items-center justify-center gap-2"
+            >
+              <FontAwesomeIcon :icon="faNoteSticky" class="w-3 h-3" />
+              Nota
+            </button>
+          </div>
           <button
-            v-if="editable && !showExampleValues"
-            @click="emit('add-campo', sub.id, sub.codigo)"
+            @click="emit('add-subsection', seccion.id, sub.id)"
             type="button"
-            class="flex-1 py-2.5 rounded-lg border-2 border-dashed border-gray-200 text-sm font-medium text-gray-400 hover:border-brand-300 hover:text-brand-600 transition-colors flex items-center justify-center gap-2"
+            class="w-full py-2 rounded-lg border border-dashed border-gray-200 text-xs font-medium text-gray-400 hover:border-brand-300 hover:text-brand-600 transition-colors flex items-center justify-center gap-1.5"
           >
-            <FontAwesomeIcon :icon="faPlus" class="w-3 h-3" />
-            Agregar campo
-          </button>
-          <button
-            v-if="editable && !showExampleValues"
-            @click="emit('add-nota', sub.id)"
-            type="button"
-            title="Agregar nota"
-            class="px-4 py-2.5 rounded-lg border-2 border-dashed border-gray-200 text-sm font-medium text-gray-400 hover:border-amber-300 hover:text-amber-600 transition-colors flex items-center justify-center gap-2"
-          >
-            <FontAwesomeIcon :icon="faNoteSticky" class="w-3 h-3" />
-            Nota
+            <FontAwesomeIcon :icon="faPlus" class="w-2.5 h-2.5" />
+            Agregar subsección
           </button>
         </div>
       </div>
     </div>
-    <button
-      v-if="editable && !showExampleValues"
-      @click="emit('add-subsection', seccion.id)"
-      type="button"
-      class="w-full py-2 rounded-lg border border-dashed border-gray-200 text-xs font-medium text-gray-400 hover:border-brand-300 hover:text-brand-600 transition-colors flex items-center justify-center gap-1.5"
-    >
-      <FontAwesomeIcon :icon="faPlus" class="w-2.5 h-2.5" />
-      Agregar subsección
-    </button>
 
     <AyudaSubseccionModal
       v-if="subseccionAyuda"
@@ -209,6 +226,13 @@ const subseccionAyuda = computed(() => props.seccion.subsecciones.find((s) => s.
       :editable="editable"
       @close="ayudaAbiertaId = null"
       @save="emit('subseccion-ayuda-change', subseccionAyuda.id, $event)"
+    />
+
+    <EditarCodigoSubseccionModal
+      :is-open="!!subseccionCodigo"
+      :subseccion="subseccionCodigo"
+      @close="codigoEditandoId = null"
+      @save="emit('subsection-codigo-change', subseccionCodigo!.id, $event)"
     />
   </div>
 </template>

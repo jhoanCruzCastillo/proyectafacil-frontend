@@ -480,7 +480,8 @@ function agregarMerge(doc: Document, worksheet: Element, sheetData: Element, ran
 }
 
 async function extraerMimeYBuffer(dataUrl: string): Promise<{ mime: string; buffer: ArrayBuffer }> {
-  const res = await fetch(dataUrl);
+  const { fetchBinario } = await import('./fetchBinario');
+  const res = await fetchBinario(dataUrl);
   const mime = res.headers.get('content-type') || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
   const buffer = await res.arrayBuffer();
   return { mime, buffer };
