@@ -25,6 +25,12 @@ function clave(ejemploId: string): string {
   return KEY_PREFIX + ejemploId;
 }
 
+const FASES_PERSISTIBLES: readonly FaseLlenadoIAPersistible[] = ['procesando', 'completado', 'error'];
+
+function esFasePersistible(fase: unknown): fase is FaseLlenadoIAPersistible {
+  return typeof fase === 'string' && (FASES_PERSISTIBLES as readonly string[]).includes(fase);
+}
+
 export function leerSesionLlenadoIA(ejemploId: string): SesionLlenadoIAGuardada | null {
   if (!ejemploId) return null;
   try {
@@ -32,7 +38,8 @@ export function leerSesionLlenadoIA(ejemploId: string): SesionLlenadoIAGuardada 
     if (!raw) return null;
     const data = JSON.parse(raw) as SesionLlenadoIAGuardada;
     if (data?.version !== VERSION || data.ejemploId !== ejemploId) return null;
-    if (data.fase === 'idle') return null;
+    // localStorage puede traer basura / versiones viejas (p. ej. fase 'idle').
+    if (!esFasePersistible(data.fase)) return null;
     return data;
   } catch {
     return null;
@@ -40,7 +47,7 @@ export function leerSesionLlenadoIA(ejemploId: string): SesionLlenadoIAGuardada 
 }
 
 export function guardarSesionLlenadoIA(sesion: Omit<SesionLlenadoIAGuardada, 'version' | 'guardadoEn'>): void {
-  if (!sesion.ejemploId || sesion.fase === 'idle') return;
+  if (!sesion.ejemploId || !esFasePersistible(sesion.fase)) return;
   try {
     const payload: SesionLlenadoIAGuardada = {
       ...sesion,
