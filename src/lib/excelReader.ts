@@ -5,7 +5,7 @@ import {
   valorBooleanoVolcado,
   type IndiceControlesBooleanos,
 } from './xlsxControlsReader';
-import { aFechaISO, aAnio, aPorcentaje } from './conversionesExcel';
+import { aFechaISO, aAnio, aPorcentaje, textoVisibleDeNumero } from './conversionesExcel';
 import { parseCoords, serializarCoords } from './coords';
 import {
   esCeldaPartida, esJerarquica, getPeriodos, parseTree, posicionesArbol, posicionDe, agrupadorProfundidad, posicionesGrupos, alturaFilaBase, repartoAgrupador,
@@ -124,6 +124,9 @@ function valorParaCampo(campo: Campo, celda: CeldaLeida): string | null {
   // Porcentaje: la celda guarda la fracción (0.011) y muestra 1.10%. Se guarda lo que se ve, igual
   // que con las fechas, que tampoco se guardan como el serial que trae el archivo.
   if (celda.esPorcentaje) return aPorcentaje(celda.valor, celda.decimales) ?? texto;
+  // Formato personalizado (`"E-"00` → E-01, miles, etc.): misma regla — se guarda lo visible.
+  const conMascara = textoVisibleDeNumero(celda.valor, celda.codigoFormato);
+  if (conMascara !== null) return conMascara;
 
   switch (campo.tipo) {
     // 'booleano' NO se convierte: se guarda la palabra que trae el Excel ("Sí"), que es la misma
@@ -157,6 +160,8 @@ function valorParaColumna(tipo: TipoColumna, celda: CeldaLeida): string {
   if (celda.soloAnio) return aAnio(celda.valor, true) ?? '';
   if (celda.esFecha) return aFechaISO(celda.valor, true) ?? '';
   if (celda.esPorcentaje) return aPorcentaje(celda.valor, celda.decimales) ?? texto;
+  const conMascara = textoVisibleDeNumero(celda.valor, celda.codigoFormato);
+  if (conMascara !== null) return conMascara;
 
   switch (tipo) {
     // 'booleano': el texto del Excel ("Sí") o, más abajo, el control/OptionButton.

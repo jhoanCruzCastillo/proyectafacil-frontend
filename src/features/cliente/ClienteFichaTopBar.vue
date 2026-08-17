@@ -25,7 +25,15 @@ defineProps<{
   showHistorial?: boolean;
 }>();
 
-const emit = defineEmits<{ 'change-tab': ['mi-ficha' | 'ejemplos']; historial: []; save: []; download: []; insert: []; preview: []; 'fuente-verdad': [] }>();
+const emit = defineEmits<{
+  'change-tab': ['mi-ficha' | 'ejemplos'];
+  historial: [];
+  save: [];
+  download: [];
+  insert: [];
+  preview: [];
+  'fuente-verdad': [];
+}>();
 
 const router = useRouter();
 

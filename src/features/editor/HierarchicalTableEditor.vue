@@ -5,7 +5,7 @@ import { faPlus, faTrash, fieldTypeIcons } from '@/lib/icons';
 import CampoListaInput from '@/components/CampoListaInput.vue';
 import CampoBooleanoInput from '@/components/CampoBooleanoInput.vue';
 import { EXCEL_VIVO } from '@/composables/useListasExcel';
-import { etiquetaDeValor } from '@/lib/conversionesExcel';
+import { etiquetaDeValor, textoVisibleDeNumero } from '@/lib/conversionesExcel';
 import { createNodeChain, parseTree, getPeriodos, agrupadorProfundidad, esJerarquica, posicionesArbol, posicionDe, varianteBooleanoColumna, type TreeNode } from '@/lib/tableRowHelpers';
 import { estiloAnchoColumna, iniciarResizeColumna } from '@/lib/tableColumnWidth';
 import type { ConfigTabla, CabeceraGrupo, ColumnaTabla } from '@/types';
@@ -361,10 +361,15 @@ function opcionesCelda(path: number[], ci: number): string[] | null {
 }
 
 // El valor guardado ya es la palabra del Excel; la traducción solo entra para los ejemplos
-// anteriores, que guardaron 'true'/'false' (ver etiquetaDeValor).
-function valorMostradoCelda(valor: unknown, ci: number, opciones: string[] | null): string {
+// anteriores, que guardaron 'true'/'false' (ver etiquetaDeValor). Si la celda tiene máscara
+// (`"E-"00`) y el JSON aún trae el crudo (`1`), se muestra como en Excel (E-01).
+function valorMostradoCelda(valor: unknown, path: number[], ci: number, opciones: string[] | null): string {
   const bruto = typeof valor === 'string' ? valor : '';
-  return etiquetaDeValor(bruto, opciones, columns.value[ci]?.etiquetasBooleano);
+  const base = etiquetaDeValor(bruto, opciones, columns.value[ci]?.etiquetasBooleano);
+  const ref = refCelda(path, ci);
+  if (!ref || !props.hoja) return base;
+  const fmt = excel?.value?.codigoFormato?.(props.hoja, ref);
+  return textoVisibleDeNumero(base, fmt) ?? base;
 }
 
 /** Lo que el Excel calcula en esa celda, o null si no lleva fórmula. */
@@ -717,7 +722,7 @@ const anchosLocales = ref<Record<string, number>>({});
                 </div>
                 <CampoListaInput
                   v-else-if="opcionesCelda(cell.path, ci)"
-                  :value="valorMostradoCelda(cell.value, ci, opcionesCelda(cell.path, ci))"
+                  :value="valorMostradoCelda(cell.value, cell.path, ci, opcionesCelda(cell.path, ci))"
                   :opciones="opcionesCelda(cell.path, ci) ?? []"
                   compacto
                   @change="updateGrupoValor(cell.path, cell.colId, $event)"
@@ -809,7 +814,7 @@ const anchosLocales = ref<Record<string, number>>({});
                   <!-- Celda con desplegable declarado en el Excel -->
                   <CampoListaInput
                     v-else-if="opcionesCelda(cell.path, ci)"
-                    :value="valorMostradoCelda(cell.value, ci, opcionesCelda(cell.path, ci))"
+                    :value="valorMostradoCelda(cell.value, cell.path, ci, opcionesCelda(cell.path, ci))"
                     :opciones="opcionesCelda(cell.path, ci) ?? []"
                     class="flex-1 min-w-0"
                     @change="updateNodeValue(cell.path, $event)"

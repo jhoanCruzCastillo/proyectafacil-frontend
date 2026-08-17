@@ -27,6 +27,7 @@ const {
   soloLectura, permiteMejoraIA, muestraHistorial, showHistorial, showFuenteVerdad,
   esPropietario, ejemplosReferencia, referenciaId, referenciaEjemplo,
   editedValores, leftWidth, activeTab, examplesWidth, showPreview, showInsertConfirm, isInserting, insertProgress, insertProgressLabel,
+  modoEdicion, borradoresPorCampo, confirmarBorradorCampo,
   errores, erroresCount, progreso, erroresPorSeccion,
   secciones, safeIdx, seccionActiva, isFirst, isLast,
   handleLeftResize, handleExamplesResize, handleSectionSelect, goToPrevSection, goToNextSection, handleValueChange,
@@ -61,9 +62,14 @@ function iniciarLlenadoIA(payload?: { seccionIds?: string[] }) {
   void iniciarLlenadoIAJob(ejemploId.value, payload?.seccionIds);
 }
 
-function onValueChange(campoIdentificador: string, value: string) {
-  handleValueChange(campoIdentificador, value);
+function onValueChange(campoId: string, campoIdentificador: string, value: string) {
+  handleValueChange(campoId, campoIdentificador, value);
   alEditarCampoIA(campoIdentificador, value);
+}
+
+function onConfirmarBorrador(campoId: string, identificador: string) {
+  confirmarBorradorCampo(campoId, identificador);
+  alEditarCampoIA(identificador, editedValores.value[identificador] ?? '');
 }
 </script>
 
@@ -137,7 +143,10 @@ function onValueChange(campoIdentificador: string, value: string) {
             :referencia-valores="activeTab === 'mi-ficha' ? referenciaEjemplo?.valores : undefined"
             :permite-mejora-i-a="activeTab === 'mi-ficha' && permiteMejoraIA"
             :estados-i-a="activeTab === 'mi-ficha' ? estadosCamposIA : undefined"
-            @update-example-value="(_campoId, identificador, value) => onValueChange(identificador, value)"
+            :modo-edicion="activeTab === 'mi-ficha' ? modoEdicion : undefined"
+            :borradores-por-campo="activeTab === 'mi-ficha' ? borradoresPorCampo : undefined"
+            @update-example-value="(campoId, identificador, value) => onValueChange(campoId, identificador, value)"
+            @confirmar-borrador="onConfirmarBorrador"
             @confirmar-ia="confirmarCampoIA"
           />
         </div>

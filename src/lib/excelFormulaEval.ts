@@ -15,7 +15,7 @@
 // identificadores de campo). Aquí el lenguaje es el de Excel y los operandos son celdas.
 
 import type { LibroLeido } from './xlsxXmlReader';
-import { aAnio, aFechaISO, aPorcentaje, dateASerialExcel, dePorcentaje } from './conversionesExcel';
+import { aAnio, aFechaISO, aPorcentaje, dateASerialExcel, dePorcentaje, textoVisibleDeNumero } from './conversionesExcel';
 
 export class ErrorExcel {
   codigo: string;
@@ -702,7 +702,7 @@ function textoCacheado(libro: LibroLeido, hoja: string, ref: string): string | n
   if (celda.soloAnio) return aAnio(celda.valor, true) ?? crudo;
   if (celda.esFecha) return aFechaISO(celda.valor, true) ?? celda.valor;
   if (celda.esPorcentaje) return aPorcentaje(celda.valor, celda.decimales) ?? crudo;
-  return celda.valor;
+  return textoVisibleDeNumero(celda.valor, celda.codigoFormato) ?? celda.valor;
 }
 
 function conCacheSiHaceFalta(
@@ -764,6 +764,8 @@ export function calcularCelda(
     if (libro.esPorcentaje(hoja, ref)) {
       return { texto: aPorcentaje(v, decimales) ?? '', soportado: true };
     }
+    const conMascara = textoVisibleDeNumero(v, libro.codigoFormato(hoja, ref));
+    if (conMascara !== null) return { texto: conMascara, soportado: true };
     return { texto: decimales !== undefined ? v.toFixed(decimales) : String(Number(v.toPrecision(12))), soportado: true };
   }
   const t = texto(v);

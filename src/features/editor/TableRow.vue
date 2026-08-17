@@ -6,7 +6,7 @@ import CampoListaInput from '@/components/CampoListaInput.vue';
 import CampoBooleanoInput from '@/components/CampoBooleanoInput.vue';
 import CeldaPartida from './CeldaPartida.vue';
 import { EXCEL_VIVO } from '@/composables/useListasExcel';
-import { etiquetaDeValor } from '@/lib/conversionesExcel';
+import { etiquetaDeValor, textoVisibleDeNumero } from '@/lib/conversionesExcel';
 import { estiloAnchoColumna } from '@/lib/tableColumnWidth';
 import type { CabeceraGrupo, ColumnaTabla } from '@/types';
 import { esCeldaPartida, valorPlano, varianteBooleanoColumna, type FilaDinamica } from '@/lib/tableRowHelpers';
@@ -91,8 +91,18 @@ function calculoExcel(col: ColumnaTabla): { texto: string; soportado: boolean; e
 
 // El valor guardado es la palabra del Excel; lo elegido se guarda tal cual. La traducción solo
 // entra para los ejemplos anteriores, que guardaron 'true'/'false' (ver etiquetaDeValor).
+// Si la celda tiene máscara (`"E-"00`) y el JSON aún trae el crudo (`1`), se muestra E-01.
 function valorMostrado(col: ColumnaTabla, opciones: string[] | null): string {
-  return etiquetaDeValor((props.row[col.id] as string) || '', opciones, col.etiquetasBooleano);
+  const crudo = props.row[col.id];
+  const base = etiquetaDeValor(
+    crudo == null || crudo === '' ? '' : String(crudo),
+    opciones,
+    col.etiquetasBooleano,
+  );
+  const ref = refDe(col);
+  if (!ref || !props.hoja) return base;
+  const fmt = excel?.value?.codigoFormato?.(props.hoja, ref);
+  return textoVisibleDeNumero(base, fmt) ?? base;
 }
 </script>
 
@@ -204,7 +214,7 @@ function valorMostrado(col: ColumnaTabla, opciones: string[] | null): string {
       <td v-else :style="estiloDe(col)" class="px-1 py-0.5 align-top min-w-0 border-r border-brand-100">
         <!-- textarea con field-sizing: crece con el contenido hasta 15 líneas y luego scrollea -->
         <textarea
-          :value="(row[col.id] as string) || ''"
+          :value="valorMostrado(col, null)"
           @input="emit('cell-change', col.id, ($event.target as HTMLTextAreaElement).value)"
           @click.stop
           rows="1"

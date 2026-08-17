@@ -1,7 +1,7 @@
 import { parseDynamicRows, parseGroupedRows, parseTree, getPeriodos, esJerarquica, esCeldaPartida, agrupadorProfundidad, posicionesArbol, posicionDe, posicionesGrupos, grupoOcupaFila, repartoAgrupador, alturaFilaBase, type FilaDinamica, type ValorCelda, type PosicionNodo } from './tableRowHelpers';
 import { LibroEdits, aplicarEdicionesXlsx } from './xlsxXmlPatcher';
 import { crearResolver, esFormula, evaluarFormula, traducirFormulaAExcel, type ResolucionToken, type ResolucionCelda } from './formula';
-import { booleanoATexto, dateASerialExcel, dePorcentaje, type EtiquetasBooleano } from './conversionesExcel';
+import { booleanoATexto, dateASerialExcel, dePorcentaje, numeroDesdeTextoVisible, type EtiquetasBooleano } from './conversionesExcel';
 import { parseCoords, coordsATexto } from './coords';
 import { leerLibroXlsx } from './xlsxXmlReader';
 import { catalogoDeListas, normalizarOpcion, type AvisoLista } from './xlsxListas';
@@ -49,9 +49,10 @@ function coerceValor(
   // lectura que hace Excel cuando alguien teclea "1.10%" en cualquier celda.
   const porcentaje = dePorcentaje(raw);
   if (porcentaje !== null) return porcentaje;
+  // "E-01" (u otro texto con máscara) -> 1. Si no, Number("E-01") falla y la celda quedaba vacía.
   if (tipo === 'numero' || tipo === 'decimal') {
-    const n = Number(raw);
-    return Number.isNaN(n) ? '' : n;
+    const n = numeroDesdeTextoVisible(raw);
+    return n === null ? '' : n;
   }
   // Excel guarda las fechas como número de serie. Escribir el texto ISO dejaría la celda como texto:
   // se vería con el formato roto y cualquier fórmula que opere con ella fallaría.

@@ -18,6 +18,7 @@
 
 import type { LibroLeido } from './xlsxXmlReader';
 import { evaluarTexto } from './excelFormulaEval';
+import { aPorcentaje, textoVisibleDeNumero } from './conversionesExcel';
 
 export type Lista =
   | { estado: 'resuelta'; opciones: string[] }
@@ -83,10 +84,19 @@ function leerRango(libro: LibroLeido, rango: RangoRef, hojaBase: string): string
   const out: string[] = [];
   for (let f = rango.f1; f <= rango.f2 && out.length < MAX_OPCIONES; f++) {
     for (let c = rango.c1; c <= rango.c2 && out.length < MAX_OPCIONES; c++) {
-      const valor = libro.celda(hoja, `${letraColumna(c)}${f}`)?.valor?.trim();
+      const celda = libro.celda(hoja, `${letraColumna(c)}${f}`);
+      const bruto = celda?.valor?.trim();
       // Los rangos de opciones traen huecos al final (se dimensionan de más). Un `#N/A` es una
       // fórmula sin resolver de la propia plantilla, no una opción válida.
-      if (valor && !valor.startsWith('#')) out.push(valor);
+      if (!bruto || bruto.startsWith('#')) continue;
+      // Misma regla que el volcado: si la celda fuente tiene máscara (`"E-"00`), la opción es lo
+      // que se ve en Excel (E-01), no el crudo (1).
+      let visible = bruto;
+      if (celda && !celda.esFecha && !celda.soloAnio) {
+        if (celda.esPorcentaje) visible = aPorcentaje(bruto, celda.decimales) ?? bruto;
+        else visible = textoVisibleDeNumero(bruto, celda.codigoFormato) ?? bruto;
+      }
+      out.push(visible);
     }
   }
   return out;
@@ -264,7 +274,12 @@ export function catalogoDeListas(
     listaDe,
     opcionesDe(hoja: string, ref: string): string[] | undefined {
       const lista = listaDe(hoja, ref);
-      return lista?.estado === 'resuelta' ? lista.opciones : undefined;
+      if (lista?.estado !== 'resuelta') return undefined;
+      // Si la celda destino tiene máscara (`"E-"00`) y la fuente trae números crudos (1, 2, …),
+      // las opciones se presentan como en Excel (E-01, E-02). Si ya vienen formateadas, no cambia.
+      const fmtDestino = libro.codigoFormato(hoja, ref);
+      if (!fmtDestino || libro.esPorcentaje(hoja, ref)) return lista.opciones;
+      return lista.opciones.map((o) => textoVisibleDeNumero(o, fmtDestino) ?? o);
     },
   };
 }

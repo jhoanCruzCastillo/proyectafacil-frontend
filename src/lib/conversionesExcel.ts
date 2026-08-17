@@ -8,6 +8,8 @@
 // (formato yyyy) contiene 45531 — el mismo tipo de número, interpretado distinto según el formato
 // de la celda. Sin un conversor explícito, esos números terminarían guardados tal cual.
 
+import XLSX from 'xlsx';
+
 // Excel cuenta los días desde el 1899-12-30. El desfase de 2 días respecto al 1900-01-01 esperado
 // absorbe el bug histórico del año bisiesto 1900 que Excel conserva por compatibilidad con
 // Lotus 1-2-3 (considera 1900 bisiesto cuando no lo es).
@@ -102,6 +104,57 @@ export function dePorcentaje(texto: string): number | null {
   if (!Number.isFinite(n)) return null;
   // Se recorta la precisión al dividir para no devolver 0.010999999999999999 por "1.10%".
   return Number((n / 100).toPrecision(12));
+}
+
+// --- Formatos numéricos personalizados (`"E-"00`, `#,##0.00`, …) ---
+//
+// Excel guarda el número crudo (1) y el formato de la celda decide lo que se ve (E-01). Igual que
+// con porcentajes y fechas: en la app guardamos lo que se VE, y al insertar recuperamos el número.
+
+function primeraSeccionFormato(codigo: string): string {
+  return codigo.split(';')[0].trim();
+}
+
+/** General / texto: el número se muestra tal cual; no hay que pasar por SSF. */
+export function esFormatoNumeroSinMascara(codigo: string | undefined): boolean {
+  if (!codigo) return true;
+  const c = primeraSeccionFormato(codigo);
+  return c === '' || /^general$/i.test(c) || c === '@';
+}
+
+/**
+ * Número crudo + código de formato de la celda -> texto como lo muestra Excel.
+ * `1` + `"E-"00` -> `"E-01"`. Devuelve null si no aplica (sin formato útil o valor no numérico).
+ */
+export function textoVisibleDeNumero(valor: string | number, codigoFormato?: string): string | null {
+  if (!codigoFormato || esFormatoNumeroSinMascara(codigoFormato)) return null;
+  const n = typeof valor === 'number' ? valor : Number(String(valor).trim().replace(/\s/g, '').replace(',', '.'));
+  if (!Number.isFinite(n)) return null;
+  try {
+    return String(XLSX.SSF.format(primeraSeccionFormato(codigoFormato), n));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Texto que ve el usuario ("E-01", "1,234.50") -> número a escribir en la celda.
+ * Si el texto ya es un número plano ("1"), se acepta tal cual.
+ */
+export function numeroDesdeTextoVisible(texto: string): number | null {
+  const t = texto.trim();
+  if (!t) return null;
+  const pct = dePorcentaje(t);
+  if (pct !== null) return pct;
+
+  const plano = Number(t.replace(/\s/g, '').replace(',', '.'));
+  if (Number.isFinite(plano) && /^-?\d+([.,]\d+)?$/.test(t.replace(/\s/g, ''))) return plano;
+
+  // Literales del formato (`E-01`, `S/ 12.5`): quedarse con el número embebido.
+  const m = t.replace(/\s/g, '').match(/-?\d+(?:[.,]\d+)?/);
+  if (!m) return null;
+  const n = Number(m[0].replace(',', '.'));
+  return Number.isFinite(n) ? n : null;
 }
 
 // --- Booleanos ---

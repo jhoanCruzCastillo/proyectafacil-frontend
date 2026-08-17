@@ -9,6 +9,7 @@ import { useUsuariosQuery } from '@/composables/useUsuarios';
 import { useEstadoEntrenamiento } from '@/composables/useEstadoEntrenamiento';
 import { useExcelVivo, useAltoDeBloqueExcel, EXCEL_VIVO } from '@/composables/useListasExcel';
 import { useMapaValoresExcelDebounced, type ResolverValorCampo } from '@/composables/useMapaValoresExcelDebounced';
+import type { ModoEdicionEditor } from '@/composables/usePlantillaEditor';
 import { useSessionStore } from '@/stores/session';
 import { useUiStore } from '@/stores/ui';
 import { generateId } from '@/api/mock/_shared';
@@ -103,6 +104,7 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
   watch(ejemplo, (ej) => {
     if (ej) {
       editedValores.value = { ...ej.valores };
+      borradoresPorCampo.value = {};
       excelMapTrigger.value++;
     }
   });
@@ -112,6 +114,32 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
   watch([esNivel0, ejemplosReferencia], ([nivel0, referencias]) => {
     if (nivel0 && !referenciaId.value && referencias.length > 0) referenciaId.value = referencias[0].id;
   });
+
+  // Cliente: siempre Confirmar (sin toggle). El Excel vivo solo se actualiza al confirmar cada campo.
+  const modoEdicion = ref<ModoEdicionEditor>('confirmar');
+  const borradoresPorCampo = ref<Record<string, string>>({});
+  watch(ejemploId, () => {
+    borradoresPorCampo.value = {};
+  }, { immediate: true });
+  function setBorradorCampo(campoId: string, value: string, valorConfirmado: string) {
+    if (value === (valorConfirmado || '')) {
+      if (!(campoId in borradoresPorCampo.value)) return;
+      const next = { ...borradoresPorCampo.value };
+      delete next[campoId];
+      borradoresPorCampo.value = next;
+      return;
+    }
+    borradoresPorCampo.value = { ...borradoresPorCampo.value, [campoId]: value };
+  }
+  function confirmarBorradorCampo(campoId: string, identificador: string) {
+    if (!(campoId in borradoresPorCampo.value)) return;
+    const value = borradoresPorCampo.value[campoId];
+    const next = { ...borradoresPorCampo.value };
+    delete next[campoId];
+    borradoresPorCampo.value = next;
+    editedValores.value = { ...editedValores.value, [identificador]: value };
+    excelMapTrigger.value++;
+  }
 
   const errores = computed(() => (plantilla.value ? validarValoresPlantilla(plantilla.value, editedValores.value) : {}));
   const erroresCount = computed(() => Object.keys(errores.value).length);
@@ -139,9 +167,8 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
   }
   function goToPrevSection() { activeSectionIndex.value = Math.max(0, activeSectionIndex.value - 1); }
   function goToNextSection() { activeSectionIndex.value = Math.min(secciones.value.length - 1, activeSectionIndex.value + 1); }
-  function handleValueChange(campoIdentificador: string, value: string) {
-    editedValores.value = { ...editedValores.value, [campoIdentificador]: value };
-    excelMapTrigger.value++;
+  function handleValueChange(campoId: string, campoIdentificador: string, value: string) {
+    setBorradorCampo(campoId, value, editedValores.value[campoIdentificador] ?? '');
   }
 
   async function handleSave() {
@@ -222,6 +249,7 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
     soloLectura, permiteMejoraIA, muestraHistorial, showHistorial, showFuenteVerdad,
     esPropietario, ejemplosReferencia, referenciaId, referenciaEjemplo,
     activeSectionIndex, editedValores, leftWidth, activeTab, examplesWidth, showPreview, showInsertConfirm, isInserting, insertProgress, insertProgressLabel,
+    modoEdicion, borradoresPorCampo, confirmarBorradorCampo,
     errores, erroresCount, progreso, erroresPorSeccion,
     secciones, safeIdx, seccionActiva, isFirst, isLast,
     handleLeftResize, handleExamplesResize, handleSectionSelect, goToPrevSection, goToNextSection, handleValueChange,

@@ -28,9 +28,9 @@ const props = defineProps<{
   permiteMejoraIA?: boolean;
   /** Estados del llenado IA por identificador (solo cliente, tras un llenado) */
   estadosIA?: Record<string, EstadoCampoIA>;
-  /** Admin: live | confirmar — el cliente no lo pasa (queda live) */
+  /** live | confirmar — admin default live; cliente default confirmar */
   modoEdicion?: ModoEdicionEditor;
-  /** Admin: borradores pendientes por campo.id en modo confirmar */
+  /** Borradores pendientes por campo.id en modo confirmar */
   borradoresPorCampo?: Record<string, string>;
 }>();
 

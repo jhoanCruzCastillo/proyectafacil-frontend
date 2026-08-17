@@ -11,7 +11,7 @@ import CampoListaInput from '@/components/CampoListaInput.vue';
 import CampoEstadoIA from '@/features/cliente/CampoEstadoIA.vue';
 import CampoBooleanoInput from '@/components/CampoBooleanoInput.vue';
 import { EXCEL_VIVO } from '@/composables/useListasExcel';
-import { etiquetaDeValor } from '@/lib/conversionesExcel';
+import { etiquetaDeValor, textoVisibleDeNumero } from '@/lib/conversionesExcel';
 import type { ModoEdicionEditor } from '@/composables/usePlantillaEditor';
 import type { Campo, ConfigTabla, EstadoCampoIA } from '@/types';
 
@@ -125,9 +125,14 @@ const opcionesExcel = computed(() =>
 const tieneLista = computed(() => (opcionesExcel.value?.length ?? 0) > 0);
 
 // El valor guardado ya es la palabra del Excel; la traducción solo entra para lo que se guardó
-// antes con la forma canónica 'true'/'false' (ver etiquetaDeValor).
+// antes con la forma canónica 'true'/'false' (ver etiquetaDeValor). Si la celda tiene máscara
+// (`"E-"00`) y el JSON aún trae el crudo (`1`), se muestra como en Excel (E-01).
 function mostrado(valor: string | undefined): string {
-  return etiquetaDeValor(valor || '', opcionesExcel.value, props.campo.etiquetasBooleano);
+  const base = etiquetaDeValor(valor || '', opcionesExcel.value, props.campo.etiquetasBooleano);
+  const fmt = celdaExcel.value
+    ? excel?.value?.codigoFormato?.(celdaExcel.value.hoja, celdaExcel.value.ref)
+    : undefined;
+  return textoVisibleDeNumero(base, fmt) ?? base;
 }
 
 // Celda con fórmula: el Excel manda. No se escribe nunca (el escritor ya respeta las fórmulas del
