@@ -5,7 +5,7 @@ import { faPlus } from '@/lib/icons';
 import TableHeaderRow from './TableHeaderRow.vue';
 import TableRow from './TableRow.vue';
 import { useVirtualRowWindow } from '@/composables/useVirtualRowWindow';
-import { parseDynamicRows, newEmptyRow, getPeriodos, esCeldaPartida, valorPlano, alturaFilaBase, type FilaDinamica } from '@/lib/tableRowHelpers';
+import { parseDynamicRows, newEmptyRow, getPeriodos, esCeldaPartida, valorPlano, alturaFilaBase, idsHermanasCasillaBooleano, type FilaDinamica } from '@/lib/tableRowHelpers';
 import type { ConfigTabla } from '@/types';
 
 /** Espera antes de subir el JSON al padre (evita stringify + rebuild Excel-vivo en cada tecla). */
@@ -112,18 +112,12 @@ function replaceRow(ri: number, row: FilaDinamica, immediate = false) {
 function updateCell(ri: number, colId: string, val: string) {
   const row = rows.value[ri];
   if (!row || row[colId] === val) return;
-  const col = props.config.columnas.find((c) => c.id === colId);
-  // Casillas booleanas del mismo grupo de cabecera (ej. Rutinario/Periódico/Correctivo):
-  // elegir una limpia las demás, como OptionButtons del mismo GroupName en Excel.
-  if (col?.tipo === 'booleano' && !col.etiquetasBooleano && val.trim() !== '') {
-    const grupo = props.config.cabeceras?.find((g) => g.hijoIds.includes(colId));
-    if (grupo) {
+  // Casillas booleanas (Bajo/Medio/Alto…, Rutinario/…): marcar una limpia las hermanas.
+  if (val.trim() !== '') {
+    const hermanas = idsHermanasCasillaBooleano(colId, props.config.columnas, props.config.cabeceras);
+    if (hermanas.length > 0) {
       const next = { ...row, [colId]: val };
-      for (const id of grupo.hijoIds) {
-        if (id === colId) continue;
-        const hermana = props.config.columnas.find((c) => c.id === id);
-        if (hermana?.tipo === 'booleano' && !hermana.etiquetasBooleano) next[id] = '';
-      }
+      for (const id of hermanas) next[id] = '';
       replaceRow(ri, next);
       return;
     }

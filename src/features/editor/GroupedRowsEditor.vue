@@ -7,7 +7,7 @@ import TableRow from './TableRow.vue';
 import CampoListaInput from '@/components/CampoListaInput.vue';
 import { EXCEL_VIVO } from '@/composables/useListasExcel';
 import { etiquetaDeValor } from '@/lib/conversionesExcel';
-import { parseGroupedRows, newEmptyRow, getPeriodos, esCeldaPartida, valorPlano, posicionesGrupos, grupoOcupaFila, repartoAgrupador, alturaFilaBase, type GrupoFilas } from '@/lib/tableRowHelpers';
+import { parseGroupedRows, newEmptyRow, getPeriodos, esCeldaPartida, valorPlano, posicionesGrupos, grupoOcupaFila, repartoAgrupador, alturaFilaBase, idsHermanasCasillaBooleano, type GrupoFilas } from '@/lib/tableRowHelpers';
 import type { ConfigTabla, ColumnaTabla } from '@/types';
 
 // Filas planas agrupadas bajo un encabezado de grupo (config.agrupador === true). Una sola tabla:
@@ -48,22 +48,17 @@ function updateValorGrupoPeriodo(gi: number, colId: string, pi: number, val: str
   }));
 }
 function updateCell(gi: number, ri: number, colId: string, val: string) {
-  const col = props.config.columnas.find((c) => c.id === colId);
   persist(grupos.value.map((g, i) => {
     if (i !== gi) return g;
     return {
       ...g,
       filas: g.filas.map((r, j) => {
         if (j !== ri) return r;
-        if (col?.tipo === 'booleano' && !col.etiquetasBooleano && val.trim() !== '') {
-          const grupo = props.config.cabeceras?.find((h) => h.hijoIds.includes(colId));
-          if (grupo) {
+        if (val.trim() !== '') {
+          const hermanas = idsHermanasCasillaBooleano(colId, props.config.columnas, props.config.cabeceras);
+          if (hermanas.length > 0) {
             const next = { ...r, [colId]: val };
-            for (const id of grupo.hijoIds) {
-              if (id === colId) continue;
-              const hermana = props.config.columnas.find((c) => c.id === id);
-              if (hermana?.tipo === 'booleano' && !hermana.etiquetasBooleano) next[id] = '';
-            }
+            for (const id of hermanas) next[id] = '';
             return next;
           }
         }

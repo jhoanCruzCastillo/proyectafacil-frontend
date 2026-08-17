@@ -9,7 +9,7 @@ import { EXCEL_VIVO } from '@/composables/useListasExcel';
 import { etiquetaDeValor } from '@/lib/conversionesExcel';
 import { estiloAnchoColumna } from '@/lib/tableColumnWidth';
 import type { CabeceraGrupo, ColumnaTabla } from '@/types';
-import { esCeldaPartida, valorPlano, type FilaDinamica } from '@/lib/tableRowHelpers';
+import { esCeldaPartida, valorPlano, varianteBooleanoColumna, type FilaDinamica } from '@/lib/tableRowHelpers';
 
 // Fila compartida entre DynamicEditor (sin agrupador) y GroupedRowsEditor (con agrupador).
 // La columna dinámica se expande en una celda por período, alineada con TableHeaderRow.
@@ -21,7 +21,7 @@ const props = defineProps<{
   rowIndex: number;
   periodos: string[];
   columnaDinamicaId?: string;
-  /** Cabeceras de grupo — sirven para decidir casilla vs Sí/No en booleanos */
+  /** Cabeceras de grupo (opcional; la variante casilla ya no depende solo de ellas) */
   cabeceras?: CabeceraGrupo[];
   /** Hoja de Excel de la sección — con `filaExcel` localiza cada celda en el archivo */
   hoja?: string;
@@ -37,19 +37,8 @@ const emit = defineEmits<{
   delete: [];
 }>();
 
-/**
- * Sí/No por defecto. Casilla (un círculo) solo si la columna comparte cabecera con otras
- * booleanas sin etiquetas (Rutinario / Periódico / Correctivo).
- */
 function varianteBooleano(col: ColumnaTabla): 'si_no' | 'casilla' {
-  if (col.etiquetasBooleano) return 'si_no';
-  const grupo = props.cabeceras?.find((g) => g.hijoIds.includes(col.id));
-  if (!grupo) return 'si_no';
-  const hermanas = grupo.hijoIds.filter((id) => {
-    const c = props.cols.find((x) => x.id === id);
-    return c?.tipo === 'booleano' && !c.etiquetasBooleano;
-  });
-  return hermanas.length >= 2 ? 'casilla' : 'si_no';
+  return varianteBooleanoColumna(col, props.cols);
 }
 
 function periodoValues(colId: string): string[] {

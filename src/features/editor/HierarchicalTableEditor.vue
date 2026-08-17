@@ -6,7 +6,7 @@ import CampoListaInput from '@/components/CampoListaInput.vue';
 import CampoBooleanoInput from '@/components/CampoBooleanoInput.vue';
 import { EXCEL_VIVO } from '@/composables/useListasExcel';
 import { etiquetaDeValor } from '@/lib/conversionesExcel';
-import { createNodeChain, parseTree, getPeriodos, agrupadorProfundidad, esJerarquica, posicionesArbol, posicionDe, type TreeNode } from '@/lib/tableRowHelpers';
+import { createNodeChain, parseTree, getPeriodos, agrupadorProfundidad, esJerarquica, posicionesArbol, posicionDe, varianteBooleanoColumna, type TreeNode } from '@/lib/tableRowHelpers';
 import { estiloAnchoColumna, iniciarResizeColumna } from '@/lib/tableColumnWidth';
 import type { ConfigTabla, CabeceraGrupo, ColumnaTabla } from '@/types';
 
@@ -143,17 +143,10 @@ const dinamicaId = computed(() => props.config.columnaDinamicaId);
 const periodos = computed(() => getPeriodos(props.config));
 const agrupadorDepth = computed(() => (props.config.agrupador ? agrupadorProfundidad(columns.value, props.config) : -1));
 
-/** Sí/No por defecto; casilla solo en cabecera con ≥2 booleanas sin etiquetas. */
+/** Sí/No si es la única booleana; casilla si hay ≥2 sin etiquetas en la tabla. */
 function varianteBooleanoCol(col: (typeof columns.value)[number] | undefined): 'si_no' | 'casilla' {
   if (!col) return 'si_no';
-  if (col.etiquetasBooleano) return 'si_no';
-  const grupo = props.config.cabeceras?.find((g) => g.hijoIds.includes(col.id));
-  if (!grupo) return 'si_no';
-  const hermanas = grupo.hijoIds.filter((id) => {
-    const c = columns.value.find((x) => x.id === id);
-    return c?.tipo === 'booleano' && !c.etiquetasBooleano;
-  });
-  return hermanas.length >= 2 ? 'casilla' : 'si_no';
+  return varianteBooleanoColumna(col, columns.value);
 }
 
 const roots = ref<TreeNode[]>(parseTree(props.modelValue, columns.value, props.config));
