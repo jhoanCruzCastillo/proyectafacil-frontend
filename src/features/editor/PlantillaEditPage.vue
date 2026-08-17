@@ -28,16 +28,18 @@ const {
   estadoGuardado,
   editData, activeTab, selectedCampo, isNewCampo, editingHojaSeccionId,
   leftWidth, rightWidth, examplesWidth, highlightMissingCaptura, ejemplosCount, jsonPreview,
-  showImportEstructura, modoCalculo, setModoCalculo,
+  showImportEstructura,
+  modoEdicion, setModoEdicion, borradoresPorCampo, confirmarBorradorCampo,
+  handleUpdateDefaultValue, handleUpdateExampleValue,
   secciones, safeIdx, seccionActiva, isFirst, isLast, showExamples,
-  ejemplos, activeEjemplo, editedValores, showNuevoEjemplo, deleteTarget, volcarTarget, volcarEstructura,
-  archivoExcelAsignado, showExcelCatalogModal, showPreview, showInsertConfirm, isInserting, insertProgress,
+  ejemplos, activeEjemplo, editedValores, excelDesactualizado, showNuevoEjemplo, deleteTarget, volcarTarget, volcarEstructura,
+  archivoExcelAsignado, showExcelCatalogModal, showPreview, showInsertConfirm, isInserting, insertProgress, insertProgressLabel,
   previewFileUrl, previewFileName,
   handleLeftResize, handleRightResize, handleExamplesResize, handleTabChange, handleSectionSelect,
   goToPrevSection, goToNextSection, handleFieldUpdate, handleAddCampo, handleAddNota, handleDuplicarCampo, handleDeleteCampo,
   handleSectionNameChange, handleSectionHojaChange, handleSubsectionNameChange,
-  handleSubseccionAyudaChange, handleAddSubsection, handleDeleteSubsection, handleAddSection, handleDuplicarSeccion,
-  handleExampleValueChange, handleCreateExample, handleDeleteEjemplo, handleToggleEjemploEstado,
+  handleSubseccionAyudaChange, handleAddSubsection, handleSubsectionCodigoChange, handleDeleteSubsection, handleAddSection, handleDuplicarSeccion,
+  handleCreateExample, handleDeleteEjemplo, handleToggleEjemploEstado,
   handleDownloadExcel, handlePreviewExample, handleInsertExcel,
   handleVolcarExcel, handleVolcarEstructura, handleConfirmarVolcado, getDefaultValores,
   handleImportEstructura,
@@ -62,10 +64,12 @@ const verContextosIA = ref(false);
       :contextos-i-a="verContextosIA"
       :tiene-excel-asignado="!!archivoExcelAsignado"
       :estado-guardado="estadoGuardado"
+      :modo-edicion="modoEdicion"
+      :excel-desactualizado="excelDesactualizado"
       @change-tab="(t) => { verContextosIA = false; handleTabChange(t); }"
       @toggle-contextos-ia="verContextosIA = !verContextosIA"
+      @update:modo-edicion="setModoEdicion"
       @save="handleSave"
-      @view-json="handleViewJson"
       @preview-excel="showPreview = true"
       @insert-excel="showInsertConfirm = true"
       @volcar-estructura="handleVolcarEstructura"
@@ -99,13 +103,12 @@ const verContextosIA = ref(false);
           show-edit-hoja
           :show-duplicate-section="!showExamples"
           :show-import-estructura="!showExamples"
-          :modo-calculo="modoCalculo"
           @select="handleSectionSelect"
           @add-section="handleAddSection"
           @edit-hoja="editingHojaSeccionId = $event"
           @duplicate-section="handleDuplicarSeccion"
           @import-estructura="showImportEstructura = true"
-          @update:modo-calculo="setModoCalculo"
+          @view-json="handleViewJson"
         />
       </div>
 
@@ -122,6 +125,8 @@ const verContextosIA = ref(false);
             :example-valores="showExamples ? editedValores : undefined"
             :selected-campo-id="selectedCampo?.id"
             :highlight-missing-captura="highlightMissingCaptura"
+            :modo-edicion="modoEdicion"
+            :borradores-por-campo="borradoresPorCampo"
             @select-campo="(c) => { selectedCampo = c; isNewCampo = false; }"
             @add-campo="handleAddCampo"
             @add-nota="handleAddNota"
@@ -132,9 +137,11 @@ const verContextosIA = ref(false);
             @subsection-name-change="handleSubsectionNameChange"
             @subseccion-ayuda-change="handleSubseccionAyudaChange"
             @add-subsection="handleAddSubsection"
+            @subsection-codigo-change="handleSubsectionCodigoChange"
             @delete-subsection="handleDeleteSubsection"
-            @update-default-value="(campoId, value) => handleFieldUpdate(campoId, { valorEjemplo: value })"
-            @update-example-value="handleExampleValueChange"
+            @update-default-value="handleUpdateDefaultValue"
+            @update-example-value="(campoId, identificador, value) => handleUpdateExampleValue(campoId, identificador, value)"
+            @confirmar-borrador="confirmarBorradorCampo"
             @update-config-tabla="(campoId, configTabla) => handleFieldUpdate(campoId, { configTabla })"
           />
         </div>
@@ -163,6 +170,7 @@ const verContextosIA = ref(false);
             :campo="selectedCampo"
             :auto-focus-etiqueta="isNewCampo"
             :ejemplos-count="ejemplosCount"
+            :modo-edicion="modoEdicion"
             @update="handleFieldUpdate"
           />
           <div v-else class="flex items-center justify-center h-full text-muted text-sm text-center px-4">
@@ -215,6 +223,7 @@ const verContextosIA = ref(false);
       :message="`Se sobreescribirán todos los datos actuales del Excel asignado al ejemplo &quot;${activeEjemplo?.nombre}&quot;. Esta acción no se puede deshacer.`"
       confirm-label="Insertar"
       :progress="isInserting ? insertProgress : null"
+      :progress-label="isInserting ? insertProgressLabel : null"
       @close="showInsertConfirm = false"
       @confirm="handleInsertExcel"
     />

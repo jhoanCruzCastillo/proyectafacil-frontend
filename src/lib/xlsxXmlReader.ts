@@ -23,6 +23,8 @@ export interface CeldaLeida {
   esPorcentaje: boolean;
   /** Decimales que declara el formato, o undefined si no declara ninguno */
   decimales?: number;
+  /** Código de formato numérico OOXML (`"E-"00`, `#,##0.00`, …), si la celda no es General/Texto */
+  codigoFormato?: string;
 }
 
 export interface FusionLeida {
@@ -68,6 +70,8 @@ export interface LibroLeido {
   /** La celda tiene formato de porcentaje, aunque esté vacía — para dar forma al resultado de una
    * fórmula igual que hace `formatoFecha` con las de fecha */
   esPorcentaje(hoja: string, ref: string): boolean;
+  /** Código de formato numérico de la celda (`"E-"00`, …), aunque esté vacía */
+  codigoFormato(hoja: string, ref: string): string | undefined;
 }
 
 function textoDe(el: Element): string {
@@ -199,7 +203,7 @@ interface HojaParseada {
   formulas: Map<string, string>;
   /** Formato por celda, incluso si está vacía — `celdas` solo trae las que tienen valor, y una
    * celda con fórmula sin calcular está vacía pero conserva su formato. */
-  formatos: Map<string, { esFecha: boolean; soloAnio: boolean; esPorcentaje: boolean; decimales?: number }>;
+  formatos: Map<string, { esFecha: boolean; soloAnio: boolean; esPorcentaje: boolean; decimales?: number; codigo?: string }>;
   /** Estilo de TODA celda presente en el XML, tenga valor o no — base de la detección por formato */
   estilos: Map<string, number>;
   /** Fusiones indexadas por su celda ancla (esquina superior-izquierda del rango) */
@@ -348,7 +352,7 @@ function parseHoja(
   const celdas = new Map<string, CeldaLeida>();
   const estilos = new Map<string, number>();
   const formulas = new Map<string, string>();
-  const formatos = new Map<string, { esFecha: boolean; soloAnio: boolean; esPorcentaje: boolean; decimales?: number }>();
+  const formatos = new Map<string, { esFecha: boolean; soloAnio: boolean; esPorcentaje: boolean; decimales?: number; codigo?: string }>();
   // Fórmulas compartidas: `si` -> celda que sí trae el texto, y las que solo la referencian.
   const maestras = new Map<string, { formula: string; ref: string }>();
   const pendientes: { ref: string; si: string }[] = [];
@@ -366,10 +370,14 @@ function parseHoja(
     // calcular aparece vacía, y aun así su resultado debe mostrarse con su formato (R53 = TODAY()
     // con formato "yyyy;@" se ve como el año, no como una fecha completa).
     const numFmtCelda = estiloAttr !== null ? (numFmtPorEstilo[Number(estiloAttr)] ?? 0) : 0;
+    const codigo = codigoDeFormato(numFmtCelda, codigoPorNumFmt);
     const decimales = decimalesDeFormato(numFmtCelda, codigoPorNumFmt);
     const esPorcentaje = esPorcentajeFormato(numFmtCelda, codigoPorNumFmt);
-    const formatoCelda = { ...analizarFormato(numFmtCelda, codigoPorNumFmt), esPorcentaje, decimales };
-    if (formatoCelda.esFecha || esPorcentaje || decimales !== undefined) formatos.set(ref, formatoCelda);
+    const formatoCelda = { ...analizarFormato(numFmtCelda, codigoPorNumFmt), esPorcentaje, decimales, codigo };
+    // General (0) y Texto (49) no aportan máscara; el resto sí (fecha, %, `"E-"00`, `0.00`, …).
+    if (formatoCelda.esFecha || esPorcentaje || decimales !== undefined || (codigo && numFmtCelda !== 0 && numFmtCelda !== 49)) {
+      formatos.set(ref, formatoCelda);
+    }
 
     const f = c.getElementsByTagName('f')[0];
     if (f) {
@@ -407,7 +415,14 @@ function parseHoja(
       ? formatoCelda
       : { esFecha: false, soloAnio: false, esPorcentaje: false };
 
-    celdas.set(ref, { valor, esFecha, soloAnio, esPorcentaje: pct, decimales: formatoCelda.decimales });
+    celdas.set(ref, {
+      valor,
+      esFecha,
+      soloAnio,
+      esPorcentaje: pct,
+      decimales: formatoCelda.decimales,
+      codigoFormato: codigo && numFmtCelda !== 0 && numFmtCelda !== 49 ? codigo : undefined,
+    });
   }
   // Expansión de las fórmulas compartidas: cada celda recibe la fórmula de su maestra trasladada
   // por la diferencia de fila y columna entre ambas, que es exactamente lo que hace Excel.
@@ -446,7 +461,8 @@ function parseNombresDefinidos(doc: Document): Map<string, string> {
  * entiende ambas, igual que hace el parcheador. Antes se asumía data URI y se intentaba decodificar
  * la URL como base64, lo que reventaba con "Invalid base64 input, bad content length". */
 export async function leerLibroXlsx(fuente: string): Promise<LibroLeido> {
-  const zip = await JSZip.loadAsync(await (await fetch(fuente)).arrayBuffer());
+  const { fetchBinario } = await import('./fetchBinario');
+  const zip = await JSZip.loadAsync(await (await fetchBinario(fuente)).arrayBuffer());
 
   const shared = parseSharedStrings((await zip.file('xl/sharedStrings.xml')?.async('string')) ?? null);
   const { numFmtPorEstilo, codigoPorNumFmt } = parseEstilos((await zip.file('xl/styles.xml')?.async('string')) ?? null);
@@ -497,6 +513,9 @@ export async function leerLibroXlsx(fuente: string): Promise<LibroLeido> {
     },
     esPorcentaje(hoja: string, ref: string): boolean {
       return hojaParseada(hoja)?.formatos.get(ref)?.esPorcentaje ?? false;
+    },
+    codigoFormato(hoja: string, ref: string): string | undefined {
+      return hojaParseada(hoja)?.formatos.get(ref)?.codigo;
     },
     validacionLista(hoja: string, ref: string): string | undefined {
       const m = ref.match(/^\$?([A-Z]+)\$?(\d+)$/i);

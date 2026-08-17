@@ -10,11 +10,14 @@ import { buildDocumento } from '@/lib/schemaExport';
 import { insertarValoresEnExcel, type AvisoLista } from '@/lib/excelWriter';
 import { usePushActividad } from '@/composables/useActividad';
 import { useExcelVivo, useAltoDeBloqueExcel, EXCEL_VIVO, type ModoCalculoExcel } from '@/composables/useListasExcel';
+import { useMapaValoresExcelDebounced, type ResolverValorCampo } from '@/composables/useMapaValoresExcelDebounced';
 import { mensajeAvisoListas } from '@/lib/xlsxListas';
-import { indexarCeldasDeTabla } from '@/lib/tableRowHelpers';
 import { useAutoguardado } from '@/composables/useAutoguardado';
 import { useUiStore } from '@/stores/ui';
 import type { VersionTab, Campo, Plantilla, Ejemplo, Seccion, TipologiaIoarr } from '@/types';
+
+/** live = escribe al Excel vivo al editar; confirmar = borrador hasta pulsar Confirmar en el campo */
+export type ModoEdicionEditor = 'live' | 'confirmar';
 
 const MIN_LEFT = 180;
 const MIN_RIGHT = 300;
@@ -71,6 +74,13 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
   const ejemplosCount = computed(() => ejemplos.value.length);
   const activeEjemplo = ref<Ejemplo | null>(null) as Ref<Ejemplo | null>;
   const editedValores = ref<Record<string, string>>({});
+  // true = el ejemplo tiene ediciones que todavía no se insertaron en su copia de Excel — editar un
+  // campo (live o al confirmar un borrador) lo marca desactualizado; "Insertar" lo vuelve a poner
+  // al día. Se carga desde `ejemplo.excelActualizado` y se persiste al guardar / insertar.
+  const excelDesactualizado = ref(false);
+  // Baselines del autoguardado — se declaran pronto porque el watch de carga de ejemplo las escribe.
+  let estructuraGuardada: string | null = null;
+  let ejemploGuardado: string | null = null;
   const showNuevoEjemplo = ref(false);
   const deleteTarget = ref<Ejemplo | null>(null) as Ref<Ejemplo | null>;
   const volcarTarget = ref<Ejemplo | null>(null) as Ref<Ejemplo | null>;
@@ -82,6 +92,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
   const showInsertConfirm = ref(false);
   const isInserting = ref(false);
   const insertProgress = ref(0);
+  const insertProgressLabel = ref('Procesando…');
   /** Valores que no coincidieron con las opciones del desplegable de su celda en la última inserción */
   const avisosListas = ref<AvisoLista[]>([]);
 
@@ -113,32 +124,90 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     localStorage.setItem(MODO_CALCULO_KEY_PREFIX + plantillaId.value, modo);
   }
 
-  // Entradas del cálculo en vivo, indexadas por la celda a la que apunta cada campo. En Estructura
-  // son los valores por defecto de la plantilla; en Ejemplos son los del ejemplo activo tal como se
-  // están editando, para que las fórmulas del Excel se recalculen mientras se escribe.
-  const valoresPorCelda = computed(() => {
-    if (!editData.value) return null;
+  // Modo de edición de valores: 'live' escribe al instante (Excel vivo + autoguardado); 'confirmar'
+  // guarda borradores por campo hasta que el usuario pulse Confirmar — varios campos pueden quedar
+  // pendientes a la vez. Por ficha, en localStorage.
+  const MODO_EDICION_KEY_PREFIX = 'pf_modo_edicion_';
+  const modoEdicion = ref<ModoEdicionEditor>('live');
+  /** Borradores pendientes en modo confirmar — clave = campo.id */
+  const borradoresPorCampo = ref<Record<string, string>>({});
+  watch(plantillaId, (id) => {
+    const guardado = localStorage.getItem(MODO_EDICION_KEY_PREFIX + id);
+    modoEdicion.value = guardado === 'confirmar' ? 'confirmar' : 'live';
+    borradoresPorCampo.value = {};
+  }, { immediate: true });
+  function setModoEdicion(modo: ModoEdicionEditor) {
+    modoEdicion.value = modo;
+    localStorage.setItem(MODO_EDICION_KEY_PREFIX + plantillaId.value, modo);
+    // Al volver a live se descartan borradores: no se confirman solos (evitar sorpresa de calc masivo).
+    if (modo === 'live') borradoresPorCampo.value = {};
+  }
+  function limpiarBorradores() {
+    borradoresPorCampo.value = {};
+  }
+  function setBorradorCampo(campoId: string, value: string, valorConfirmado: string) {
+    if (value === (valorConfirmado || '')) {
+      if (!(campoId in borradoresPorCampo.value)) return;
+      const next = { ...borradoresPorCampo.value };
+      delete next[campoId];
+      borradoresPorCampo.value = next;
+      return;
+    }
+    borradoresPorCampo.value = { ...borradoresPorCampo.value, [campoId]: value };
+  }
+  function confirmarBorradorCampo(campoId: string, identificador: string) {
+    if (!(campoId in borradoresPorCampo.value)) return;
+    const value = borradoresPorCampo.value[campoId];
+    const next = { ...borradoresPorCampo.value };
+    delete next[campoId];
+    borradoresPorCampo.value = next;
+    if (activeTab.value === 'ejemplos') {
+      handleExampleValueChange(identificador, value);
+    } else {
+      handleFieldUpdate(campoId, { valorEjemplo: value });
+    }
+  }
+  function handleUpdateDefaultValue(campoId: string, value: string) {
+    if (modoEdicion.value === 'confirmar') {
+      const campo = editData.value?.secciones
+        .flatMap((s) => s.subsecciones)
+        .flatMap((s) => s.campos)
+        .find((c) => c.id === campoId);
+      setBorradorCampo(campoId, value, campo?.valorEjemplo || '');
+      return;
+    }
+    handleFieldUpdate(campoId, { valorEjemplo: value });
+  }
+  function handleUpdateExampleValue(campoId: string, identificador: string, value: string) {
+    if (modoEdicion.value === 'confirmar') {
+      const confirmado = Object.prototype.hasOwnProperty.call(editedValores.value, identificador)
+        ? (editedValores.value[identificador] ?? '')
+        : (editData.value?.secciones
+            .flatMap((s) => s.subsecciones)
+            .flatMap((s) => s.campos)
+            .find((c) => c.id === campoId)?.valorEjemplo || '');
+      setBorradorCampo(campoId, value, confirmado);
+      return;
+    }
+    handleExampleValueChange(identificador, value);
+  }
+
+  // Entradas del cálculo en vivo. Se reindexan con debounce: indexar Anexo 2 entero en cada
+  // persist de tabla trababa el hilo principal; las fórmulas/listas pueden ir ~300 ms detrás.
+  const excelMapTrigger = ref(0);
+  const resolverValorExcel = computed<ResolverValorCampo>(() => {
     const enEjemplos = activeTab.value === 'ejemplos';
     const valores = editedValores.value;
-    const mapa = new Map<string, string>();
-    for (const sec of editData.value.secciones) {
-      if (!sec.hoja) continue;
-      for (const sub of sec.subsecciones) {
-        for (const campo of sub.campos) {
-          // Mismo criterio que FieldCard.displayValue: manda lo tecleado en el ejemplo y, si ahí no
-          // hay nada, se cae al valor por defecto de la estructura.
-          const crudo = (enEjemplos ? valores[campo.identificador] : undefined) ?? campo.valorEjemplo ?? '';
-          const cap = campo.captura;
-          if (cap?.columna && cap.fila) {
-            mapa.set(`${sec.hoja}!${cap.columna}${cap.fila}`, crudo);
-            continue;
-          }
-          indexarCeldasDeTabla(mapa, sec.hoja, campo, crudo, altoDeBloque.value);
-        }
-      }
-    }
-    return mapa;
+    return (identificador, valorEjemplo) =>
+      (enEjemplos ? valores[identificador] : undefined) ?? valorEjemplo ?? '';
   });
+  const valoresPorCelda = useMapaValoresExcelDebounced(
+    editData,
+    altoDeBloque,
+    resolverValorExcel,
+    excelMapTrigger,
+    300,
+  );
 
   // Se lee el Excel del catálogo (no la copia del ejemplo): es el mismo archivo en cuanto a opciones
   // y fórmulas, pero no cambia al insertar valores, así que la caché sigue válida toda la sesión.
@@ -213,6 +282,12 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     if (ej && ej.id === ejemploCargadoId) return;
     ejemploCargadoId = ej?.id ?? null;
     editedValores.value = ej?.valores && Object.keys(ej.valores).length > 0 ? { ...ej.valores } : getDefaultValores();
+    // Baseline del ejemplo recién cargado: no es un cambio del usuario.
+    ejemploGuardado = ej ? JSON.stringify(editedValores.value) : null;
+    // Invertido: excelActualizado=true → UI al día (check); false/ausente con false explícito → reloj.
+    excelDesactualizado.value = ej ? ej.excelActualizado === false : false;
+    limpiarBorradores();
+    queueMicrotask(() => autoguardado.marcarGuardado());
   });
   // `immediate: true` — sin esto, si `ejemplos` ya trae datos en el momento en que este watch se
   // registra (la consulta resolvió más rápido de lo esperado), el watch nunca ve el cambio de "sin
@@ -224,6 +299,17 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
 
   function handleExampleValueChange(identificador: string, value: string) {
     editedValores.value = { ...editedValores.value, [identificador]: value };
+    marcarExcelDesactualizado();
+    excelMapTrigger.value++;
+  }
+
+  /** Marca el ejemplo como pendiente de Insertar (local + se persistirá en el próximo guardar). */
+  function marcarExcelDesactualizado() {
+    if (excelDesactualizado.value) return;
+    excelDesactualizado.value = true;
+    if (activeEjemplo.value) {
+      activeEjemplo.value = { ...activeEjemplo.value, excelActualizado: false };
+    }
   }
 
   async function handleCreateExample(nombre: string, subtitulo: string, detalle: string, tipologiasIoarr?: TipologiaIoarr[]) {
@@ -257,12 +343,12 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
   async function handleDownloadExcel(ejemplo: Ejemplo) {
     const archivo = await excelEjemplosApi.get(ejemplo.id);
     if (!archivo) { ui.toast('Este ejemplo no tiene una copia de Excel asociada', 'error'); return; }
-    const a = document.createElement('a');
-    a.href = archivo.dataUrl;
-    a.download = archivo.nombre;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    try {
+      const { descargarArchivoUrl } = await import('@/lib/fetchBinario');
+      await descargarArchivoUrl(archivo.dataUrl, archivo.nombre);
+    } catch {
+      ui.toast('No se pudo descargar el Excel', 'error');
+    }
   }
 
   function handlePreviewExample(ejemplo: Ejemplo) {
@@ -321,6 +407,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     }
 
     editedValores.value = { ...editedValores.value, ...valores };
+    marcarExcelDesactualizado();
     ui.toast(`${n} ${n === 1 ? 'campo volcado' : 'campos volcados'} desde el Excel — recuerda guardar`);
   }
 
@@ -330,6 +417,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     if (!archivo) { ui.toast('Este ejemplo no tiene una copia de Excel asociada', 'error'); showInsertConfirm.value = false; return; }
     isInserting.value = true;
     insertProgress.value = 0;
+    insertProgressLabel.value = 'Preparando…';
     avisosListas.value = [];
     try {
       // Siempre se inserta sobre el Excel original del catálogo (no sobre la copia ya insertada
@@ -339,11 +427,29 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
         archivoExcelAsignado.value.dataUrl,
         editData.value,
         editedValores.value,
-        (fraction) => { insertProgress.value = Math.round(fraction * 100); },
+        (fraction, fase) => {
+          insertProgress.value = Math.round(fraction * 100);
+          if (fase) insertProgressLabel.value = fase;
+        },
         (avisos) => { avisosListas.value = avisos; },
       );
+      // Tramo final (85→100): subida a Cloudinary + persistir estado — antes la barra llegaba a
+      // 100% al terminar el writer y se congelaba varios segundos en silencio.
+      insertProgress.value = 88;
+      insertProgressLabel.value = 'Subiendo Excel…';
       await setExcelEjemplo.mutateAsync({ ejemploId: activeEjemplo.value.id, archivo: { ...archivo, dataUrl: nuevaDataUrl } });
+      insertProgress.value = 95;
+      insertProgressLabel.value = 'Guardando estado…';
+      await actualizarEjemplo.mutateAsync({
+        id: activeEjemplo.value.id,
+        data: { excelActualizado: true },
+      });
+      activeEjemplo.value = { ...activeEjemplo.value, excelActualizado: true };
       await pushActividad.mutateAsync({ mensaje: `Se insertaron los valores del ejemplo "${activeEjemplo.value.nombre}" en su Excel`, color: 'blue' });
+      excelDesactualizado.value = false;
+      insertProgress.value = 100;
+      insertProgressLabel.value = 'Listo';
+      await new Promise((r) => setTimeout(r, 250));
       ui.toast('Valores insertados en el Excel del ejemplo');
       // El aviso llega aparte y en rojo: la inserción sí se hizo, pero conviene revisar esos valores.
       const aviso = mensajeAvisoListas(avisosListas.value);
@@ -355,6 +461,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
       ui.toast(e instanceof Error ? e.message : 'No se pudo insertar los valores en el Excel', 'error');
     } finally {
       isInserting.value = false;
+      insertProgressLabel.value = 'Procesando…';
       showInsertConfirm.value = false;
     }
   }
@@ -380,6 +487,9 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     activeTab.value = tab;
     selectedCampo.value = null;
     isNewCampo.value = false;
+    // Estructura y Ejemplos escriben en sitios distintos; no mezclar borradores entre tabs.
+    limpiarBorradores();
+    excelMapTrigger.value++;
   }
 
   const secciones = computed(() => editData.value?.secciones ?? []);
@@ -401,9 +511,32 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     const next = deepClone(editData.value);
     fn(next);
     editData.value = next;
+    excelMapTrigger.value++;
+  }
+
+  /** Solo `valorEjemplo`: mutación in-place (sin deepClone de toda la plantilla). */
+  function actualizarSoloValorEjemplo(campoId: string, valorEjemplo: string | undefined) {
+    if (!editData.value) return;
+    for (const sec of editData.value.secciones) {
+      for (const sub of sec.subsecciones) {
+        const campo = sub.campos.find((c) => c.id === campoId);
+        if (!campo) continue;
+        campo.valorEjemplo = valorEjemplo;
+        if (selectedCampo.value?.id === campoId) {
+          selectedCampo.value = { ...selectedCampo.value, valorEjemplo };
+        }
+        excelMapTrigger.value++;
+        return;
+      }
+    }
   }
 
   function handleFieldUpdate(campoId: string, updates: Partial<Campo>) {
+    const keys = Object.keys(updates);
+    if (keys.length === 1 && keys[0] === 'valorEjemplo') {
+      actualizarSoloValorEjemplo(campoId, updates.valorEjemplo);
+      return;
+    }
     mutate((p) => {
       for (const sec of p.secciones) {
         const campo = sec.subsecciones.flatMap((s) => s.campos).find((c) => c.id === campoId);
@@ -551,16 +684,80 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
   function handleSubseccionAyudaChange(subseccionId: string, ayuda: string) {
     mutate((p) => { for (const sec of p.secciones) { const sub = sec.subsecciones.find((s) => s.id === subseccionId); if (sub) { sub.ayuda = ayuda; break; } } });
   }
-  function handleAddSubsection(seccionId: string) {
+  function handleAddSubsection(seccionId: string, despuesDeSubseccionId?: string) {
     mutate((p) => {
       const sec = p.secciones.find((s) => s.id === seccionId);
-      if (sec) {
-        const num = String(sec.subsecciones.length + 1).padStart(2, '0');
-        sec.subsecciones.push({ id: generateId(), codigo: `${sec.numero}.${num}`, nombre: 'NUEVA SUBSECCIÓN', campos: [] });
+      if (!sec) return;
+      let maxN = 0;
+      let ancho = 2;
+      for (const s of sec.subsecciones) {
+        const ultimo = s.codigo.split('.').pop() ?? '';
+        const n = Number(ultimo);
+        if (!Number.isFinite(n)) continue;
+        maxN = Math.max(maxN, n);
+        ancho = Math.max(ancho, ultimo.trim().length);
       }
+      const nueva = {
+        id: generateId(),
+        codigo: `${sec.numero}.${String(maxN + 1).padStart(ancho, '0')}`,
+        nombre: 'NUEVA SUBSECCIÓN',
+        campos: [] as Campo[],
+      };
+      if (despuesDeSubseccionId) {
+        const idx = sec.subsecciones.findIndex((s) => s.id === despuesDeSubseccionId);
+        if (idx >= 0) {
+          sec.subsecciones.splice(idx + 1, 0, nueva);
+          return;
+        }
+      }
+      sec.subsecciones.push(nueva);
     });
     ui.toast('Subsección agregada');
   }
+
+  /**
+   * Cambia el código visible de la subsección (ej. 1.04 → 1.05) y reescribe el prefijo de los
+   * identificadores de sus campos. También remapea claves de valores del ejemplo activo.
+   */
+  function handleSubsectionCodigoChange(subseccionId: string, codigo: string) {
+    const nuevo = codigo.trim();
+    if (!nuevo) return;
+    const remapeos: Array<{ from: string; to: string }> = [];
+    mutate((p) => {
+      for (const sec of p.secciones) {
+        const sub = sec.subsecciones.find((s) => s.id === subseccionId);
+        if (!sub) continue;
+        const anterior = sub.codigo;
+        if (anterior === nuevo) return;
+        sub.codigo = nuevo;
+        for (const campo of sub.campos) {
+          if (!campo.identificador) continue;
+          if (campo.identificador === anterior || campo.identificador.startsWith(`${anterior}.`)) {
+            const to = `${nuevo}${campo.identificador.slice(anterior.length)}`;
+            remapeos.push({ from: campo.identificador, to });
+            campo.identificador = to;
+          }
+        }
+        break;
+      }
+    });
+    if (remapeos.length > 0 && Object.keys(editedValores.value).length > 0) {
+      const next = { ...editedValores.value };
+      for (const { from, to } of remapeos) {
+        if (Object.prototype.hasOwnProperty.call(next, from)) {
+          next[to] = next[from]!;
+          delete next[from];
+        }
+      }
+      editedValores.value = next;
+    }
+    if (selectedCampo.value) {
+      const m = remapeos.find((r) => r.from === selectedCampo.value!.identificador);
+      if (m) selectedCampo.value = { ...selectedCampo.value, identificador: m.to };
+    }
+    ui.toast(`Código actualizado a ${nuevo}`);
+  }
+
   function handleDeleteSubsection(subseccionId: string, seccionId: string) {
     mutate((p) => {
       const sec = p.secciones.find((s) => s.id === seccionId);
@@ -640,12 +837,23 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
   // La estructura pesa ~95 KB y el ejemplo activo unos pocos; casi nunca cambian a la vez. Por eso
   // cada parte lleva su propia huella y solo se manda la que de verdad cambió: escribir valores en
   // un ejemplo no reenvía la plantilla entera cada dos segundos.
-  let estructuraGuardada: string | null = null;
-  let ejemploGuardado: string | null = null;
+  // (estructuraGuardada / ejemploGuardado están declarados arriba, junto a editedValores.)
 
   const huellaEstructura = () => (editData.value ? JSON.stringify(editData.value) : null);
+  // La huella del ejemplo NO depende del tab activo: si al entrar/salir de Ejemplos cambiara,
+  // el autoguardado creería que hay ediciones y mandaría el JSON entero (tablas de cientos de
+  // filas) solo por cambiar de pestaña — "Guardando…" eterno.
   const huellaEjemplo = () =>
-    activeTab.value === 'ejemplos' && activeEjemplo.value ? JSON.stringify(editedValores.value) : null;
+    activeEjemplo.value ? JSON.stringify(editedValores.value) : null;
+
+  watch(
+    editData,
+    (d) => {
+      if (!d) return;
+      if (estructuraGuardada === null) estructuraGuardada = JSON.stringify(d);
+    },
+    { immediate: true },
+  );
 
   /** Manda al servidor lo que haya cambiado. Sin toasts ni registro de actividad: eso es cosa del
    * botón Guardar, que el autoguardado no debe imitar. */
@@ -654,16 +862,24 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
 
     const estructura = huellaEstructura();
     if (estructura !== null && estructura !== estructuraGuardada) {
-      const fechaActualizacion = new Date().toLocaleDateString('es-PE');
+      // ISO `Y-m-d`: la columna DATE de PostgreSQL rechaza `d/m/Y` de toLocaleDateString('es-PE')
+      // (ej. "14/8/2026") y el PUT de plantilla fallaba — bloqueando también el guardado del ejemplo.
+      const fechaActualizacion = new Date().toISOString().slice(0, 10);
       await actualizarPlantilla.mutateAsync({ id: editData.value.id, data: { ...editData.value, fechaActualizacion } });
-      estructuraGuardada = estructura;
+      editData.value = { ...editData.value, fechaActualizacion };
+      estructuraGuardada = huellaEstructura();
     }
 
     const ejemplo = huellaEjemplo();
     if (ejemplo !== null && ejemplo !== ejemploGuardado && activeEjemplo.value) {
       const valores = { ...editedValores.value };
-      await actualizarEjemplo.mutateAsync({ id: activeEjemplo.value.id, data: { valores } });
-      activeEjemplo.value = { ...activeEjemplo.value, valores };
+      const excelActualizado = !excelDesactualizado.value;
+      await actualizarEjemplo.mutateAsync({
+        id: activeEjemplo.value.id,
+        data: { valores, excelActualizado },
+      });
+      // Misma id → el watch de carga no reinicia editedValores (guarda ejemploCargadoId).
+      activeEjemplo.value = { ...activeEjemplo.value, valores, excelActualizado };
       ejemploGuardado = ejemplo;
     }
   }
@@ -672,15 +888,20 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     huella: () => {
       const e = huellaEstructura();
       if (e === null) return null;
-      return `${e} ${huellaEjemplo() ?? ''}`;
+      return `${e}\0${activeEjemplo.value?.id ?? ''}\0${huellaEjemplo() ?? ''}`;
     },
     guardar: persistir,
   });
 
   async function handleSave() {
     if (!editData.value) return;
-    await persistir();
-    autoguardado.marcarGuardado();
+    try {
+      await persistir();
+      autoguardado.marcarGuardado();
+    } catch (e) {
+      ui.toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error');
+      return;
+    }
 
     await pushActividad.mutateAsync({ mensaje: `Se guardó la plantilla ${editData.value.codigo} — ${editData.value.nombre}`, color: 'blue' });
 
@@ -720,14 +941,16 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     editData, activeTab, activeSectionIndex, selectedCampo, isNewCampo, editingHojaSeccionId,
     leftWidth, rightWidth, examplesWidth, highlightMissingCaptura, ejemplosCount, jsonPreview,
     showImportEstructura, modoCalculo, setModoCalculo,
+    modoEdicion, setModoEdicion, borradoresPorCampo, confirmarBorradorCampo,
+    handleUpdateDefaultValue, handleUpdateExampleValue,
     secciones, safeIdx, seccionActiva, isFirst, isLast, showExamples,
-    ejemplos, activeEjemplo, editedValores, showNuevoEjemplo, deleteTarget, volcarTarget, volcarEstructura,
-    archivoExcelAsignado, showExcelCatalogModal, showPreview, showInsertConfirm, isInserting, insertProgress,
+    ejemplos, activeEjemplo, editedValores, excelDesactualizado, showNuevoEjemplo, deleteTarget, volcarTarget, volcarEstructura,
+    archivoExcelAsignado, showExcelCatalogModal, showPreview, showInsertConfirm, isInserting, insertProgress, insertProgressLabel,
     previewFileUrl, previewFileName,
     handleLeftResize, handleRightResize, handleExamplesResize, handleTabChange, handleSectionSelect,
     goToPrevSection, goToNextSection, handleFieldUpdate, handleAddCampo, handleAddNota, handleDuplicarCampo, handleDeleteCampo,
     handleSectionNameChange, handleSectionHojaChange, handleSubsectionNameChange,
-    handleSubseccionAyudaChange, handleAddSubsection, handleDeleteSubsection, handleAddSection, handleDuplicarSeccion,
+    handleSubseccionAyudaChange, handleAddSubsection, handleSubsectionCodigoChange, handleDeleteSubsection, handleAddSection, handleDuplicarSeccion,
     handleExampleValueChange, handleCreateExample, handleDeleteEjemplo, handleToggleEjemploEstado,
     handleDownloadExcel, handlePreviewExample, handleInsertExcel,
     handleVolcarExcel, handleVolcarEstructura, handleConfirmarVolcado, getDefaultValores,

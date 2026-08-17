@@ -3,9 +3,11 @@ import { computed, inject, nextTick, ref, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faPlus, faTrash, fieldTypeIcons } from '@/lib/icons';
 import CampoListaInput from '@/components/CampoListaInput.vue';
+import CampoBooleanoInput from '@/components/CampoBooleanoInput.vue';
 import { EXCEL_VIVO } from '@/composables/useListasExcel';
-import { etiquetaDeValor } from '@/lib/conversionesExcel';
-import { createNodeChain, parseTree, getPeriodos, agrupadorProfundidad, esJerarquica, posicionesArbol, posicionDe, type TreeNode } from '@/lib/tableRowHelpers';
+import { etiquetaDeValor, textoVisibleDeNumero } from '@/lib/conversionesExcel';
+import { createNodeChain, parseTree, getPeriodos, agrupadorProfundidad, esJerarquica, posicionesArbol, posicionDe, varianteBooleanoColumna, type TreeNode } from '@/lib/tableRowHelpers';
+import { estiloAnchoColumna, iniciarResizeColumna } from '@/lib/tableColumnWidth';
 import type { ConfigTabla, CabeceraGrupo, ColumnaTabla } from '@/types';
 
 // El componente de mayor riesgo de fidelidad de toda la migración (ver plan): edición de un árbol
@@ -140,6 +142,12 @@ const numCols = computed(() => columns.value.length);
 const dinamicaId = computed(() => props.config.columnaDinamicaId);
 const periodos = computed(() => getPeriodos(props.config));
 const agrupadorDepth = computed(() => (props.config.agrupador ? agrupadorProfundidad(columns.value, props.config) : -1));
+
+/** Sí/No si es la única booleana; casilla si hay ≥2 sin etiquetas en la tabla. */
+function varianteBooleanoCol(col: (typeof columns.value)[number] | undefined): 'si_no' | 'casilla' {
+  if (!col) return 'si_no';
+  return varianteBooleanoColumna(col, columns.value);
+}
 
 const roots = ref<TreeNode[]>(parseTree(props.modelValue, columns.value, props.config));
 watch(() => props.modelValue, (v) => { roots.value = parseTree(v, columns.value, props.config); });
@@ -353,10 +361,15 @@ function opcionesCelda(path: number[], ci: number): string[] | null {
 }
 
 // El valor guardado ya es la palabra del Excel; la traducción solo entra para los ejemplos
-// anteriores, que guardaron 'true'/'false' (ver etiquetaDeValor).
-function valorMostradoCelda(valor: unknown, ci: number, opciones: string[] | null): string {
+// anteriores, que guardaron 'true'/'false' (ver etiquetaDeValor). Si la celda tiene máscara
+// (`"E-"00`) y el JSON aún trae el crudo (`1`), se muestra como en Excel (E-01).
+function valorMostradoCelda(valor: unknown, path: number[], ci: number, opciones: string[] | null): string {
   const bruto = typeof valor === 'string' ? valor : '';
-  return etiquetaDeValor(bruto, opciones, columns.value[ci]?.etiquetasBooleano);
+  const base = etiquetaDeValor(bruto, opciones, columns.value[ci]?.etiquetasBooleano);
+  const ref = refCelda(path, ci);
+  if (!ref || !props.hoja) return base;
+  const fmt = excel?.value?.codigoFormato?.(props.hoja, ref);
+  return textoVisibleDeNumero(base, fmt) ?? base;
 }
 
 /** Lo que el Excel calcula en esa celda, o null si no lleva fórmula. */
@@ -454,19 +467,44 @@ function renamePeriodo(pi: number, value: string) {
   periodos[pi] = value;
   emit('update:config', { ...props.config, periodos });
 }
+function resizeColumna(colId: string, anchoPx: number) {
+  // Solo UI en sesión: no escribe en config/plantilla (evita autoguardado masivo al arrastrar).
+  anchosLocales.value = { ...anchosLocales.value, [colId]: anchoPx };
+}
+function partsDe(col: ColumnaTabla): number {
+  if (col.id === dinamicaId.value && periodos.value.length > 0) return periodos.value.length;
+  return 1;
+}
+function estiloDe(col: ColumnaTabla | undefined) {
+  const ancho = col ? (anchosLocales.value[col.id] ?? col.ancho) : undefined;
+  return col ? estiloAnchoColumna(ancho, partsDe(col)) : undefined;
+}
+function onResizeStart(col: ColumnaTabla, e: MouseEvent) {
+  const parts = partsDe(col);
+  const th = (e.currentTarget as HTMLElement).parentElement;
+  const anchoGuardado = anchosLocales.value[col.id] ?? col.ancho;
+  const anchoActual = anchoGuardado && anchoGuardado > 0 ? anchoGuardado : (th?.offsetWidth ?? 96) * parts;
+  iniciarResizeColumna(e.clientX, anchoActual, (ancho) => resizeColumna(col.id, ancho));
+}
+
+const anchosLocales = ref<Record<string, number>>({});
 </script>
 
 <template>
   <div class="mt-2">
     <div ref="tableRef" tabindex="0" @keydown="handleKeyDown" class="overflow-x-auto rounded-lg border border-gray-300 outline-none">
-      <table class="w-full text-xs" style="border-collapse: collapse">
+      <table
+        class="w-full text-xs"
+        style="border-collapse: collapse"
+        :class="Object.keys(anchosLocales).length > 0 || columns.some((c) => c.ancho) ? 'table-fixed' : ''"
+      >
         <thead>
-          <tr v-if="hasCabeceras" class="bg-indigo-50">
+          <tr v-if="hasCabeceras" class="bg-brand-900">
             <template v-for="(run, ri) in runs" :key="ri">
               <th
                 v-if="run.grupo"
                 :colspan="run.cols.reduce((s, c) => s + (c.id === dinamicaId ? Math.max(periodos.length, 1) : 1), 0)"
-                class="px-2 py-1.5 text-center font-semibold text-indigo-700 border-2 border-indigo-400 bg-indigo-100 whitespace-nowrap text-[11px]"
+                class="px-2 py-1.5 text-center font-semibold text-white border border-white/40 bg-brand-900 break-words whitespace-normal text-[11px]"
               >
                 {{ run.grupo.titulo || 'Sin título' }}
               </th>
@@ -474,24 +512,24 @@ function renamePeriodo(pi: number, value: string) {
                 <th
                   v-if="col.id === dinamicaId && periodos.length > 0"
                   :colspan="periodos.length"
-                  class="px-3 py-2 text-left font-semibold text-heading border-b border-gray-200 whitespace-nowrap text-[11px] uppercase tracking-wider align-top"
-                  :class="col.id === columns[numCols - 1].id ? '' : 'border-r border-gray-300'"
+                  class="px-3 py-2 text-left font-semibold text-white border-b border-white/40 bg-brand-700 break-words whitespace-normal text-[11px] uppercase tracking-wider align-top"
+                  :class="col.id === columns[numCols - 1].id ? '' : 'border-r border-white/40'"
                 >
                   {{ col.nombre }}
                 </th>
                 <th
                   v-else
                   rowspan="2"
-                  class="px-3 py-2 text-left font-semibold text-heading border-b-2 border-gray-300 whitespace-nowrap text-[11px] uppercase tracking-wider align-top"
-                  :class="col.id === columns[numCols - 1].id ? '' : 'border-r border-gray-300'"
+                  class="px-3 py-2 text-left font-semibold text-white border-b-2 border-white/40 bg-brand-700 break-words whitespace-normal text-[11px] uppercase tracking-wider align-middle"
+                  :class="col.id === columns[numCols - 1].id ? '' : 'border-r border-white/40'"
                 >
                   {{ col.nombre }}
                 </th>
               </template>
             </template>
-            <th rowspan="2" class="w-6 border-b-2 border-gray-300" />
+            <th rowspan="2" class="w-6 border-b-2 border-white/40 bg-brand-900" />
           </tr>
-          <tr class="bg-gray-100">
+          <tr class="bg-brand-700">
             <template v-if="hasCabeceras">
               <template v-for="run in runs" :key="run.grupo?.titulo ?? run.cols[0].id">
                 <template v-for="col in (run.grupo ? run.cols : [])" :key="col.id">
@@ -499,7 +537,8 @@ function renamePeriodo(pi: number, value: string) {
                     <th
                       v-for="(p, pi) in periodos"
                       :key="`${col.id}-${pi}`"
-                      class="px-1.5 py-1.5 text-left font-medium text-heading border-b border-amber-300 bg-amber-50 whitespace-nowrap text-[11px]"
+                      :style="estiloDe(col)"
+                      class="relative px-1.5 py-1.5 text-left font-medium text-white border-b border-amber-300 bg-brand-700 break-words whitespace-normal text-[11px]"
                     >
                       <div class="flex items-center gap-1">
                         <input
@@ -509,7 +548,7 @@ function renamePeriodo(pi: number, value: string) {
                           @click.stop
                           type="text"
                           placeholder="Nombre..."
-                          class="w-14 px-1 py-0.5 rounded border border-amber-300 bg-white text-[10px] focus:outline-none focus:ring-1 focus:ring-amber-400/40 focus:border-amber-400"
+                          class="w-14 px-1 py-0.5 rounded border border-amber-300 bg-brand-100 text-gray-900 text-[10px] focus:outline-none focus:ring-1 focus:ring-amber-400/40 focus:border-amber-400"
                         />
                         <span v-else class="underline decoration-amber-400">{{ p }}</span>
                         <button
@@ -522,12 +561,17 @@ function renamePeriodo(pi: number, value: string) {
                           <FontAwesomeIcon :icon="faPlus" class="w-2 h-2" />
                         </button>
                       </div>
+                      <div
+                        class="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-brand-400/50 active:bg-brand-500/60"
+                        title="Arrastrar para cambiar el ancho"
+                        @mousedown.stop.prevent="onResizeStart(col, $event)"
+                      />
                     </th>
                   </template>
                   <th
                     v-else
-                    class="px-3 py-2 text-left font-semibold text-heading border-b-2 border-gray-300 whitespace-nowrap text-[11px] uppercase tracking-wider align-top"
-                    :class="col.id === columns[numCols - 1].id ? '' : 'border-r border-gray-300'"
+                    class="px-3 py-2 text-left font-semibold text-white border-b-2 border-white/40 bg-brand-700 break-words whitespace-normal text-[11px] uppercase tracking-wider align-top"
+                    :class="col.id === columns[numCols - 1].id ? '' : 'border-r border-white/40'"
                   >
                     {{ col.nombre }}
                   </th>
@@ -540,10 +584,11 @@ function renamePeriodo(pi: number, value: string) {
                   <th
                     v-for="(p, pi) in periodos"
                     :key="`${col.id}-${pi}`"
-                    class="px-1.5 py-1.5 text-left font-medium text-heading border-b border-amber-300 bg-amber-50 whitespace-nowrap text-[11px]"
-                    :class="ci === numCols - 1 && pi === periodos.length - 1 ? '' : 'border-r border-gray-300'"
+                    :style="estiloDe(col)"
+                    class="relative px-1.5 py-1.5 text-left font-medium text-white border-b border-amber-300 bg-brand-700 break-words whitespace-normal text-[11px] align-top"
+                    :class="ci === numCols - 1 && pi === periodos.length - 1 ? '' : 'border-r border-white/40'"
                   >
-                    <div class="flex items-center gap-1">
+                    <div class="flex items-start gap-1 min-w-0">
                       <input
                         v-if="puedeEditarPeriodos"
                         :value="p"
@@ -551,9 +596,9 @@ function renamePeriodo(pi: number, value: string) {
                         @click.stop
                         type="text"
                         placeholder="Nombre..."
-                        class="w-14 px-1 py-0.5 rounded border border-amber-300 bg-white text-[10px] focus:outline-none focus:ring-1 focus:ring-amber-400/40 focus:border-amber-400"
+                        class="min-w-0 flex-1 px-1 py-0.5 rounded border border-amber-300 bg-brand-100 text-gray-900 text-[10px] focus:outline-none focus:ring-1 focus:ring-amber-400/40 focus:border-amber-400"
                       />
-                      <span v-else class="underline decoration-amber-400">{{ p }}</span>
+                      <span v-else class="underline decoration-amber-400 break-words min-w-0">{{ p }}</span>
                       <button
                         v-if="pi === periodos.length - 1 && puedeEditarPeriodos"
                         @click.stop="addPeriodo"
@@ -564,18 +609,29 @@ function renamePeriodo(pi: number, value: string) {
                         <FontAwesomeIcon :icon="faPlus" class="w-2 h-2" />
                       </button>
                     </div>
+                    <div
+                      class="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-brand-400/50 active:bg-brand-500/60"
+                      title="Arrastrar para cambiar el ancho"
+                      @mousedown.stop.prevent="onResizeStart(col, $event)"
+                    />
                   </th>
                 </template>
                 <th
                   v-else
-                  class="px-3 py-2 text-left font-semibold text-heading border-b-2 border-gray-300 whitespace-nowrap text-[11px] uppercase tracking-wider align-top"
-                  :class="ci === numCols - 1 ? '' : 'border-r border-gray-300'"
+                  :style="estiloDe(col)"
+                  class="relative px-3 py-2 text-left font-semibold text-white border-b-2 border-white/40 bg-brand-700 break-words whitespace-normal text-[11px] uppercase tracking-wider align-top"
+                  :class="ci === numCols - 1 ? '' : 'border-r border-white/40'"
                 >
                   {{ col.nombre }}
+                  <div
+                    class="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-brand-400/50 active:bg-brand-500/60"
+                    title="Arrastrar para cambiar el ancho"
+                    @mousedown.stop.prevent="onResizeStart(col, $event)"
+                  />
                 </th>
               </template>
             </template>
-            <th v-if="!hasCabeceras" class="w-6 border-b-2 border-gray-300" />
+            <th v-if="!hasCabeceras" class="w-6 border-b-2 border-white/40 bg-brand-700" />
           </tr>
         </thead>
         <tbody>
@@ -666,20 +722,20 @@ function renamePeriodo(pi: number, value: string) {
                 </div>
                 <CampoListaInput
                   v-else-if="opcionesCelda(cell.path, ci)"
-                  :value="valorMostradoCelda(cell.value, ci, opcionesCelda(cell.path, ci))"
+                  :value="valorMostradoCelda(cell.value, cell.path, ci, opcionesCelda(cell.path, ci))"
                   :opciones="opcionesCelda(cell.path, ci) ?? []"
                   compacto
                   @change="updateGrupoValor(cell.path, cell.colId, $event)"
                   @click.stop
                 />
-                <!-- Columna booleana (4.10): casilla de verificación en vez de texto -->
-                <input
+                <!-- Columna booleana: con etiquetas → Sí/No; sin ellas → un círculo -->
+                <CampoBooleanoInput
                   v-else-if="columns[ci]?.tipo === 'booleano'"
-                  :checked="cell.value === 'true'"
-                  @change="updateGrupoValor(cell.path, cell.colId, ($event.target as HTMLInputElement).checked ? 'true' : 'false')"
-                  @click.stop
-                  type="checkbox"
-                  class="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                  :value="typeof cell.value === 'string' ? cell.value : ''"
+                  :etiquetas="columns[ci]?.etiquetasBooleano ?? (varianteBooleanoCol(columns[ci]) === 'si_no' ? { true: 'Sí', false: 'No' } : null)"
+                  :variante="varianteBooleanoCol(columns[ci])"
+                  compacto
+                  @change="updateGrupoValor(cell.path, cell.colId, $event)"
                 />
                 <textarea
                   v-else
@@ -758,20 +814,20 @@ function renamePeriodo(pi: number, value: string) {
                   <!-- Celda con desplegable declarado en el Excel -->
                   <CampoListaInput
                     v-else-if="opcionesCelda(cell.path, ci)"
-                    :value="valorMostradoCelda(cell.value, ci, opcionesCelda(cell.path, ci))"
+                    :value="valorMostradoCelda(cell.value, cell.path, ci, opcionesCelda(cell.path, ci))"
                     :opciones="opcionesCelda(cell.path, ci) ?? []"
                     class="flex-1 min-w-0"
                     @change="updateNodeValue(cell.path, $event)"
                     @click.stop
                   />
-                  <!-- Columna booleana (4.10): casilla de verificación en vez de texto -->
-                  <input
+                  <!-- Columna booleana: con etiquetas → Sí/No; sin ellas → un círculo -->
+                  <CampoBooleanoInput
                     v-else-if="columns[ci]?.tipo === 'booleano'"
-                    :checked="cell.value === 'true'"
-                    @change="updateNodeValue(cell.path, ($event.target as HTMLInputElement).checked ? 'true' : 'false')"
-                    @click.stop
-                    type="checkbox"
-                    class="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500 mt-1"
+                    :value="typeof cell.value === 'string' ? cell.value : ''"
+                    :etiquetas="columns[ci]?.etiquetasBooleano ?? (varianteBooleanoCol(columns[ci]) === 'si_no' ? { true: 'Sí', false: 'No' } : null)"
+                    :variante="varianteBooleanoCol(columns[ci])"
+                    compacto
+                    @change="updateNodeValue(cell.path, $event)"
                   />
                   <!-- textarea con field-sizing: crece con el contenido hasta 15 líneas y luego
                        scrollea. Enter sigue confirmando la edición (handleKeyDown lo intercepta

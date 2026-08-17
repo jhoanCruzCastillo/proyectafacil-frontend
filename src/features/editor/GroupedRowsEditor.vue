@@ -7,7 +7,7 @@ import TableRow from './TableRow.vue';
 import CampoListaInput from '@/components/CampoListaInput.vue';
 import { EXCEL_VIVO } from '@/composables/useListasExcel';
 import { etiquetaDeValor } from '@/lib/conversionesExcel';
-import { parseGroupedRows, newEmptyRow, getPeriodos, esCeldaPartida, valorPlano, posicionesGrupos, grupoOcupaFila, repartoAgrupador, alturaFilaBase, type GrupoFilas } from '@/lib/tableRowHelpers';
+import { parseGroupedRows, newEmptyRow, getPeriodos, esCeldaPartida, valorPlano, posicionesGrupos, grupoOcupaFila, repartoAgrupador, alturaFilaBase, idsHermanasCasillaBooleano, type GrupoFilas } from '@/lib/tableRowHelpers';
 import type { ConfigTabla, ColumnaTabla } from '@/types';
 
 // Filas planas agrupadas bajo un encabezado de grupo (config.agrupador === true). Una sola tabla:
@@ -48,7 +48,24 @@ function updateValorGrupoPeriodo(gi: number, colId: string, pi: number, val: str
   }));
 }
 function updateCell(gi: number, ri: number, colId: string, val: string) {
-  persist(grupos.value.map((g, i) => (i !== gi ? g : { ...g, filas: g.filas.map((r, j) => (j === ri ? { ...r, [colId]: val } : r)) })));
+  persist(grupos.value.map((g, i) => {
+    if (i !== gi) return g;
+    return {
+      ...g,
+      filas: g.filas.map((r, j) => {
+        if (j !== ri) return r;
+        if (val.trim() !== '') {
+          const hermanas = idsHermanasCasillaBooleano(colId, props.config.columnas, props.config.cabeceras);
+          if (hermanas.length > 0) {
+            const next = { ...r, [colId]: val };
+            for (const id of hermanas) next[id] = '';
+            return next;
+          }
+        }
+        return { ...r, [colId]: val };
+      }),
+    };
+  }));
 }
 
 // --- Celdas partidas (4.8) — misma lógica que DynamicEditor, aplicada dentro del grupo ---
@@ -114,8 +131,19 @@ function renamePeriodo(pi: number, value: string) {
   periodos[pi] = value;
   emit('update:config', { ...props.config, periodos });
 }
+function resizeColumna(colId: string, anchoPx: number) {
+  // Solo UI en sesión: no escribe en config/plantilla (evita autoguardado masivo al arrastrar).
+  anchosLocales.value = { ...anchosLocales.value, [colId]: anchoPx };
+}
 
 const periodos = computed(() => getPeriodos(props.config));
+const anchosLocales = ref<Record<string, number>>({});
+const columnasVista = computed(() =>
+  props.config.columnas.map((c) => ({
+    ...c,
+    ancho: anchosLocales.value[c.id] ?? c.ancho,
+  })),
+);
 // Total de columnas realmente renderizadas en el encabezado (la dinámica se expande por período),
 // para calcular cuántas quedan sueltas a la derecha de la fila de grupo.
 const totalCols = computed(() => props.config.columnas.reduce((sum, c) => sum + (c.id === props.config.columnaDinamicaId && periodos.value.length > 0 ? periodos.value.length : 1), 0));
@@ -193,10 +221,10 @@ function valorGrupoMostrado(gi: number, col: ColumnaTabla, opciones: string[] | 
 <template>
   <div class="mt-2">
     <div class="overflow-x-auto rounded-lg border border-brand-200">
-      <table class="w-full text-xs">
+      <table class="w-full text-xs border-separate border-spacing-0" :class="columnasVista.some((c) => c.ancho) ? 'table-fixed' : ''">
         <thead>
           <TableHeaderRow
-            :cols="config.columnas"
+            :cols="columnasVista"
             :periodos="periodos"
             :columna-dinamica-id="config.columnaDinamicaId"
             :cabeceras="config.cabeceras"
@@ -204,6 +232,7 @@ function valorGrupoMostrado(gi: number, col: ColumnaTabla, opciones: string[] | 
             :show-add-periodo="puedeEditarPeriodos"
             @rename-periodo="renamePeriodo"
             @add-periodo="addPeriodo"
+            @resize-columna="resizeColumna"
           />
         </thead>
         <tbody>
@@ -275,11 +304,12 @@ function valorGrupoMostrado(gi: number, col: ColumnaTabla, opciones: string[] | 
             <TableRow
               v-for="(row, ri) in grupo.filas"
               :key="ri"
-              :cols="config.columnas"
+              :cols="columnasVista"
               :row="row"
               :row-index="ri"
               :periodos="periodos"
               :columna-dinamica-id="config.columnaDinamicaId"
+              :cabeceras="config.cabeceras"
               :hoja="hoja"
               :fila-excel="filaExcelDe(gi, ri)"
               @cell-change="(colId, val) => updateCell(gi, ri, colId, val)"

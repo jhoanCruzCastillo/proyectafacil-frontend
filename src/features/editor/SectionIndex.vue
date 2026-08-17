@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faGear, faPlus, faCircleCheck, faFileImport, faClone } from '@/lib/icons';
+import { faGear, faPlus, faCircleCheck, faFileImport, faFileCode, faClone } from '@/lib/icons';
+import { useSessionStore } from '@/stores/session';
 import type { Seccion } from '@/types';
-import type { ModoCalculoExcel } from '@/composables/useListasExcel';
 
 defineProps<{
   secciones: Seccion[];
@@ -16,8 +17,6 @@ defineProps<{
   erroresPorSeccion?: Record<string, number>;
   /** true = muestra el botón sutil para importar/reemplazar toda la estructura desde JSON (solo tab Estructura) */
   showImportEstructura?: boolean;
-  /** Modo de cálculo del Excel en vivo (caché vs. tiempo real) — mismo `showImportEstructura` decide si se muestra */
-  modoCalculo?: ModoCalculoExcel;
 }>();
 
 const emit = defineEmits<{
@@ -26,8 +25,11 @@ const emit = defineEmits<{
   'edit-hoja': [seccionId: string];
   'duplicate-section': [seccionId: string];
   'import-estructura': [];
-  'update:modo-calculo': [modo: ModoCalculoExcel];
+  'view-json': [];
 }>();
+
+const session = useSessionStore();
+const esSuperusuario = computed(() => session.sesion?.rol === 'superusuario');
 </script>
 
 <template>
@@ -37,15 +39,15 @@ const emit = defineEmits<{
         Secciones · {{ secciones.length }}
       </h3>
       <div v-if="showImportEstructura" class="flex items-center gap-1 shrink-0">
-        <select
-          :value="modoCalculo ?? 'cache'"
-          @change="emit('update:modo-calculo', ($event.target as HTMLSelectElement).value as ModoCalculoExcel)"
-          title="Cómo se resuelven los desplegables y valores calculados del Excel asignado en esta ficha"
-          class="text-[10px] font-medium text-gray-500 border border-gray-200 rounded-full pl-2 pr-5 py-0.5 bg-white hover:border-gray-300 transition-colors cursor-pointer focus:outline-none focus:ring-1 focus:ring-brand-400"
+        <button
+          v-if="esSuperusuario"
+          @click="emit('view-json')"
+          type="button"
+          title="Ver JSON de la estructura"
+          class="w-6 h-6 rounded-full flex items-center justify-center text-gray-300 hover:text-brand-600 hover:bg-brand-50 transition-colors shrink-0"
         >
-          <option value="cache">Caché</option>
-          <option value="tiempo_real">Tiempo real</option>
-        </select>
+          <FontAwesomeIcon :icon="faFileCode" class="w-3 h-3" />
+        </button>
         <button
           @click="emit('import-estructura')"
           type="button"

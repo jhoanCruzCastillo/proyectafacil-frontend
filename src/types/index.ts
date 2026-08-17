@@ -44,6 +44,7 @@ export interface ColumnaTabla {
   nombre: string;
   tipo: TipoColumna;
   nivel?: NivelColumna;
+  /** Ancho visual en el editor (px). Solo UI: no afecta al Excel ni a la captura. */
   ancho?: number;
   requerido?: boolean;
   fuenteCatalogo?: string;
@@ -320,6 +321,12 @@ export interface Ejemplo {
    * estado de la Plantilla. Solo se gestiona en el catálogo de ejemplos de referencia del admin
    * (propietarioId ausente) — las fichas de cliente no muestran este control. */
   estado?: 'publicado' | 'archivado';
+  /**
+   * true = la copia de Excel del ejemplo está al día con `valores` (tras Insertar).
+   * false = hubo ediciones sin insertar — el header muestra reloj / botón Insertar.
+   * Se persiste en BD (`ejemplos.excel_actualizado`); no incluye historial ni autor.
+   */
+  excelActualizado?: boolean;
 }
 
 export type RolUsuario = 'superusuario' | 'administrador' | 'cliente' | 'administrativo_asesorias' | 'asesor';
@@ -411,6 +418,11 @@ export interface Sesion {
   usuario: string;
   rol: RolUsuario;
   iniciadaEn?: string;
+}
+
+/** Respuesta de POST /api/auth/login — Sesion + token Bearer para localStorage. */
+export interface LoginResponse extends Sesion {
+  token: string;
 }
 
 export type EstadoFactura = 'Pagado' | 'Pendiente';

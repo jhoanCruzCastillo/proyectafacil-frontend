@@ -25,6 +25,50 @@ export function valorPlano(valor: ValorCelda | undefined): string {
   if (Array.isArray(valor)) return '';
   return Object.values(valor).filter((v) => v !== '').join(' ');
 }
+
+/** ¿Esta columna booleana se comporta como casilla (círculo) en esta tabla? */
+export function esBooleanoCasilla(col: ColumnaTabla, columnas: ColumnaTabla[]): boolean {
+  if (col.tipo !== 'booleano') return false;
+  // ≥2 booleanas en la misma tabla (Bajo/Medio/Alto, Rutinario/…) → círculos exclusivos.
+  // Una sola (Respuesta) → Sí/No, aunque no tenga etiquetas.
+  return columnas.filter((c) => c.tipo === 'booleano').length >= 2;
+}
+
+/**
+ * Presentación de una columna booleana:
+ * - ≥2 booleanas en la tabla → casilla (un círculo), aunque tengan etiquetas guardadas
+ * - una sola → Sí/No
+ */
+export function varianteBooleanoColumna(col: ColumnaTabla, columnas: ColumnaTabla[]): 'si_no' | 'casilla' {
+  if (col.tipo !== 'booleano') return 'si_no';
+  return esBooleanoCasilla(col, columnas) ? 'casilla' : 'si_no';
+}
+
+/**
+ * Hermanas a limpiar al marcar una casilla (exclusión mutua como OptionButtons de Excel).
+ * Prefiere el grupo de cabecera; si no hay, todas las booleanas-casilla de la tabla.
+ */
+export function idsHermanasCasillaBooleano(
+  colId: string,
+  columnas: ColumnaTabla[],
+  cabeceras?: { hijoIds: string[] }[],
+): string[] {
+  const col = columnas.find((c) => c.id === colId);
+  if (!col || !esBooleanoCasilla(col, columnas)) return [];
+  const casillas = columnas.filter((c) => esBooleanoCasilla(c, columnas));
+  if (casillas.length < 2) return [];
+
+  const grupo = cabeceras?.find((g) => g.hijoIds.includes(colId));
+  if (grupo) {
+    const enGrupo = grupo.hijoIds.filter((id) => {
+      const c = columnas.find((x) => x.id === id);
+      return c != null && esBooleanoCasilla(c, columnas);
+    });
+    if (enGrupo.length >= 2) return enGrupo.filter((id) => id !== colId);
+  }
+  return casillas.map((c) => c.id).filter((id) => id !== colId);
+}
+
 export interface GrupoFilas {
   grupo: string;
   filas: FilaDinamica[];

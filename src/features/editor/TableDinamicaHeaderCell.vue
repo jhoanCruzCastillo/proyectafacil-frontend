@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { nextTick, ref, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { columnTypeIcons, columnTypeLabels, columnTypePrimitivos, faGripVertical, faBolt, faGear, faTrash } from '@/lib/icons';
 import { columnaFaltaCaptura } from '@/lib/campoValidation';
@@ -11,6 +12,7 @@ const props = defineProps<{
   col: ColumnaTabla;
   rowSpan: number;
   colSpan: number;
+  autoFocus?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -21,7 +23,29 @@ const emit = defineEmits<{
   configure: [];
   remove: [];
   'toggle-dinamica': [];
+  enter: [];
+  focused: [];
 }>();
+
+const nombreInput = ref<HTMLInputElement | null>(null);
+
+watch(
+  () => props.autoFocus,
+  async (v) => {
+    if (!v) return;
+    await nextTick();
+    nombreInput.value?.focus();
+    nombreInput.value?.select();
+    emit('focused');
+  },
+  { immediate: true },
+);
+
+function onNombreKeydown(e: KeyboardEvent) {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  emit('enter');
+}
 </script>
 
 <template>
@@ -38,8 +62,10 @@ const emit = defineEmits<{
       </span>
       <FontAwesomeIcon :icon="columnTypeIcons[col.tipo]" class="w-2.5 h-2.5 text-amber-500 shrink-0" />
       <input
+        ref="nombreInput"
         :value="col.nombre"
         @input="emit('update-nombre', ($event.target as HTMLInputElement).value)"
+        @keydown="onNombreKeydown"
         type="text"
         class="flex-1 min-w-0 px-1.5 py-0.5 rounded border border-amber-200 bg-white text-[11px] font-medium focus:outline-none focus:ring-1 focus:ring-amber-400/40 focus:border-amber-400"
       />

@@ -81,6 +81,26 @@ function addColumn(name: string) {
   if (!name.trim()) return;
   const newCol: ColumnaTabla = { id: generateId(), nombre: name.trim(), tipo: 'texto_corto', requerido: false, nivel: 'hijo' };
   config.value = { ...config.value, columnas: [...cols.value, newCol] };
+  focusColId.value = newCol.id;
+}
+
+const focusColId = ref<string | null>(null);
+
+function addColumnAfter(afterId: string) {
+  const idx = cols.value.findIndex((c) => c.id === afterId);
+  if (idx < 0) return;
+  const prev = cols.value[idx];
+  const newCol: ColumnaTabla = {
+    id: generateId(),
+    nombre: '',
+    tipo: 'texto_corto',
+    requerido: false,
+    nivel: prev.nivel ?? 'hijo',
+  };
+  const next = [...cols.value];
+  next.splice(idx + 1, 0, newCol);
+  config.value = { ...config.value, columnas: next };
+  focusColId.value = newCol.id;
 }
 
 function dropColumnAt(targetIndex: number) {
@@ -173,6 +193,7 @@ const siblingOptions = computed(() => {
                   :col="col"
                   :row-span="totalRows - 1"
                   :col-span="Math.max(periodos.length, 1)"
+                  :auto-focus="focusColId === col.id"
                   @dragstart="dragIndex = cols.indexOf(col)"
                   @drop="dropColumnAt(cols.indexOf(col))"
                   @update-nombre="updateColumn(col.id, { nombre: $event })"
@@ -180,17 +201,22 @@ const siblingOptions = computed(() => {
                   @configure="configuringColId = col.id"
                   @remove="removeColumn(col.id)"
                   @toggle-dinamica="toggleDinamica(col.id)"
+                  @enter="addColumnAfter(col.id)"
+                  @focused="focusColId = null"
                 />
                 <TableColumnHeaderCell
                   v-else
                   :col="col"
                   :row-span="totalRows"
+                  :auto-focus="focusColId === col.id"
                   @dragstart="dragIndex = cols.indexOf(col)"
                   @drop="dropColumnAt(cols.indexOf(col))"
                   @update-nombre="updateColumn(col.id, { nombre: $event })"
                   @update-tipo="updateColumn(col.id, { tipo: $event })"
                   @configure="configuringColId = col.id"
                   @remove="removeColumn(col.id)"
+                  @enter="addColumnAfter(col.id)"
+                  @focused="focusColId = null"
                 >
                   <template #extra>
                     <button
@@ -226,6 +252,7 @@ const siblingOptions = computed(() => {
                     :col="col"
                     :row-span="rowNombresSpan(col)"
                     :col-span="Math.max(periodos.length, 1)"
+                  :auto-focus="focusColId === col.id"
                     @dragstart="dragIndex = cols.indexOf(col)"
                     @drop="dropColumnAt(cols.indexOf(col))"
                     @update-nombre="updateColumn(col.id, { nombre: $event })"
@@ -233,17 +260,22 @@ const siblingOptions = computed(() => {
                     @configure="configuringColId = col.id"
                     @remove="removeColumn(col.id)"
                     @toggle-dinamica="toggleDinamica(col.id)"
+                  @enter="addColumnAfter(col.id)"
+                  @focused="focusColId = null"
                   />
                   <TableColumnHeaderCell
                     v-else
                     :col="col"
                     :row-span="rowNombresSpan(col)"
+                  :auto-focus="focusColId === col.id"
                     @dragstart="dragIndex = cols.indexOf(col)"
                     @drop="dropColumnAt(cols.indexOf(col))"
                     @update-nombre="updateColumn(col.id, { nombre: $event })"
                     @update-tipo="updateColumn(col.id, { tipo: $event })"
                     @configure="configuringColId = col.id"
                     @remove="removeColumn(col.id)"
+                    @enter="addColumnAfter(col.id)"
+                    @focused="focusColId = null"
                   >
                     <template #extra>
                       <button
@@ -276,6 +308,7 @@ const siblingOptions = computed(() => {
                   :col="col"
                   :row-span="rowNombresSpan(col)"
                   :col-span="Math.max(periodos.length, 1)"
+                  :auto-focus="focusColId === col.id"
                   @dragstart="dragIndex = cols.indexOf(col)"
                   @drop="dropColumnAt(cols.indexOf(col))"
                   @update-nombre="updateColumn(col.id, { nombre: $event })"
@@ -283,17 +316,22 @@ const siblingOptions = computed(() => {
                   @configure="configuringColId = col.id"
                   @remove="removeColumn(col.id)"
                   @toggle-dinamica="toggleDinamica(col.id)"
+                  @enter="addColumnAfter(col.id)"
+                  @focused="focusColId = null"
                 />
                 <TableColumnHeaderCell
                   v-else
                   :col="col"
                   :row-span="rowNombresSpan(col)"
+                  :auto-focus="focusColId === col.id"
                   @dragstart="dragIndex = cols.indexOf(col)"
                   @drop="dropColumnAt(cols.indexOf(col))"
                   @update-nombre="updateColumn(col.id, { nombre: $event })"
                   @update-tipo="updateColumn(col.id, { tipo: $event })"
                   @configure="configuringColId = col.id"
                   @remove="removeColumn(col.id)"
+                  @enter="addColumnAfter(col.id)"
+                  @focused="focusColId = null"
                 >
                   <template #extra>
                     <button

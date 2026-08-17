@@ -27,21 +27,20 @@ console.table({
 console.log('[DEBUG env] cada fila de arriba usa mock (datos falsos) salvo que el valor sea exactamente "false".');
 
 const app = createApp(App)
+const pinia = createPinia()
+app.use(pinia)
 
-app.use(createPinia())
-app.use(router)
-app.use(VueQueryPlugin)
-
-// Resuelve la sesión antes de montar: el guard de rutas en router/index.ts lee session.sesion de
-// forma síncrona en la primera navegación, así que debe estar listo antes de app.mount().
-// Si el backend no responde (502, red caída, etc.), no debe tumbar el montaje entero de la app —
-// sin este catch, una excepción acá deja la pantalla en blanco para siempre (Vue nunca monta).
+// IMPORTANTE: restaurar la sesión ANTES de instalar el router.
+// `app.use(router)` dispara la navegación inicial de inmediato; si el guard corre con
+// sesion=null (aunque el token ya esté en localStorage), redirige a /login y se queda ahí.
 try {
   await useSessionStore().restaurar()
 } catch (e) {
   console.error('[restaurar sesión] falló, se continúa sin sesión:', e)
 }
 
+app.use(router)
+app.use(VueQueryPlugin)
 app.mount('#app')
 
 // Permite otro auto-reload si vuelve a aparecer un chunk stale tras un rebuild futuro.

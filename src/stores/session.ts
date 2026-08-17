@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { authApi } from '@/api/auth';
+import { clearAuthToken } from '@/lib/authToken';
 import type { Sesion } from '@/types';
 
 export const useSessionStore = defineStore('session', () => {
@@ -9,7 +10,12 @@ export const useSessionStore = defineStore('session', () => {
   // Se llama una vez desde main.ts, antes de montar la app, para que el guard de rutas ya tenga la
   // sesión resuelta en la primera navegación (evita el flash a /login mientras resuelve el fetch).
   async function restaurar(): Promise<void> {
-    sesion.value = await authApi.me();
+    try {
+      sesion.value = await authApi.me();
+    } catch {
+      clearAuthToken();
+      sesion.value = null;
+    }
   }
 
   async function login(usuario: string, password: string): Promise<Sesion | null> {

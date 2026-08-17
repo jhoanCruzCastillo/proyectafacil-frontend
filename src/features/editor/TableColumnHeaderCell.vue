@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { nextTick, ref, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { columnTypeIcons, columnTypeLabels, columnTypePrimitivos, faGripVertical, faGear, faTrash } from '@/lib/icons';
 import { columnaFaltaCaptura } from '@/lib/campoValidation';
@@ -9,9 +10,11 @@ import type { ColumnaTabla, TipoColumna } from '@/types';
 // selector de tipo, engranaje de posición en Excel/agrupación, eliminar. El slot "extra" permite a
 // cada editor insertar sus propios botones (nivel padre/hijo, marcar como dinámica) entre el nombre
 // y el engranaje, en el mismo lugar que ocupaban en el original.
-defineProps<{
+const props = defineProps<{
   col: ColumnaTabla;
   rowSpan: number;
+  /** Tras crear la columna con Enter, el padre marca esta celda para enfocar el input. */
+  autoFocus?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -21,7 +24,30 @@ const emit = defineEmits<{
   'update-tipo': [value: TipoColumna];
   configure: [];
   remove: [];
+  /** Enter en el nombre → el padre inserta otra columna lista para escribir. */
+  enter: [];
+  focused: [];
 }>();
+
+const nombreInput = ref<HTMLInputElement | null>(null);
+
+watch(
+  () => props.autoFocus,
+  async (v) => {
+    if (!v) return;
+    await nextTick();
+    nombreInput.value?.focus();
+    nombreInput.value?.select();
+    emit('focused');
+  },
+  { immediate: true },
+);
+
+function onNombreKeydown(e: KeyboardEvent) {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  emit('enter');
+}
 </script>
 
 <template>
@@ -37,8 +63,10 @@ const emit = defineEmits<{
       </span>
       <FontAwesomeIcon :icon="columnTypeIcons[col.tipo]" class="w-2.5 h-2.5 text-gray-400 shrink-0" />
       <input
+        ref="nombreInput"
         :value="col.nombre"
         @input="emit('update-nombre', ($event.target as HTMLInputElement).value)"
+        @keydown="onNombreKeydown"
         type="text"
         class="w-20 shrink-0 px-1.5 py-0.5 rounded border border-gray-200 bg-white text-[11px] focus:outline-none focus:ring-1 focus:ring-brand-500/30 focus:border-brand-400"
       />

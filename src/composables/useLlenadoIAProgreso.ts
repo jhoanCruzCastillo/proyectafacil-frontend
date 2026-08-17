@@ -1,7 +1,12 @@
-import { computed, onUnmounted, ref, type Ref } from 'vue';
+import { computed, onUnmounted, ref, watch, type Ref } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { fuenteVerdadHttp } from '@/api/http/fuenteVerdad.http';
 import { construirResumenResultadoLlenado, mapaEstadosDesdeResumen, nombresCamposLlenadosPorSeccion } from '@/lib/resultadoLlenadoIA';
+import {
+  borrarSesionLlenadoIA,
+  guardarSesionLlenadoIA,
+  leerSesionLlenadoIA,
+} from '@/lib/llenadoIASesion';
 import { useUiStore } from '@/stores/ui';
 import type {
   EstadoCampoIA,
@@ -23,8 +28,15 @@ const TIMEOUT_LOTE_MS = 30 * 60 * 1000;
  * Orquesta progreso + resultados del llenado con IA.
  * Una petición HTTP por sección (el backend ya soporta `seccionIds` parcial)
  * para no exceder el timeout del proxy/gateway en producción (~60–100 s).
+ *
+ * La sesión UI (fase, badges, resumen, modales) se persiste en localStorage por ficha
+ * hasta "Terminar proceso" — así sobrevive F5 y cerrar sesión en el mismo navegador.
+ * Los valores ya los guarda el backend en cada sección.
  */
-export function useLlenadoIAProgreso(plantilla: Ref<Plantilla | null | undefined>) {
+export function useLlenadoIAProgreso(
+  plantilla: Ref<Plantilla | null | undefined>,
+  ejemploId: Ref<string>,
+) {
   const ui = useUiStore();
   const queryClient = useQueryClient();
 
@@ -40,6 +52,8 @@ export function useLlenadoIAProgreso(plantilla: Ref<Plantilla | null | undefined
   let abortLote = false;
   let abortRequest: AbortController | null = null;
   let timeoutLoteHandle: ReturnType<typeof setTimeout> | null = null;
+  let restaurando = false;
+  let persistTimer: ReturnType<typeof setTimeout> | null = null;
 
   const haySesionIA = computed(
     () => fase.value !== 'idle' || showResultado.value || Object.keys(estadosCamposIA.value).length > 0,
@@ -50,6 +64,111 @@ export function useLlenadoIAProgreso(plantilla: Ref<Plantilla | null | undefined
     if (fase.value !== 'procesando') return false;
     return secciones.value.some((s) => s.estado === 'procesando');
   });
+
+  function modalActual(): 'progreso' | 'resultado' | null {
+    if (showResultado.value) return 'resultado';
+    if (showProgreso.value) return 'progreso';
+    return null;
+  }
+
+  function persistirAhora() {
+    const id = ejemploId.value;
+    if (!id || restaurando) return;
+    if (fase.value === 'idle' && Object.keys(estadosCamposIA.value).length === 0) {
+      borrarSesionLlenadoIA(id);
+      return;
+    }
+    if (fase.value === 'idle') return;
+    guardarSesionLlenadoIA({
+      ejemploId: id,
+      fase: fase.value,
+      secciones: secciones.value,
+      resumenResultado: resumenResultado.value,
+      estadosCamposIA: estadosCamposIA.value,
+      mensajeError: mensajeError.value,
+      modal: modalActual(),
+    });
+  }
+
+  function programarPersistir() {
+    if (persistTimer) clearTimeout(persistTimer);
+    persistTimer = setTimeout(() => {
+      persistTimer = null;
+      persistirAhora();
+    }, 120);
+  }
+
+  function restaurarDesdeStorage(id: string) {
+    const guardada = leerSesionLlenadoIA(id);
+    if (!guardada) return;
+
+    restaurando = true;
+    try {
+      let faseRestaurada: FaseLlenadoIA = guardada.fase;
+      let mensaje = guardada.mensajeError;
+      let seccionesRest = guardada.secciones ?? [];
+
+      // Un lote a medias no se puede reanudar: marcar como interrumpido y conservar lo completado.
+      if (faseRestaurada === 'procesando') {
+        faseRestaurada = 'error';
+        mensaje =
+          mensaje
+          ?? 'El llenado con IA se interrumpió (saliste o recargaste la página). Las secciones ya completadas se conservan; puedes ver resultados o volver a intentar el resto.';
+        seccionesRest = seccionesRest.map((s) =>
+          s.estado === 'procesando' || s.estado === 'pendiente'
+            ? { ...s, estado: s.estado === 'procesando' ? ('error' as const) : s.estado }
+            : s,
+        );
+      }
+
+      fase.value = faseRestaurada;
+      secciones.value = seccionesRest;
+      resumenResultado.value = guardada.resumenResultado;
+      estadosCamposIA.value = guardada.estadosCamposIA ?? {};
+      mensajeError.value = mensaje;
+
+      if (guardada.modal === 'resultado' && guardada.resumenResultado) {
+        showResultado.value = true;
+        showProgreso.value = false;
+      } else if (guardada.modal === 'progreso' || faseRestaurada === 'error' || faseRestaurada === 'completado') {
+        // Dejar al usuario en el modal de progreso (100% / Ver resultados) si no había abierto el informe.
+        showProgreso.value = true;
+        showResultado.value = false;
+      } else {
+        showProgreso.value = false;
+        showResultado.value = false;
+      }
+    } finally {
+      restaurando = false;
+      persistirAhora();
+    }
+  }
+
+  watch(
+    ejemploId,
+    (id, prev) => {
+      if (prev && prev !== id) {
+        // Al cambiar de ficha no borramos la sesión de la anterior: sigue pendiente de Terminar.
+      }
+      // Reset en memoria y cargar la de esta ficha (si hay).
+      if (!id) return;
+      showProgreso.value = false;
+      showResultado.value = false;
+      fase.value = 'idle';
+      secciones.value = [];
+      mensajeError.value = null;
+      resumenResultado.value = null;
+      estadosCamposIA.value = {};
+      restaurarDesdeStorage(id);
+    },
+    { immediate: true },
+  );
+
+  watch(
+    [fase, secciones, resumenResultado, estadosCamposIA, mensajeError, showProgreso, showResultado],
+    () => programarPersistir(),
+    { deep: true },
+  );
 
   function limpiarTimeoutLote() {
     if (timeoutLoteHandle) {
@@ -168,12 +287,12 @@ export function useLlenadoIAProgreso(plantilla: Ref<Plantilla | null | undefined
     return raw;
   }
 
-  async function llenarUnaSeccion(ejemploId: string, seccionId: string): Promise<ResultadoLlenadoIA> {
+  async function llenarUnaSeccion(idEjemplo: string, seccionId: string): Promise<ResultadoLlenadoIA> {
     const ctrl = new AbortController();
     abortRequest = ctrl;
     const timer = setTimeout(() => ctrl.abort(), TIMEOUT_POR_SECCION_MS);
     try {
-      return await fuenteVerdadHttp.llenarConIA(ejemploId, {
+      return await fuenteVerdadHttp.llenarConIA(idEjemplo, {
         seccionIds: [seccionId],
         signal: ctrl.signal,
       });
@@ -183,14 +302,16 @@ export function useLlenadoIAProgreso(plantilla: Ref<Plantilla | null | undefined
     }
   }
 
-  async function iniciar(ejemploId: string, seccionIds?: string[] | null) {
+  async function iniciar(idEjemplo: string, seccionIds?: string[] | null) {
     const ids = seccionIds && seccionIds.length > 0 ? [...seccionIds] : null;
     abortLote = false;
     abortRequest?.abort();
     abortRequest = null;
     limpiarTimeoutLote();
+    borrarSesionLlenadoIA(idEjemplo);
     mensajeError.value = null;
     resumenResultado.value = null;
+    estadosCamposIA.value = {};
     showResultado.value = false;
     secciones.value = seccionesDesdePlantilla(ids);
     if (secciones.value.length === 0) {
@@ -208,7 +329,7 @@ export function useLlenadoIAProgreso(plantilla: Ref<Plantilla | null | undefined
 
     let documentosAnalizados = 0;
     try {
-      const fuente = await fuenteVerdadHttp.porEjemplo(ejemploId);
+      const fuente = await fuenteVerdadHttp.porEjemplo(idEjemplo);
       documentosAnalizados = fuente.archivos.length + (fuente.textoAdicional.trim() ? 1 : 0);
     } catch {
       documentosAnalizados = 0;
@@ -227,7 +348,7 @@ export function useLlenadoIAProgreso(plantilla: Ref<Plantilla | null | undefined
         }
 
         marcarSeccion(seccion.id, { estado: 'procesando' });
-        const parcial = await llenarUnaSeccion(ejemploId, seccion.id);
+        const parcial = await llenarUnaSeccion(idEjemplo, seccion.id);
 
         Object.assign(valoresAcum, parcial.valores ?? {});
         Object.assign(estadosAcum, parcial.estados ?? {});
@@ -286,14 +407,19 @@ export function useLlenadoIAProgreso(plantilla: Ref<Plantilla | null | undefined
       fase.value = 'completado';
       return true;
     }
+    if (Object.keys(estadosCamposIA.value).length > 0) {
+      showProgreso.value = true;
+      if (fase.value === 'idle') fase.value = 'completado';
+      return true;
+    }
     return false;
   }
 
   function cerrarProgreso() {
     showProgreso.value = false;
     if (fase.value === 'error') {
-      fase.value = 'idle';
-      mensajeError.value = null;
+      // No pasar a idle: la sesión (badges / resumen parcial) sigue hasta Terminar.
+      // Solo ocultamos el modal.
     }
   }
 
@@ -323,6 +449,7 @@ export function useLlenadoIAProgreso(plantilla: Ref<Plantilla | null | undefined
     estadosCamposIA.value = {};
     secciones.value = [];
     mensajeError.value = null;
+    borrarSesionLlenadoIA(ejemploId.value);
   }
 
   function confirmarCampoIA(identificador: string) {
@@ -347,6 +474,8 @@ export function useLlenadoIAProgreso(plantilla: Ref<Plantilla | null | undefined
     abortLote = true;
     limpiarTimeoutLote();
     abortRequest?.abort();
+    if (persistTimer) clearTimeout(persistTimer);
+    persistirAhora();
   });
 
   return {

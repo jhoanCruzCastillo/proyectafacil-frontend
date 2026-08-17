@@ -8,6 +8,8 @@ import { usePushActividad } from '@/composables/useActividad';
 import { useUsuariosQuery } from '@/composables/useUsuarios';
 import { useEstadoEntrenamiento } from '@/composables/useEstadoEntrenamiento';
 import { useExcelVivo, useAltoDeBloqueExcel, EXCEL_VIVO } from '@/composables/useListasExcel';
+import { useMapaValoresExcelDebounced, type ResolverValorCampo } from '@/composables/useMapaValoresExcelDebounced';
+import type { ModoEdicionEditor } from '@/composables/usePlantillaEditor';
 import { useSessionStore } from '@/stores/session';
 import { useUiStore } from '@/stores/ui';
 import { generateId } from '@/api/mock/_shared';
@@ -16,7 +18,6 @@ import { puedeVerHistorial } from '@/lib/planAcceso';
 import { insertarValoresEnExcel, type AvisoLista } from '@/lib/excelWriter';
 import { mensajeAvisoListas } from '@/lib/xlsxListas';
 import { calcularCambios } from '@/lib/historialFicha';
-import { indexarCeldasDeTabla } from '@/lib/tableRowHelpers';
 import { validarValoresPlantilla, calcularProgresoValores } from '@/lib/valorValidation';
 
 const MIN_LEFT = 180;
@@ -66,6 +67,7 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
   const showInsertConfirm = ref(false);
   const isInserting = ref(false);
   const insertProgress = ref(0);
+  const insertProgressLabel = ref('Procesando…');
   const referenciaId = ref('');
   const referenciaEjemplo = computed(() => ejemplosReferencia.value.find((e) => e.id === referenciaId.value));
 
@@ -84,30 +86,27 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
   });
   const fuenteExcelVivo = computed(() => archivoExcelAsignado.value?.dataUrl ?? null);
   const altoDeBloqueExcel = useAltoDeBloqueExcel(fuenteExcelVivo);
-  const valoresPorCelda = computed(() => {
-    if (!plantilla.value) return null;
-    const valores = activeTab.value === 'ejemplos' ? (referenciaEjemplo.value?.valores ?? {}) : editedValores.value;
-    const mapa = new Map<string, string>();
-    for (const sec of plantilla.value.secciones) {
-      if (!sec.hoja) continue;
-      for (const sub of sec.subsecciones) {
-        for (const campo of sub.campos) {
-          const crudo = valores[campo.identificador] ?? campo.valorEjemplo ?? '';
-          const cap = campo.captura;
-          if (cap?.columna && cap.fila) {
-            mapa.set(`${sec.hoja}!${cap.columna}${cap.fila}`, crudo);
-            continue;
-          }
-          indexarCeldasDeTabla(mapa, sec.hoja, campo, crudo, altoDeBloqueExcel.value);
-        }
-      }
-    }
-    return mapa;
+  const excelMapTrigger = ref(0);
+  const resolverValorExcel = computed<ResolverValorCampo>(() => {
+    const valores =
+      activeTab.value === 'ejemplos' ? (referenciaEjemplo.value?.valores ?? {}) : editedValores.value;
+    return (identificador, valorEjemplo) => valores[identificador] ?? valorEjemplo ?? '';
   });
+  const valoresPorCelda = useMapaValoresExcelDebounced(
+    plantilla,
+    altoDeBloqueExcel,
+    resolverValorExcel,
+    excelMapTrigger,
+    300,
+  );
   provide(EXCEL_VIVO, useExcelVivo(fuenteExcelVivo, valoresPorCelda));
 
   watch(ejemplo, (ej) => {
-    if (ej) editedValores.value = { ...ej.valores };
+    if (ej) {
+      editedValores.value = { ...ej.valores };
+      borradoresPorCampo.value = {};
+      excelMapTrigger.value++;
+    }
   });
 
   // En modo entrenamiento el solucionario es el punto central del ejercicio — se preselecciona
@@ -115,6 +114,32 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
   watch([esNivel0, ejemplosReferencia], ([nivel0, referencias]) => {
     if (nivel0 && !referenciaId.value && referencias.length > 0) referenciaId.value = referencias[0].id;
   });
+
+  // Cliente: siempre Confirmar (sin toggle). El Excel vivo solo se actualiza al confirmar cada campo.
+  const modoEdicion = ref<ModoEdicionEditor>('confirmar');
+  const borradoresPorCampo = ref<Record<string, string>>({});
+  watch(ejemploId, () => {
+    borradoresPorCampo.value = {};
+  }, { immediate: true });
+  function setBorradorCampo(campoId: string, value: string, valorConfirmado: string) {
+    if (value === (valorConfirmado || '')) {
+      if (!(campoId in borradoresPorCampo.value)) return;
+      const next = { ...borradoresPorCampo.value };
+      delete next[campoId];
+      borradoresPorCampo.value = next;
+      return;
+    }
+    borradoresPorCampo.value = { ...borradoresPorCampo.value, [campoId]: value };
+  }
+  function confirmarBorradorCampo(campoId: string, identificador: string) {
+    if (!(campoId in borradoresPorCampo.value)) return;
+    const value = borradoresPorCampo.value[campoId];
+    const next = { ...borradoresPorCampo.value };
+    delete next[campoId];
+    borradoresPorCampo.value = next;
+    editedValores.value = { ...editedValores.value, [identificador]: value };
+    excelMapTrigger.value++;
+  }
 
   const errores = computed(() => (plantilla.value ? validarValoresPlantilla(plantilla.value, editedValores.value) : {}));
   const erroresCount = computed(() => Object.keys(errores.value).length);
@@ -142,8 +167,8 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
   }
   function goToPrevSection() { activeSectionIndex.value = Math.max(0, activeSectionIndex.value - 1); }
   function goToNextSection() { activeSectionIndex.value = Math.min(secciones.value.length - 1, activeSectionIndex.value + 1); }
-  function handleValueChange(campoIdentificador: string, value: string) {
-    editedValores.value = { ...editedValores.value, [campoIdentificador]: value };
+  function handleValueChange(campoId: string, campoIdentificador: string, value: string) {
+    setBorradorCampo(campoId, value, editedValores.value[campoIdentificador] ?? '');
   }
 
   async function handleSave() {
@@ -163,14 +188,14 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
     ui.toast(`"${ejemplo.value.nombre}" guardada`);
   }
 
-  function handleDownload() {
+  async function handleDownload() {
     if (!archivoEjemplo.value) { ui.toast('Esta ficha no tiene una copia de Excel asociada', 'error'); return; }
-    const a = document.createElement('a');
-    a.href = archivoEjemplo.value.dataUrl;
-    a.download = archivoEjemplo.value.nombre;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    try {
+      const { descargarArchivoUrl } = await import('@/lib/fetchBinario');
+      await descargarArchivoUrl(archivoEjemplo.value.dataUrl, archivoEjemplo.value.nombre);
+    } catch {
+      ui.toast('No se pudo descargar el Excel', 'error');
+    }
   }
 
   async function handleInsert() {
@@ -181,6 +206,7 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
     }
     isInserting.value = true;
     insertProgress.value = 0;
+    insertProgressLabel.value = 'Preparando…';
     try {
       // Se inserta siempre sobre la copia propia de la ficha (tomada al crearla), no sobre el
       // archivo que esté asignado hoy en el catálogo — así el resultado no se rompe si el admin
@@ -190,11 +216,21 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
         archivoEjemplo.value.dataUrl,
         plantilla.value,
         editedValores.value,
-        (fraction) => { insertProgress.value = Math.round(fraction * 100); },
+        (fraction, fase) => {
+          insertProgress.value = Math.round(fraction * 100);
+          if (fase) insertProgressLabel.value = fase;
+        },
         (a) => { avisos = a; },
       );
+      insertProgress.value = 88;
+      insertProgressLabel.value = 'Subiendo Excel…';
       await setExcelEjemplo.mutateAsync({ ejemploId: ejemplo.value.id, archivo: { ...archivoEjemplo.value, dataUrl: nuevaDataUrl } });
+      insertProgress.value = 95;
+      insertProgressLabel.value = 'Guardando…';
       await pushActividad.mutateAsync({ mensaje: `Se insertaron los valores de "${ejemplo.value.nombre}" en su Excel`, color: 'blue' });
+      insertProgress.value = 100;
+      insertProgressLabel.value = 'Listo';
+      await new Promise((r) => setTimeout(r, 250));
       ui.toast('Valores insertados en el Excel');
       // El aviso llega aparte y en rojo: la inserción sí se hizo, pero conviene revisar esos valores.
       const aviso = mensajeAvisoListas(avisos);
@@ -203,6 +239,7 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
       ui.toast(e instanceof Error ? e.message : 'No se pudo insertar los valores en el Excel', 'error');
     } finally {
       isInserting.value = false;
+      insertProgressLabel.value = 'Procesando…';
       showInsertConfirm.value = false;
     }
   }
@@ -211,7 +248,8 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
     ejemplo, plantilla, archivoEjemplo, esNivel0, vencido, diasRestantes, numeroNivel,
     soloLectura, permiteMejoraIA, muestraHistorial, showHistorial, showFuenteVerdad,
     esPropietario, ejemplosReferencia, referenciaId, referenciaEjemplo,
-    activeSectionIndex, editedValores, leftWidth, activeTab, examplesWidth, showPreview, showInsertConfirm, isInserting, insertProgress,
+    activeSectionIndex, editedValores, leftWidth, activeTab, examplesWidth, showPreview, showInsertConfirm, isInserting, insertProgress, insertProgressLabel,
+    modoEdicion, borradoresPorCampo, confirmarBorradorCampo,
     errores, erroresCount, progreso, erroresPorSeccion,
     secciones, safeIdx, seccionActiva, isFirst, isLast,
     handleLeftResize, handleExamplesResize, handleSectionSelect, goToPrevSection, goToNextSection, handleValueChange,

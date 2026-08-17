@@ -19,6 +19,7 @@ export default defineConfig(({ mode }) => {
           target: env.CI4_BACKEND_URL || 'http://localhost:8080',
           changeOrigin: true,
           // Llenado IA: N secciones × ~hasta 120 s c/u en el backend.
+          // /archivos/*/contenido se strea (sin buffer en PHP); el proxy de Vite reenvía trozos.
           timeout: 600_000,
           proxyTimeout: 600_000,
         },

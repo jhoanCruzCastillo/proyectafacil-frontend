@@ -26,7 +26,8 @@ const {
   ejemplo, plantilla, archivoEjemplo, esNivel0, diasRestantes,
   soloLectura, permiteMejoraIA, muestraHistorial, showHistorial, showFuenteVerdad,
   esPropietario, ejemplosReferencia, referenciaId, referenciaEjemplo,
-  editedValores, leftWidth, activeTab, examplesWidth, showPreview, showInsertConfirm, isInserting, insertProgress,
+  editedValores, leftWidth, activeTab, examplesWidth, showPreview, showInsertConfirm, isInserting, insertProgress, insertProgressLabel,
+  modoEdicion, borradoresPorCampo, confirmarBorradorCampo,
   errores, erroresCount, progreso, erroresPorSeccion,
   secciones, safeIdx, seccionActiva, isFirst, isLast,
   handleLeftResize, handleExamplesResize, handleSectionSelect, goToPrevSection, goToNextSection, handleValueChange,
@@ -50,7 +51,7 @@ const {
   terminarProceso: terminarProcesoLlenadoIA,
   confirmarCampoIA,
   alEditarCampoIA,
-} = useLlenadoIAProgreso(plantilla);
+} = useLlenadoIAProgreso(plantilla, ejemploId);
 
 function abrirContextoIA() {
   if (abrirSiHaySesion()) return;
@@ -61,9 +62,14 @@ function iniciarLlenadoIA(payload?: { seccionIds?: string[] }) {
   void iniciarLlenadoIAJob(ejemploId.value, payload?.seccionIds);
 }
 
-function onValueChange(campoIdentificador: string, value: string) {
-  handleValueChange(campoIdentificador, value);
+function onValueChange(campoId: string, campoIdentificador: string, value: string) {
+  handleValueChange(campoId, campoIdentificador, value);
   alEditarCampoIA(campoIdentificador, value);
+}
+
+function onConfirmarBorrador(campoId: string, identificador: string) {
+  confirmarBorradorCampo(campoId, identificador);
+  alEditarCampoIA(identificador, editedValores.value[identificador] ?? '');
 }
 </script>
 
@@ -137,7 +143,10 @@ function onValueChange(campoIdentificador: string, value: string) {
             :referencia-valores="activeTab === 'mi-ficha' ? referenciaEjemplo?.valores : undefined"
             :permite-mejora-i-a="activeTab === 'mi-ficha' && permiteMejoraIA"
             :estados-i-a="activeTab === 'mi-ficha' ? estadosCamposIA : undefined"
-            @update-example-value="onValueChange"
+            :modo-edicion="activeTab === 'mi-ficha' ? modoEdicion : undefined"
+            :borradores-por-campo="activeTab === 'mi-ficha' ? borradoresPorCampo : undefined"
+            @update-example-value="(campoId, identificador, value) => onValueChange(campoId, identificador, value)"
+            @confirmar-borrador="onConfirmarBorrador"
             @confirmar-ia="confirmarCampoIA"
           />
         </div>
@@ -179,6 +188,7 @@ function onValueChange(campoIdentificador: string, value: string) {
         : `Se sobreescribirán todos los datos actuales del Excel de &quot;${ejemplo.nombre}&quot; con lo que llenaste. Esta acción no se puede deshacer.`"
       confirm-label="Insertar"
       :progress="isInserting ? insertProgress : null"
+      :progress-label="isInserting ? insertProgressLabel : null"
       @confirm="handleInsert"
       @close="showInsertConfirm = false"
     />

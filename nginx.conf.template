@@ -17,6 +17,22 @@ server {
     # en la red de Railway) ni la IP sin corchetes (nginx rechaza el arranque con "invalid port").
     resolver ${RESOLVER_ADDR} valid=10s;
 
+    # Excel binario en streaming: sin buffer de nginx (progreso 0–100% en el navegador).
+    location ~ ^/api/archivos/[0-9]+/contenido$ {
+        set $backend_upstream "http://${BACKEND_INTERNAL_HOST}:${BACKEND_INTERNAL_PORT}";
+        proxy_pass $backend_upstream$request_uri;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
+        gzip off;
+    }
+
     location /api/ {
         # Con proxy_pass apuntando a una VARIABLE (necesario para forzar la re-resolución de DNS),
         # nginx deja de anexar automáticamente la parte de la URL que matcheó este location — todo

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, inject, nextTick, ref } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { fieldTypeIcons, fieldTypeLabels, subtipoTablaLabels, columnTypeLabels, faTriangleExclamation, faClone, faTrash, faLightbulb, faWandMagicSparkles, faSpinner } from '@/lib/icons';
+import { fieldTypeIcons, fieldTypeLabels, subtipoTablaLabels, columnTypeLabels, faTriangleExclamation, faClone, faTrash, faLightbulb, faWandMagicSparkles, faSpinner, faCheck } from '@/lib/icons';
 import { campoFaltaCaptura } from '@/lib/campoValidation';
 import { mejorarTexto } from '@/lib/mejoraTexto';
 import ExampleTableEditor from './ExampleTableEditor.vue';
@@ -9,8 +9,10 @@ import CampoCoordenadasInput from '@/components/CampoCoordenadasInput.vue';
 import CampoImagenInput from '@/components/CampoImagenInput.vue';
 import CampoListaInput from '@/components/CampoListaInput.vue';
 import CampoEstadoIA from '@/features/cliente/CampoEstadoIA.vue';
+import CampoBooleanoInput from '@/components/CampoBooleanoInput.vue';
 import { EXCEL_VIVO } from '@/composables/useListasExcel';
-import { etiquetaDeValor } from '@/lib/conversionesExcel';
+import { etiquetaDeValor, textoVisibleDeNumero } from '@/lib/conversionesExcel';
+import type { ModoEdicionEditor } from '@/composables/usePlantillaEditor';
 import type { Campo, ConfigTabla, EstadoCampoIA } from '@/types';
 
 const props = defineProps<{
@@ -38,6 +40,10 @@ const props = defineProps<{
   /** Hoja de Excel de la sección a la que pertenece el campo — hace falta para localizar su celda
    * y saber si tiene lista desplegable */
   hoja?: string;
+  /** Admin: live (default) | confirmar */
+  modoEdicion?: ModoEdicionEditor;
+  /** Borrador pendiente en modo confirmar (si existe, se muestra en el editor en vez del valor confirmado) */
+  valorBorrador?: string;
 }>();
 
 const emit = defineEmits<{
@@ -48,9 +54,13 @@ const emit = defineEmits<{
   'update-example-value': [value: string];
   'update-config-tabla': [config: ConfigTabla];
   'confirmar-ia': [];
+  'confirmar-borrador': [];
 }>();
 
 const valorEditorEl = ref<HTMLElement | null>(null);
+const tienePendiente = computed(
+  () => (props.modoEdicion ?? 'live') === 'confirmar' && props.valorBorrador !== undefined,
+);
 
 async function enfocarEditorValor() {
   await nextTick();
@@ -68,9 +78,33 @@ function onConfirmarIA() {
 
 const icon = computed(() => fieldTypeIcons[props.campo.tipo]);
 const typeLabel = computed(() => fieldTypeLabels[props.campo.tipo]);
-const displayValue = computed(() => props.exampleValue ?? props.campo.valorEjemplo);
+/** Valor mostrado en editores: borrador pendiente (modo confirmar) o el valor ya confirmado. */
+const displayValue = computed(() =>
+  props.valorBorrador !== undefined
+    ? props.valorBorrador
+    : (props.exampleValue ?? props.campo.valorEjemplo),
+);
+const valorDefaultMostrado = computed(() =>
+  props.valorBorrador !== undefined ? props.valorBorrador : (props.campo.valorEjemplo || ''),
+);
 const isTableField = computed(() => props.campo.tipo === 'tabla' || props.campo.tipo === 'tabla_jerarquica');
+// `configTabla.columnas` es plana: cada columna hija de un grupo (cabecera) o de un nivel
+// padre/hijo ya es una entrada propia ahí, así que contar sus elementos ya cuenta subcolumnas. La
+// columna dinámica (columnaDinamicaId) es la excepción: en el array cuenta como UNA entrada, pero
+// se renderiza como una columna física por período — hay que sumar esas de más y restar la entrada
+// original para no contarla dos veces.
+const numColumnasRenderizadas = computed(() => {
+  const cfg = props.campo.configTabla;
+  if (!cfg) return 0;
+  const base = cfg.columnas.length;
+  if (cfg.columnaDinamicaId && cfg.periodos && cfg.periodos.length > 1) {
+    return base - 1 + cfg.periodos.length;
+  }
+  return base;
+});
+const tablaAncha = computed(() => isTableField.value && numColumnasRenderizadas.value > 6);
 const isCoordField = computed(() => props.campo.tipo === 'mapa_coordenadas');
+const isBooleanoField = computed(() => props.campo.tipo === 'booleano');
 // Campo tipo imagen: el valor es una URL, pero se edita con vista previa y carga de archivo.
 const isImagenField = computed(() => props.campo.tipo === 'imagen');
 const faltaCaptura = computed(() => campoFaltaCaptura(props.campo));
@@ -91,9 +125,14 @@ const opcionesExcel = computed(() =>
 const tieneLista = computed(() => (opcionesExcel.value?.length ?? 0) > 0);
 
 // El valor guardado ya es la palabra del Excel; la traducción solo entra para lo que se guardó
-// antes con la forma canónica 'true'/'false' (ver etiquetaDeValor).
+// antes con la forma canónica 'true'/'false' (ver etiquetaDeValor). Si la celda tiene máscara
+// (`"E-"00`) y el JSON aún trae el crudo (`1`), se muestra como en Excel (E-01).
 function mostrado(valor: string | undefined): string {
-  return etiquetaDeValor(valor || '', opcionesExcel.value, props.campo.etiquetasBooleano);
+  const base = etiquetaDeValor(valor || '', opcionesExcel.value, props.campo.etiquetasBooleano);
+  const fmt = celdaExcel.value
+    ? excel?.value?.codigoFormato?.(celdaExcel.value.hoja, celdaExcel.value.ref)
+    : undefined;
+  return textoVisibleDeNumero(base, fmt) ?? base;
 }
 
 // Celda con fórmula: el Excel manda. No se escribe nunca (el escritor ya respeta las fórmulas del
@@ -102,6 +141,14 @@ const calculoExcel = computed(() =>
   celdaExcel.value ? excel?.value?.calculado(celdaExcel.value.hoja, celdaExcel.value.ref) : undefined,
 );
 const esCalculadaPorExcel = computed(() => calculoExcel.value !== undefined);
+// Preferimos el resultado vivo; si no hay (fórmula no soportada / sin caché en el Excel asignado),
+// usamos el valor volcado o el valor por defecto ya guardado en el JSON.
+const textoCalculadoMostrar = computed(() => {
+  const vivo = calculoExcel.value?.texto?.trim() ?? '';
+  if (vivo) return vivo;
+  const guardado = (displayValue.value || '').trim();
+  return guardado || '';
+});
 const esCampoTexto = computed(() => props.campo.tipo === 'texto_corto' || props.campo.tipo === 'texto_largo');
 const esTextoLargo = computed(() => props.campo.tipo === 'texto_largo');
 
@@ -126,6 +173,67 @@ function usarSugerencia() {
 function handleClick() {
   if (props.clickable) emit('click');
 }
+
+/** Al enfocar un input/celda dentro del card, se selecciona el campo entero (propiedades, borde, etc.). */
+function handleFocusIn() {
+  if (props.clickable && !props.isSelected) emit('click');
+}
+
+const claseContenedor = computed(() => {
+  // border-2 fijo siempre: el resaltado va con outline/inset para no cambiar el box model ni empujar vecinos.
+  if (faltaCaptura.value && props.highlightWarning) {
+    return 'border-red-400 bg-red-50/40 animate-pulse';
+  }
+  if (props.isSelected) {
+    return 'border-brand-500 bg-brand-50/30 outline outline-2 outline-brand-500 -outline-offset-2 shadow-[inset_0_0_14px_rgba(34,197,94,0.28)]';
+  }
+  // Tras llenado IA: el card entero refleja el estado (ver mock Extraído / Inferido / No encontrado).
+  switch (props.estadoIA) {
+    case 'extraido':
+      return 'border-emerald-200 bg-emerald-50/60';
+    case 'inferido':
+      return 'border-sky-200 bg-sky-50/60';
+    case 'requiere_confirmacion':
+      return 'border-amber-200 bg-amber-50/50';
+    case 'no_encontrado':
+      return 'border-rose-200 bg-rose-50/60';
+    default:
+      return 'border-gray-100 bg-white';
+  }
+});
+
+/** Caja "Valor de ejemplo": tinte acorde al estado IA (sin pisar el ámbar de borrador pendiente). */
+const claseCajaEjemplo = computed(() => {
+  if (tienePendiente.value) return 'bg-amber-50/70 border-amber-300';
+  switch (props.estadoIA) {
+    case 'extraido':
+      return 'bg-emerald-50/90 border-emerald-200';
+    case 'inferido':
+      return 'bg-sky-50/90 border-sky-200';
+    case 'requiere_confirmacion':
+      return 'bg-amber-50/80 border-amber-200';
+    case 'no_encontrado':
+      return 'bg-rose-50/80 border-rose-200';
+    default:
+      return 'bg-brand-100/70 border-brand-200';
+  }
+});
+
+const claseLabelEjemplo = computed(() => {
+  if (tienePendiente.value) return 'text-amber-700';
+  switch (props.estadoIA) {
+    case 'extraido':
+      return 'text-emerald-700';
+    case 'inferido':
+      return 'text-sky-700';
+    case 'requiere_confirmacion':
+      return 'text-amber-700';
+    case 'no_encontrado':
+      return 'text-rose-700';
+    default:
+      return 'text-brand-600';
+  }
+});
 </script>
 
 <template>
@@ -135,8 +243,9 @@ function handleClick() {
   <div
     v-if="campo.tipo === 'nota'"
     @click="handleClick"
-    class="rounded-xl border-2 p-4 transition-all"
-    :class="[isSelected ? 'border-brand-500 bg-brand-50/30 shadow-sm' : 'border-gray-100 bg-white', clickable ? 'cursor-pointer' : '']"
+    @focusin="handleFocusIn"
+    class="rounded-xl border-2 p-4 transition-[background-color,border-color,outline-color,box-shadow] duration-150"
+    :class="[claseContenedor, clickable ? 'cursor-pointer' : '']"
   >
     <div class="flex items-start gap-3">
       <p class="flex-1 min-w-0 font-semibold text-heading text-sm whitespace-pre-wrap break-words">
@@ -156,15 +265,9 @@ function handleClick() {
   <div
     v-else
     @click="handleClick"
-    class="rounded-xl border-2 p-4 transition-all"
-    :class="[
-      faltaCaptura && highlightWarning
-        ? 'border-red-400 bg-red-50/40 shadow-sm animate-pulse'
-        : isSelected
-          ? 'border-brand-500 bg-brand-50/30 shadow-sm'
-          : 'border-gray-100 bg-white',
-      clickable ? 'cursor-pointer' : '',
-    ]"
+    @focusin="handleFocusIn"
+    class="rounded-xl border-2 p-4 transition-[background-color,border-color,outline-color,box-shadow] duration-150"
+    :class="[claseContenedor, clickable ? 'cursor-pointer' : '']"
   >
     <div class="flex items-start gap-3">
       <div
@@ -200,7 +303,6 @@ function handleClick() {
             v-if="estadoIA"
             :estado="estadoIA"
             :editable="editableExample"
-            @ver-detalle="enfocarEditorValor"
             @confirmar="onConfirmarIA"
             @agregar-valor="enfocarEditorValor"
           />
@@ -239,46 +341,71 @@ function handleClick() {
         <!-- Celda que el Excel calcula solo: no se edita, se muestra el resultado en vivo. Aplica
              igual en Estructura y en Ejemplos — en Ejemplos reemplaza al input de "Valor de
              ejemplo", porque teclear ahí no tendría efecto: al insertar en el Excel las fórmulas se
-             respetan y se recalculan solas. -->
+             respetan y se recalculan solas. Si la mini-calculadora no cubre la fórmula, se muestra
+             el valor volcado/cacheado (displayValue) cuando exista. -->
         <div v-if="(editableDefault || showExampleValue) && esCalculadaPorExcel" class="mt-2 p-2.5 rounded-lg bg-sky-50/60 border border-sky-200" @click.stop>
           <span class="text-[10px] font-bold uppercase tracking-wider text-sky-700 flex items-center gap-1">
             <FontAwesomeIcon :icon="fieldTypeIcons.calculado" class="w-2.5 h-2.5" />
             Lo calcula el Excel
           </span>
-          <p v-if="calculoExcel && !calculoExcel.soportado" class="text-xs text-sky-800/70 italic mt-1">
+          <p v-if="textoCalculadoMostrar" class="text-sm text-heading mt-1 break-words whitespace-pre-wrap">{{ textoCalculadoMostrar }}</p>
+          <p v-else-if="calculoExcel?.error" class="text-xs text-amber-700 mt-1 font-mono">{{ calculoExcel.error }}</p>
+          <p v-else-if="calculoExcel && !calculoExcel.soportado" class="text-xs text-sky-800/70 italic mt-1">
             La fórmula de esta celda usa algo que todavía no sabemos calcular — su valor aparecerá al abrir el Excel.
           </p>
-          <p v-else-if="calculoExcel?.error" class="text-xs text-amber-700 mt-1 font-mono">{{ calculoExcel.error }}</p>
-          <p v-else-if="calculoExcel?.texto" class="text-sm text-heading mt-1 break-words whitespace-pre-wrap">{{ calculoExcel.texto }}</p>
           <p v-else class="text-xs text-muted italic mt-1">Vacío — depende de otros campos que aún no tienen valor.</p>
         </div>
 
-        <div v-else-if="editableDefault" class="mt-2 p-2.5 rounded-lg bg-gray-50 border border-gray-200" @click.stop>
-          <span class="text-[10px] font-bold uppercase tracking-wider text-gray-500">Valor por defecto</span>
+        <div
+          v-else-if="editableDefault && !tablaAncha"
+          class="mt-2 p-2.5 rounded-lg border"
+          :class="tienePendiente ? 'bg-amber-50/70 border-amber-300' : 'bg-gray-50 border-gray-200'"
+          @click.stop
+        >
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-[10px] font-bold uppercase tracking-wider text-gray-500">Valor por defecto</span>
+            <button
+              v-if="tienePendiente"
+              type="button"
+              @click.stop="emit('confirmar-borrador')"
+              class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-brand-600 text-white hover:bg-brand-700 transition-colors"
+            >
+              <FontAwesomeIcon :icon="faCheck" class="w-2.5 h-2.5" />
+              Confirmar
+            </button>
+          </div>
           <div v-if="isCoordField" class="mt-1.5">
-            <CampoCoordenadasInput :value="campo.valorEjemplo || ''" @change="emit('update-default-value', $event)" />
+            <CampoCoordenadasInput :value="valorDefaultMostrado" @change="emit('update-default-value', $event)" />
           </div>
           <div v-else-if="isImagenField" class="mt-1.5">
-            <CampoImagenInput :value="campo.valorEjemplo || ''" @change="emit('update-default-value', $event)" />
+            <CampoImagenInput :value="valorDefaultMostrado" @change="emit('update-default-value', $event)" />
           </div>
           <ExampleTableEditor
             v-else-if="isTableField && campo.configTabla"
             :config="(campo.configTabla as ConfigTabla)"
-            :model-value="campo.valorEjemplo || ''"
+            :model-value="valorDefaultMostrado"
             :puede-editar-periodos="true"
             :hoja="hoja"
             @update:model-value="emit('update-default-value', $event)"
             @update:config="emit('update-config-tabla', $event)"
           />
+          <div v-else-if="isBooleanoField" class="mt-1.5">
+            <CampoBooleanoInput
+              :value="valorDefaultMostrado"
+              :etiquetas="campo.etiquetasBooleano ?? { true: 'Sí', false: 'No' }"
+              variante="si_no"
+              @change="emit('update-default-value', $event)"
+            />
+          </div>
           <CampoListaInput
             v-else-if="tieneLista"
-            :value="mostrado(campo.valorEjemplo)"
+            :value="mostrado(valorDefaultMostrado)"
             :opciones="opcionesExcel ?? []"
             @change="emit('update-default-value', $event)"
           />
           <textarea
             v-else-if="esTextoLargo"
-            :value="campo.valorEjemplo || ''"
+            :value="valorDefaultMostrado"
             @input="emit('update-default-value', ($event.target as HTMLTextAreaElement).value)"
             rows="1"
             placeholder="Valor inicial por defecto..."
@@ -286,7 +413,7 @@ function handleClick() {
           />
           <input
             v-else
-            :value="campo.valorEjemplo || ''"
+            :value="valorDefaultMostrado"
             @input="emit('update-default-value', ($event.target as HTMLInputElement).value)"
             type="text"
             :placeholder="!campo.editable ? '=1.01.1+1.02.3' : 'Valor inicial por defecto...'"
@@ -295,24 +422,36 @@ function handleClick() {
         </div>
 
         <div
-          v-if="showExampleValue && !esCalculadaPorExcel"
+          v-if="showExampleValue && !esCalculadaPorExcel && !tablaAncha"
           ref="valorEditorEl"
-          class="mt-2 p-2.5 rounded-lg bg-brand-100/70 border border-brand-200"
+          class="mt-2 p-2.5 rounded-lg border"
+          :class="claseCajaEjemplo"
           @click.stop
         >
           <div class="flex items-center justify-between">
-            <span class="text-[10px] font-bold uppercase tracking-wider text-brand-600">Valor de ejemplo</span>
-            <button
-              v-if="editableExample && esCampoTexto && permiteMejoraIA !== undefined"
-              @click.stop="pedirMejoraIA"
-              :disabled="!permiteMejoraIA || cargandoIA || !(displayValue || '').trim()"
-              type="button"
-              :title="!permiteMejoraIA ? 'Disponible desde Nivel 1 — actualiza tu plan' : undefined"
-              class="inline-flex items-center gap-1 text-[10px] font-medium text-violet-600 hover:text-violet-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              <FontAwesomeIcon :icon="cargandoIA ? faSpinner : faWandMagicSparkles" class="w-2.5 h-2.5" :class="cargandoIA ? 'animate-spin' : ''" />
-              Mejorar con IA
-            </button>
+            <span class="text-[10px] font-bold uppercase tracking-wider" :class="claseLabelEjemplo">Valor de ejemplo</span>
+            <div class="flex items-center gap-2">
+              <button
+                v-if="tienePendiente"
+                type="button"
+                @click.stop="emit('confirmar-borrador')"
+                class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-brand-600 text-white hover:bg-brand-700 transition-colors"
+              >
+                <FontAwesomeIcon :icon="faCheck" class="w-2.5 h-2.5" />
+                Confirmar
+              </button>
+              <button
+                v-if="editableExample && esCampoTexto && permiteMejoraIA !== undefined"
+                @click.stop="pedirMejoraIA"
+                :disabled="!permiteMejoraIA || cargandoIA || !(displayValue || '').trim()"
+                type="button"
+                :title="!permiteMejoraIA ? 'Disponible desde Nivel 1 — actualiza tu plan' : undefined"
+                class="inline-flex items-center gap-1 text-[10px] font-medium text-violet-600 hover:text-violet-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                <FontAwesomeIcon :icon="cargandoIA ? faSpinner : faWandMagicSparkles" class="w-2.5 h-2.5" :class="cargandoIA ? 'animate-spin' : ''" />
+                Mejorar con IA
+              </button>
+            </div>
           </div>
           <!-- Tabla/coordenadas/imagen tienen forma propia — un volcado de texto plano mostraría el
                JSON crudo de la tabla, ilegible. Siempre se renderiza el widget real; si no es
@@ -343,6 +482,14 @@ function handleClick() {
               v-if="tieneLista"
               :value="mostrado(displayValue)"
               :opciones="opcionesExcel ?? []"
+              :editable="editableExample"
+              @change="emit('update-example-value', $event)"
+            />
+            <CampoBooleanoInput
+              v-else-if="isBooleanoField"
+              :value="displayValue || ''"
+              :etiquetas="campo.etiquetasBooleano ?? { true: 'Sí', false: 'No' }"
+              variante="si_no"
               :editable="editableExample"
               @change="emit('update-example-value', $event)"
             />
@@ -424,6 +571,69 @@ function handleClick() {
           <FontAwesomeIcon :icon="faTrash" class="w-3 h-3" />
         </button>
       </div>
+    </div>
+
+    <!-- Tablas de más de 6 columnas (subcolumnas incluidas) se apretaban en el ancho de la columna
+         de contenido, angosta por el icono a la izquierda y los botones a la derecha. Como bloque
+         aparte, fuera de esa fila, puede ignorar el padding de la tarjeta (-mx-4) y ocupar su ancho
+         completo en vez de quedar comprimida. -->
+    <div
+      v-if="tablaAncha && editableDefault && !esCalculadaPorExcel"
+      class="mt-2 -mx-4 py-2.5 border-t border-b"
+      :class="tienePendiente ? 'bg-amber-50/70 border-amber-300' : 'bg-gray-50 border-gray-200'"
+      @click.stop
+    >
+      <div class="flex items-center justify-between gap-2 px-1.5">
+        <span class="text-[10px] font-bold uppercase tracking-wider text-gray-500">Valor por defecto</span>
+        <button
+          v-if="tienePendiente"
+          type="button"
+          @click.stop="emit('confirmar-borrador')"
+          class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-brand-600 text-white hover:bg-brand-700 transition-colors"
+        >
+          <FontAwesomeIcon :icon="faCheck" class="w-2.5 h-2.5" />
+          Confirmar
+        </button>
+      </div>
+      <ExampleTableEditor
+        v-if="campo.configTabla"
+        :config="(campo.configTabla as ConfigTabla)"
+        :model-value="valorDefaultMostrado"
+        :puede-editar-periodos="true"
+        :hoja="hoja"
+        class="mt-1.5"
+        @update:model-value="emit('update-default-value', $event)"
+        @update:config="emit('update-config-tabla', $event)"
+      />
+    </div>
+    <div
+      v-if="tablaAncha && showExampleValue && !esCalculadaPorExcel"
+      ref="valorEditorEl"
+      class="mt-2 -mx-4 py-2.5 border-t border-b"
+      :class="claseCajaEjemplo"
+      @click.stop
+    >
+      <div class="flex items-center justify-between px-1.5">
+        <span class="text-[10px] font-bold uppercase tracking-wider" :class="claseLabelEjemplo">Valor de ejemplo</span>
+        <button
+          v-if="tienePendiente"
+          type="button"
+          @click.stop="emit('confirmar-borrador')"
+          class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-brand-600 text-white hover:bg-brand-700 transition-colors"
+        >
+          <FontAwesomeIcon :icon="faCheck" class="w-2.5 h-2.5" />
+          Confirmar
+        </button>
+      </div>
+      <fieldset :disabled="!editableExample" class="m-0 p-0 border-0 min-w-0 mt-1.5">
+        <ExampleTableEditor
+          v-if="campo.configTabla"
+          :config="(campo.configTabla as ConfigTabla)"
+          :model-value="displayValue || ''"
+          :hoja="hoja"
+          @update:model-value="emit('update-example-value', $event)"
+        />
+      </fieldset>
     </div>
   </div>
 </template>

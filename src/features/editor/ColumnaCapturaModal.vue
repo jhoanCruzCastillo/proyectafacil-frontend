@@ -108,9 +108,11 @@ function quitarSub(idx: number) {
 
 <template>
   <Transition name="fade">
-    <div v-if="isOpen && columna" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" @click="emit('close')">
+    <!-- Sin cierre por click en el backdrop: al seleccionar texto en un input y soltar
+         fuera, el click termina en el overlay y cerraba el modal por accidente. -->
+    <div v-if="isOpen && columna" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <Transition name="pop" appear>
-        <div class="bg-white rounded-2xl shadow-modal w-full max-w-xs" @click.stop>
+        <div class="bg-white rounded-2xl shadow-modal w-full max-w-xs">
           <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100">
             <div class="flex items-center gap-2">
               <FontAwesomeIcon :icon="faGear" class="w-3.5 h-3.5 text-brand-600" />
@@ -148,6 +150,32 @@ function quitarSub(idx: number) {
                   />
                 </div>
               </div>
+            </div>
+
+            <!-- Booleano: Sí/No (dos opciones) vs casilla (un círculo, como OptionButton de Excel) -->
+            <div v-if="!soloGrupo && columna.tipo === 'booleano'" class="pt-3 border-t border-gray-100 space-y-2">
+              <p class="text-[10px] font-medium text-muted">Presentación</p>
+              <div class="flex rounded-lg border border-gray-200 overflow-hidden">
+                <button
+                  type="button"
+                  class="flex-1 px-2 py-1.5 text-[11px] font-medium transition-colors"
+                  :class="columna.etiquetasBooleano ? 'bg-brand-50 text-brand-700' : 'bg-white text-gray-500'"
+                  @click="emit('update-columna', { etiquetasBooleano: { true: 'Sí', false: 'No' } })"
+                >
+                  Sí / No
+                </button>
+                <button
+                  type="button"
+                  class="flex-1 px-2 py-1.5 text-[11px] font-medium border-l border-gray-200 transition-colors"
+                  :class="!columna.etiquetasBooleano ? 'bg-brand-50 text-brand-700' : 'bg-white text-gray-500'"
+                  @click="emit('update-columna', { etiquetasBooleano: undefined })"
+                >
+                  Casilla
+                </button>
+              </div>
+              <p class="text-[10px] text-muted leading-relaxed">
+                Casilla = un círculo (Rutinario / Periódico / Correctivo). Sí/No = dos opciones (plan operativo).
+              </p>
             </div>
 
             <!-- Celdas partidas: no aplica a la columna dinámica (ya se expande por período) -->

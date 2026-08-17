@@ -1,10 +1,16 @@
 ﻿import { leerLibroXlsx, type CeldaLeida, type LibroLeido } from './xlsxXmlReader';
 import { leerImagenesDeHoja, imagenParaFila, type ImagenIncrustada } from './xlsxImageReader';
-import { aFechaISO, aAnio, aPorcentaje } from './conversionesExcel';
+import {
+  indiceControlesBooleanos,
+  valorBooleanoVolcado,
+  type IndiceControlesBooleanos,
+} from './xlsxControlsReader';
+import { aFechaISO, aAnio, aPorcentaje, textoVisibleDeNumero } from './conversionesExcel';
 import { parseCoords, serializarCoords } from './coords';
 import {
-  esCeldaPartida, esJerarquica, getPeriodos, parseTree, posicionesArbol, posicionDe, agrupadorProfundidad, posicionesGrupos, alturaFilaBase,
-  type FilaDinamica, type GrupoFilas, type TreeNode,
+  esCeldaPartida, esJerarquica, getPeriodos, parseTree, posicionesArbol, posicionDe, agrupadorProfundidad, posicionesGrupos, alturaFilaBase, repartoAgrupador,
+  esBooleanoCasilla,
+  type FilaDinamica, type GrupoFilas, type TreeNode, type ValorCelda,
 } from './tableRowHelpers';
 import type { Plantilla, Campo, Seccion, ConfigTabla, ColumnaTabla, TipoCampo, TipoColumna } from '@/types';
 
@@ -118,6 +124,9 @@ function valorParaCampo(campo: Campo, celda: CeldaLeida): string | null {
   // Porcentaje: la celda guarda la fracción (0.011) y muestra 1.10%. Se guarda lo que se ve, igual
   // que con las fechas, que tampoco se guardan como el serial que trae el archivo.
   if (celda.esPorcentaje) return aPorcentaje(celda.valor, celda.decimales) ?? texto;
+  // Formato personalizado (`"E-"00` → E-01, miles, etc.): misma regla — se guarda lo visible.
+  const conMascara = textoVisibleDeNumero(celda.valor, celda.codigoFormato);
+  if (conMascara !== null) return conMascara;
 
   switch (campo.tipo) {
     // 'booleano' NO se convierte: se guarda la palabra que trae el Excel ("Sí"), que es la misma
@@ -151,9 +160,11 @@ function valorParaColumna(tipo: TipoColumna, celda: CeldaLeida): string {
   if (celda.soloAnio) return aAnio(celda.valor, true) ?? '';
   if (celda.esFecha) return aFechaISO(celda.valor, true) ?? '';
   if (celda.esPorcentaje) return aPorcentaje(celda.valor, celda.decimales) ?? texto;
+  const conMascara = textoVisibleDeNumero(celda.valor, celda.codigoFormato);
+  if (conMascara !== null) return conMascara;
 
   switch (tipo) {
-    // 'booleano': igual que en valorParaCampo, se conserva el texto del Excel.
+    // 'booleano': el texto del Excel ("Sí") o, más abajo, el control/OptionButton.
     case 'fecha':
       return aFechaISO(celda.valor, false) ?? texto;
     case 'numero':
@@ -164,6 +175,33 @@ function valorParaColumna(tipo: TipoColumna, celda: CeldaLeida): string {
     default:
       return celda.valor;
   }
+}
+
+/**
+ * Booleano en volcado: la celda de captura suele estar vacía porque el dato vive en un
+ * OptionButton/CheckBox (FmlaLink o ctrlProp). Se resuelve por la celda donde se dibuja el control.
+ */
+function leerValorBooleano(
+  libro: LibroVolcado,
+  hoja: string,
+  columna: string,
+  fila: number,
+  controles: IndiceControlesBooleanos,
+  etiquetas?: { true: string; false: string } | null,
+  abarcaColumnas = 1,
+  /** Campo suelto Sí/No: la columna siguiente marcada cuenta como No */
+  parSiNo = false,
+): string {
+  const celda = celdaVolcable(libro, hoja, `${columna}${fila}`);
+  return valorBooleanoVolcado({
+    textoCelda: celda?.valor ?? '',
+    columna,
+    fila,
+    abarcaColumnas,
+    etiquetas,
+    controles,
+    parSiNo: parSiNo || (abarcaColumnas >= 2 && !!etiquetas),
+  });
 }
 
 // --- Tablas ---
@@ -227,12 +265,25 @@ function columnasExcelDe(col: ColumnaTabla): string[] {
 // Lee una columna partida (4.8): cada parte desde su propia celda. La FORMA del resultado la decide
 // el dato, igual que en el documento — si solo la primera parte trae algo, el Excel tenía la celda
 // fusionada y devolvemos texto plano; si hay dato en otra parte, estaba partida y devolvemos objeto.
-function leerCeldaPartida(libro: LibroVolcado, hoja: string, col: ColumnaTabla, filaFisica: number): string | Record<string, string> {
+function leerCeldaPartida(
+  libro: LibroVolcado,
+  hoja: string,
+  col: ColumnaTabla,
+  filaFisica: number,
+  controles: IndiceControlesBooleanos = new Map(),
+): string | Record<string, string> {
   const partes: Record<string, string> = {};
   let algunaExtra = false;
   col.subcolumnas!.forEach((sub, i) => {
-    const celda = sub.columnaExcel ? celdaVolcable(libro, hoja, `${sub.columnaExcel}${filaFisica}`) : undefined;
-    const v = celda ? valorParaColumna(sub.tipo, celda) : '';
+    let v = '';
+    if (sub.columnaExcel) {
+      v = sub.tipo === 'booleano'
+        ? leerValorBooleano(libro, hoja, sub.columnaExcel, filaFisica, controles)
+        : (() => {
+          const celda = celdaVolcable(libro, hoja, `${sub.columnaExcel}${filaFisica}`);
+          return celda ? valorParaColumna(sub.tipo, celda) : '';
+        })();
+    }
     partes[sub.id] = v;
     if (i > 0 && v !== '') algunaExtra = true;
   });
@@ -263,6 +314,7 @@ function leerFilaTabla(
   config: ConfigTabla,
   filaFisica: number,
   periodos: string[] = [],
+  controles: IndiceControlesBooleanos = new Map(),
 ): FilaLeida {
   const valores: FilaDinamica = {};
   let tieneDatos = false;
@@ -279,14 +331,22 @@ function leerFilaTabla(
       continue;
     }
     if (col.subcolumnas?.length) {
-      const v = leerCeldaPartida(libro, hoja, col, filaFisica);
+      const v = leerCeldaPartida(libro, hoja, col, filaFisica, controles);
       valores[col.id] = v;
       if (typeof v === 'string' ? v !== '' : Object.values(v).some((p) => p !== '')) tieneDatos = true;
       continue;
     }
     if (!col.columnaExcel) { valores[col.id] = ''; continue; }
-    const celda = celdaVolcable(libro, hoja, `${col.columnaExcel}${filaFisica}`);
-    const v = celda ? valorParaColumna(col.tipo, celda) : '';
+    const v = col.tipo === 'booleano'
+      ? leerValorBooleano(
+        libro, hoja, col.columnaExcel, filaFisica, controles,
+        col.etiquetasBooleano, col.abarcaColumnasExcel ?? 1,
+        !!col.etiquetasBooleano && !esBooleanoCasilla(col, config.columnas),
+      )
+      : (() => {
+        const celda = celdaVolcable(libro, hoja, `${col.columnaExcel}${filaFisica}`);
+        return celda ? valorParaColumna(col.tipo, celda) : '';
+      })();
     valores[col.id] = v;
     if (v !== '') tieneDatos = true;
   }
@@ -333,6 +393,7 @@ function leerTablaSimple(
   filaFisicaInicial: number,
   periodos: string[] = [],
   detectarCrecimiento = true,
+  controles: IndiceControlesBooleanos = new Map(),
 ): TablaLeida {
   const filasBase = config.captura!.filasBase!;
   // Cada fila BASE ocupa `alto` filas físicas de Excel (4.10) — 1 salvo que la tabla declare
@@ -356,7 +417,7 @@ function leerTablaSimple(
   }
 
   for (let i = 0; i < filasBase; i++) {
-    const fila = leerFilaTabla(libro, hoja, config, filaFisicaInicial + i * alto, periodos);
+    const fila = leerFilaTabla(libro, hoja, config, filaFisicaInicial + i * alto, periodos, controles);
     filas.push(fila.valores);
     if (fila.tieneDatos) filasConDatos++;
   }
@@ -368,7 +429,7 @@ function leerTablaSimple(
   while (detectarCrecimiento && filasExtra < MAX_FILAS_EXTRA) {
     const filaFisica = filaFisicaInicial + (filasBase + filasExtra) * alto;
     if (!esDeLaMismaTabla(libro, hoja, config.columnas, filaFisica, estilosBase)) break;
-    const fila = leerFilaTabla(libro, hoja, config, filaFisica, periodos);
+    const fila = leerFilaTabla(libro, hoja, config, filaFisica, periodos, controles);
     if (!fila.tieneDatos) break;
     filas.push(fila.valores);
     filasConDatos++;
@@ -406,7 +467,14 @@ function rellenarGrupos(
   actuales: GrupoFilas[],
   filaFisicaInicial: number,
   periodos: string[],
+  controles: IndiceControlesBooleanos = new Map(),
 ): TablaAgrupadaLeida {
+  // Misma ancla que el escritor: la fila de título arranca en `columnaInicial` (o la primera
+  // columna con Excel) y se fusiona `agrupadorAbarcaColumnas` columnas reales — ahí vive el
+  // "Nombre del grupo". Las celdas libres a la derecha (`primeraCabeceraLibre`) son valoresGrupo.
+  const columnaInicial = config.captura?.columnaInicial
+    ?? config.columnas.find((c) => c.columnaExcel)?.columnaExcel;
+  const reparto = repartoAgrupador(config, periodos);
   const primera = config.columnas.find((c) => c.columnaExcel)?.columnaExcel;
   const posiciones = posicionesGrupos(actuales, filaFisicaInicial, (fila) =>
     alturaFilaBase(config, primera ? libro.fusion(hoja, `${primera}${fila}`)?.filas : undefined),
@@ -417,16 +485,40 @@ function rellenarGrupos(
     const pos = posiciones[gi];
     const salida: GrupoFilas = { grupo: g.grupo, filas: [] };
 
-    // Fila de título: puede traer valores propios en las columnas libres a su derecha.
     if (pos?.filaTitulo != null) {
-      const propios = leerFilaTabla(libro, hoja, config, pos.filaTitulo, periodos);
-      if (propios.tieneDatos) { salida.valoresGrupo = propios.valores; filasConDatos++; }
+      // Nombre del grupo: celda ancla de la fusión de título (no es una columna de datos).
+      if (columnaInicial) {
+        const celdaNombre = celdaVolcable(libro, hoja, `${columnaInicial}${pos.filaTitulo}`);
+        const nombre = celdaNombre ? valorParaColumna('texto_corto', celdaNombre).trim() : '';
+        if (nombre !== '') {
+          salida.grupo = nombre;
+          filasConDatos++;
+        }
+      }
+
+      // Solo las cabeceras a la derecha del corte del título — espejo de GroupedRowsEditor /
+      // excelWriter (repartoAgrupador). Si leemos todas las columnas, el texto del título caería
+      // en la primera columna de valoresGrupo y el nombre del grupo seguiría vacío.
+      const filaTitulo = leerFilaTabla(libro, hoja, config, pos.filaTitulo, periodos, controles);
+      const valoresGrupo: FilaDinamica = {};
+      let tienePropios = false;
+      for (let i = reparto.primeraCabeceraLibre; i < config.columnas.length; i++) {
+        const col = config.columnas[i];
+        const v = filaTitulo.valores[col.id];
+        if (v === undefined) continue;
+        valoresGrupo[col.id] = v;
+        if (valorCeldaConDato(v)) tienePropios = true;
+      }
+      if (tienePropios) {
+        salida.valoresGrupo = valoresGrupo;
+        filasConDatos++;
+      }
     }
 
     salida.filas = g.filas.map((fila, fi) => {
       const f = pos?.filas[fi];
       if (f === undefined) return fila;
-      const leida = leerFilaTabla(libro, hoja, config, f, periodos);
+      const leida = leerFilaTabla(libro, hoja, config, f, periodos, controles);
       if (leida.tieneDatos) filasConDatos++;
       return leida.valores;
     });
@@ -434,6 +526,14 @@ function rellenarGrupos(
   });
 
   return { grupos, filasConDatos };
+}
+
+/** ¿Hay al menos un valor no vacío en una celda de fila (texto, períodos o partes)? */
+function valorCeldaConDato(v: ValorCelda | undefined): boolean {
+  if (v == null) return false;
+  if (typeof v === 'string') return v !== '';
+  if (Array.isArray(v)) return v.some((x) => x !== '');
+  return Object.values(v).some((x) => x !== '' && x != null);
 }
 
 // --- Tablas jerárquicas ---
@@ -464,6 +564,7 @@ function rellenarArbol(
   actuales: TreeNode[],
   filaInicial: number,
   periodos: string[],
+  controles: IndiceControlesBooleanos = new Map(),
 ): ArbolLeido {
   const agrupadorDepth = config.agrupador ? agrupadorProfundidad(config.columnas, config) : -1;
   const posiciones = posicionesArbol(actuales, config, hoja, filaInicial, agrupadorDepth, (h, columna, fila) =>
@@ -477,7 +578,15 @@ function rellenarArbol(
       return leerCeldasPeriodos(libro, hoja, col, fila, periodos);
     }
     const letra = columnasExcelDe(col)[0];
-    const celda = letra ? celdaVolcable(libro, hoja, `${letra}${fila}`) : undefined;
+    if (!letra) return '';
+    if (col.tipo === 'booleano') {
+      return leerValorBooleano(
+        libro, hoja, letra, fila, controles,
+        col.etiquetasBooleano, col.abarcaColumnasExcel ?? 1,
+        !!col.etiquetasBooleano && !esBooleanoCasilla(col, config.columnas),
+      );
+    }
+    const celda = celdaVolcable(libro, hoja, `${letra}${fila}`);
     return celda ? valorParaColumna(col.tipo ?? 'texto_corto', celda) : '';
   }
 
@@ -718,6 +827,14 @@ export async function leerValoresDeExcel(
   resultado.hojasFaltantes = Array.from(hojasFaltantes);
 
   for (const [hoja, tareas] of tareasPorHoja) {
+    // OptionButtons / CheckBoxes de la hoja (puntitos Sí/No y casillas). Se indexan una vez:
+    // la celda de captura suele estar vacía; el valor está en FmlaLink o ctrlProp.
+    const controles = await indiceControlesBooleanos(
+      libro.zip,
+      hoja,
+      (ref) => libro.celda(hoja, ref)?.valor,
+    );
+
     // Crecimientos detectados en esta hoja, en coordenadas de la plantilla original:
     // todo lo que esté debajo de una tabla crecida se lee más abajo de donde la estructura dice.
     const crecimientos: { despuesDeFila: number; cantidad: number }[] = [];
@@ -740,7 +857,7 @@ export async function leerValoresDeExcel(
       // Jerárquica: la forma la dicta la estructura, no el Excel. Solo se rellenan los valores.
       if (esJerarquica(config.subtipo)) {
         const actuales = parseTree(raw ?? '', config.columnas, config);
-        const lectura = rellenarArbol(libro, hoja, config, actuales, filaFisica, periodos);
+        const lectura = rellenarArbol(libro, hoja, config, actuales, filaFisica, periodos, controles);
         if (lectura.filasConDatos === 0) continue;
         resultado.valores[campo.identificador] = JSON.stringify(lectura.nodos);
         resultado.tablasLeidas++;
@@ -750,7 +867,7 @@ export async function leerValoresDeExcel(
 
       // Agrupada: la forma la declara la estructura y el Excel solo aporta valores (ver rellenarGrupos).
       if (config.agrupador) {
-        const lectura = rellenarGrupos(libro, hoja, config, parseGruposActuales(raw), filaFisica, periodos);
+        const lectura = rellenarGrupos(libro, hoja, config, parseGruposActuales(raw), filaFisica, periodos, controles);
         if (lectura.filasConDatos === 0) continue;
         resultado.valores[campo.identificador] = JSON.stringify(fusionarGrupos(parseGruposActuales(raw), lectura.grupos, config));
         resultado.tablasLeidas++;
@@ -759,7 +876,7 @@ export async function leerValoresDeExcel(
       }
 
       // Plana (con o sin columnas dinámicas). Solo la variante simple detecta filas insertadas.
-      const lectura = leerTablaSimple(libro, hoja, config, filaFisica, periodos, esTablaPlanaSimple(config));
+      const lectura = leerTablaSimple(libro, hoja, config, filaFisica, periodos, esTablaPlanaSimple(config), controles);
       if (lectura.filasExtra > 0) {
         // `filasExtra` cuenta filas BASE; el desplazamiento real de lo que sigue en la hoja es en
         // filas FÍSICAS, así que hay que multiplicar por lo que ocupa cada fila base (4.10).
@@ -802,13 +919,43 @@ export async function leerValoresDeExcel(
       if (TIPOS_TABLA.includes(campo.tipo)) continue;
       // Las imágenes ya se resolvieron arriba, por anclaje y no por celda.
       if (campo.tipo === 'imagen') continue;
-      // Un campo calculado guarda su fórmula (ej. "=6.01.10-6.01.01"), no un dato tecleado:
-      // sobrescribirlo con el número que Excel dejó cacheado rompería el cálculo.
-      if (campo.tipo === 'calculado' || !campo.editable) continue;
       if (!campo.captura?.columna || !campo.captura.fila) continue;
 
       const fila = campo.captura.fila + shift(campo.captura.fila);
-      const celda = celdaVolcable(libro, hoja, `${campo.captura.columna}${fila}`);
+      const ref = `${campo.captura.columna}${fila}`;
+
+      // Calculado / no editable: no se "teclea" en el Excel (el escritor respeta la fórmula), pero
+      // sí traemos el valor cacheado del .xlsx para mostrarlo en la UI cuando nuestra mini-
+      // calculadora no puede evaluar VLOOKUP/IFERROR/etc. (p. ej. D104→LIMA vía Padron_web).
+      if (campo.tipo === 'calculado' || !campo.editable) {
+        const cache = libro.celda(hoja, ref);
+        if (!cache) {
+          if (libro.formulaDe(hoja, ref)) libro.sinCalcular.total++;
+          resultado.camposVacios++;
+          continue;
+        }
+        const valorCache = valorParaCampo(campo, cache);
+        if (valorCache === null) { resultado.camposVacios++; continue; }
+        resultado.valores[campo.identificador] = valorCache;
+        resultado.camposLeidos++;
+        continue;
+      }
+
+      // Booleano: la celda suele estar vacía; el dato está en OptionButton/CheckBox sobre esa celda
+      // (o el par Sí/No si captura abarca 2 columnas).
+      if (campo.tipo === 'booleano') {
+        const valor = leerValorBooleano(
+          libro, hoja, campo.captura.columna, fila, controles,
+          campo.etiquetasBooleano, campo.captura.abarcaColumnas ?? 1,
+          /* parSíNo */ !!campo.etiquetasBooleano,
+        );
+        if (valor === '') { resultado.camposVacios++; continue; }
+        resultado.valores[campo.identificador] = valor;
+        resultado.camposLeidos++;
+        continue;
+      }
+
+      const celda = celdaVolcable(libro, hoja, ref);
       if (!celda) { resultado.camposVacios++; continue; }
 
       const valor = valorParaCampo(campo, celda);

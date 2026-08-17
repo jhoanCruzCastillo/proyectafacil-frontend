@@ -17,6 +17,8 @@ import { calcularCelda, crearMemoCompartido, type ResultadoCelda } from '@/lib/e
 export interface ExcelVivo {
   /** Opciones del desplegable de esa celda, o undefined si no tiene o no se pudo resolver */
   opcionesDe(hoja: string, ref: string): string[] | undefined;
+  /** Código de formato numérico OOXML de la celda (`"E-"00`, …) */
+  codigoFormato(hoja: string, ref: string): string | undefined;
   /** Lo que el Excel calcularía en esa celda, o undefined si la celda no tiene fórmula */
   calculado(hoja: string, ref: string): ResultadoCelda | undefined;
   /**
@@ -120,6 +122,7 @@ export function useExcelVivo(
 
     return {
       opcionesDe: (hoja, ref) => catalogo.opcionesDe(hoja, ref),
+      codigoFormato: (hoja, ref) => l.codigoFormato(hoja, ref),
       altoDeBloque: (hoja, columna, fila) => (columna ? l.fusion(hoja, `${columna}${fila}`)?.filas : undefined),
       calculado: (hoja, ref) => {
         if (!valores) return undefined;
