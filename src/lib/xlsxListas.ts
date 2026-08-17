@@ -9,7 +9,8 @@
 //
 //   NivelGobierno              nombre definido -> Listas!$J$3:$J$5   (34 de 43)
 //   UBIGEO!$A$3:$A$1876        rango directo a una hoja oculta       (2 de 43)
-//   INDIRECT(Listas!$D$48)     depende del valor de otra celda       (7 de 43, solo Problema-Objetivo)
+//   INDIRECT(Listas!$D$48)              depende del valor de otra celda
+//   INDIRECT(VLOOKUP($C$54,…), TRUE)    igual, con 2º arg de estilo A1 (agro / Problema-Objetivo)
 //
 // Las dos primeras se resuelven aquí. Las dependientes se marcan como tales y se dejan pasar: sus
 // campos siguen siendo de texto libre y NUNCA se avisa de que su valor sea inválido, porque no
@@ -104,6 +105,29 @@ function argumentoDe(texto: string, posAbre: number): string | undefined {
   return undefined;
 }
 
+/**
+ * Primer argumento de una lista `a, b, …`, respetando paréntesis y comillas.
+ * Hace falta porque el Excel oficial escribe `INDIRECT(expr, TRUE)` (estilo A1) y el segundo
+ * argumento no aporta nada a la resolución de la lista — pero si se evalúa junto con el primero
+ * la expresión entera falla y la celda queda como texto libre.
+ */
+function primerArgumento(args: string): string {
+  let nivel = 0;
+  let enComillas = false;
+  for (let i = 0; i < args.length; i++) {
+    const ch = args[i];
+    if (ch === '"' && args[i - 1] !== '\\') {
+      enComillas = !enComillas;
+      continue;
+    }
+    if (enComillas) continue;
+    if (ch === '(') nivel++;
+    else if (ch === ')') nivel--;
+    else if (ch === ',' && nivel === 0) return args.slice(0, i).trim();
+  }
+  return args.trim();
+}
+
 function resolverFormula(
   libro: LibroLeido,
   formula: string,
@@ -125,14 +149,16 @@ function resolverFormula(
     return opciones.length > 0 ? { estado: 'resuelta', opciones } : undefined;
   }
 
-  // Lista dependiente: `INDIRECT(x)` donde x se calcula a partir de otras celdas. Se evalúa x con el
-  // motor de fórmulas —usando como entradas los valores que ya tenemos en la estructura— y el texto
-  // que devuelve es el nombre del rango con las opciones. Así la lista cambia sola cuando cambia el
-  // campo del que depende, igual que en Excel.
+  // Lista dependiente: `INDIRECT(x)` / `INDIRECT(x, TRUE)` donde x se calcula a partir de otras
+  // celdas. Se evalúa solo el primer argumento (el segundo, estilo A1/R1C1, no cambia el resultado
+  // aquí) con el motor de fórmulas —usando como entradas los valores que ya tenemos en la
+  // estructura— y el texto que devuelve es el nombre del rango con las opciones. Así la lista
+  // cambia sola cuando cambia el campo del que depende, igual que en Excel.
   const abre = /\b(?:INDIRECT|INDIRECTO)\s*\(/i.exec(texto);
   if (abre) {
-    const arg = argumentoDe(texto, abre.index + abre[0].length - 1);
-    const destino = arg ? evaluarTexto(libro, valores, hojaBase, arg, memoCompartido) : null;
+    const args = argumentoDe(texto, abre.index + abre[0].length - 1);
+    const expr = args ? primerArgumento(args) : '';
+    const destino = expr ? evaluarTexto(libro, valores, hojaBase, expr, memoCompartido) : null;
     // Sin destino todavía (el campo del que depende está vacío, o da #N/A) no hay opciones que
     // ofrecer: se marca como dependiente y el campo queda como texto libre.
     if (!destino) return { estado: 'dependiente' };
