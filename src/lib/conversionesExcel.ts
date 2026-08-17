@@ -8,8 +8,6 @@
 // (formato yyyy) contiene 45531 — el mismo tipo de número, interpretado distinto según el formato
 // de la celda. Sin un conversor explícito, esos números terminarían guardados tal cual.
 
-import XLSX from 'xlsx';
-
 // Excel cuenta los días desde el 1899-12-30. El desfase de 2 días respecto al 1900-01-01 esperado
 // absorbe el bug histórico del año bisiesto 1900 que Excel conserva por compatibilidad con
 // Lotus 1-2-3 (considera 1900 bisiesto cuando no lo es).
@@ -110,16 +108,83 @@ export function dePorcentaje(texto: string): number | null {
 //
 // Excel guarda el número crudo (1) y el formato de la celda decide lo que se ve (E-01). Igual que
 // con porcentajes y fechas: en la app guardamos lo que se VE, y al insertar recuperamos el número.
+// No usamos SheetJS/SSF aquí: en Vite el paquete `xlsx` no exporta SSF de forma usable y un
+// `import default` rompía el editor entero al cargar este módulo.
 
 function primeraSeccionFormato(codigo: string): string {
   return codigo.split(';')[0].trim();
 }
 
-/** General / texto: el número se muestra tal cual; no hay que pasar por SSF. */
+/** General / texto: el número se muestra tal cual; no hay que aplicar máscara. */
 export function esFormatoNumeroSinMascara(codigo: string | undefined): boolean {
   if (!codigo) return true;
   const c = primeraSeccionFormato(codigo);
   return c === '' || /^general$/i.test(c) || c === '@';
+}
+
+/**
+ * Subconjunto de formatos OOXML suficientes para las plantillas oficiales: literales entre
+ * comillas (`"E-"`), `0`/`#`, decimales, miles y `%`.
+ */
+function aplicarMascaraNumero(codigo: string, valor: number): string {
+  let plantilla = primeraSeccionFormato(codigo);
+  // Quitar colores/condiciones `[Red]`, `[$S/-180A]` — no afectan el texto base.
+  plantilla = plantilla.replace(/\[[^\]]*]/g, '');
+
+  const literales: string[] = [];
+  // Marcadores sin dígitos ni #/0 (si no, el patrón numérico se come el índice).
+  const marcar = () => `\u0001${String.fromCharCode(0xe000 + literales.length)}\u0001`;
+  const desmarcar = (s: string) =>
+    s.replace(/\u0001([\ue000-\ue0ff])\u0001/g, (_, ch: string) => literales[ch.charCodeAt(0) - 0xe000] ?? '');
+
+  plantilla = plantilla.replace(/"([^"]*)"/g, (_, lit: string) => {
+    const m = marcar();
+    literales.push(lit);
+    return m;
+  });
+  plantilla = plantilla.replace(/\\(.)/g, (_, c: string) => {
+    const m = marcar();
+    literales.push(c);
+    return m;
+  });
+
+  let n = valor;
+  const esPct = plantilla.includes('%');
+  if (esPct) {
+    n *= 100;
+    plantilla = plantilla.replace(/%/g, '');
+  }
+
+  const m = plantilla.match(/[#0][#0,.]*/);
+  if (!m || m.index === undefined) {
+    return desmarcar(plantilla) + String(n);
+  }
+
+  const patron = m[0];
+  const antes = plantilla.slice(0, m.index);
+  const despues = plantilla.slice(m.index + patron.length);
+
+  const parteEnteraPatron = patron.split('.')[0] ?? '';
+  const parteDecPatron = patron.includes('.') ? (patron.split('.')[1] ?? '') : '';
+  const decimales = (parteDecPatron.match(/[0#]/g) ?? []).length;
+  const minEnteros = (parteEnteraPatron.replace(/,/g, '').match(/0/g) ?? []).length;
+  const conMiles = parteEnteraPatron.includes(',');
+
+  const neg = n < 0;
+  const abs = Math.abs(n);
+  const fijo = decimales > 0 ? abs.toFixed(decimales) : String(Math.round(abs));
+  const [entStr, decStr = ''] = fijo.split('.');
+  let enteros = entStr.replace(/^0+(?=\d)/, '') || '0';
+  if (enteros.length < minEnteros) enteros = enteros.padStart(minEnteros, '0');
+  if (conMiles) {
+    enteros = enteros.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+
+  let numero = decimales > 0 ? `${enteros}.${decStr}` : enteros;
+  if (neg) numero = `-${numero}`;
+
+  const texto = desmarcar(`${antes}${numero}${despues}`);
+  return esPct ? `${texto}%` : texto;
 }
 
 /**
@@ -128,10 +193,13 @@ export function esFormatoNumeroSinMascara(codigo: string | undefined): boolean {
  */
 export function textoVisibleDeNumero(valor: string | number, codigoFormato?: string): string | null {
   if (!codigoFormato || esFormatoNumeroSinMascara(codigoFormato)) return null;
+  // Fechas/años se resuelven aparte (serial → ISO/año); aquí no tocar tokens d/m/y.
+  const tokens = primeraSeccionFormato(codigoFormato).replace(/"[^"]*"/g, '').replace(/\[[^\]]*\]/g, '');
+  if (/[dmy]/i.test(tokens)) return null;
   const n = typeof valor === 'number' ? valor : Number(String(valor).trim().replace(/\s/g, '').replace(',', '.'));
   if (!Number.isFinite(n)) return null;
   try {
-    return String(XLSX.SSF.format(primeraSeccionFormato(codigoFormato), n));
+    return aplicarMascaraNumero(codigoFormato, n);
   } catch {
     return null;
   }
@@ -150,11 +218,12 @@ export function numeroDesdeTextoVisible(texto: string): number | null {
   const plano = Number(t.replace(/\s/g, '').replace(',', '.'));
   if (Number.isFinite(plano) && /^-?\d+([.,]\d+)?$/.test(t.replace(/\s/g, ''))) return plano;
 
-  // Literales del formato (`E-01`, `S/ 12.5`): quedarse con el número embebido.
-  const m = t.replace(/\s/g, '').match(/-?\d+(?:[.,]\d+)?/);
+  // Literales del formato (`E-01`): el guion del prefijo no es signo negativo.
+  const m = t.replace(/\s/g, '').match(/\d+(?:[.,]\d+)?/);
   if (!m) return null;
   const n = Number(m[0].replace(',', '.'));
-  return Number.isFinite(n) ? n : null;
+  if (!Number.isFinite(n)) return null;
+  return /^-/.test(t.trim()) ? -n : n;
 }
 
 // --- Booleanos ---
