@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faSearch, faPlus, faCheck, faCircle, faInfoCircle, faTrash, faEye, faDownload, faBoxArchive, faCloudArrowUp, faFileImport } from '@/lib/icons';
+import { faSearch, faPlus, faCheck, faCircle, faInfoCircle, faTrash, faEye, faDownload, faBoxArchive, faCloudArrowUp, faFileImport, faStar } from '@/lib/icons';
 import type { Ejemplo } from '@/types';
 
 const props = defineProps<{
@@ -17,6 +17,7 @@ const emit = defineEmits<{
   delete: [ejemplo: Ejemplo];
   'toggle-estado': [ejemplo: Ejemplo];
   'volcar-excel': [ejemplo: Ejemplo];
+  'toggle-referencia-ia': [ejemplo: Ejemplo];
 }>();
 
 const search = ref('');
@@ -79,6 +80,15 @@ const filtered = computed(() =>
           >
             <FontAwesomeIcon :icon="ej.estado === 'publicado' ? faCloudArrowUp : faBoxArchive" class="w-2.5 h-2.5" />
             {{ ej.estado === 'publicado' ? 'Publicado' : 'Borrador' }}
+          </button>
+          <button
+            @click.stop="emit('toggle-referencia-ia', ej)"
+            type="button"
+            :title="ej.esReferenciaIA ? 'Ejemplo de referencia para IA — clic para quitar' : 'Usar como ejemplo de referencia para IA (few-shot del llenado automático)'"
+            class="flex w-7 h-7 rounded-md items-center justify-center transition-colors duration-75"
+            :class="ej.esReferenciaIA ? 'text-amber-500 hover:bg-amber-100' : 'text-gray-300 hover:bg-amber-50 hover:text-amber-500'"
+          >
+            <FontAwesomeIcon :icon="faStar" class="w-3.5 h-3.5" />
           </button>
           <button
             @click.stop="emit('volcar-excel', ej)"

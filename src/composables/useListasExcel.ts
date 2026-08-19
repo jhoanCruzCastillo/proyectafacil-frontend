@@ -27,6 +27,23 @@ export interface ExcelVivo {
    * ocupar un bloque de 2-3 filas ya fusionadas, y suponer 1 desalinea toda la tabla.
    */
   altoDeBloque(hoja: string, columna: string | undefined, fila: number): number | undefined;
+  /**
+   * Igual que `opcionesDe`, pero simulando que ciertas celdas tuvieran otro valor (sin tocar el
+   * campo real). Existe para catálogos en cascada de más de un nivel (ej. Sección 5 Problema-
+   * Objetivo: la causa indirecta depende de qué causa directa se elija, y esa elección todavía no
+   * se ha hecho cuando se le pide a la IA que la proponga) — permite "para cada opción posible de la
+   * celda de la que depende, ¿qué lista tendría esta otra celda?" sin escribir nada todavía.
+   * `overrides` usa la misma clave `hoja!REF` que `valoresPorCelda`.
+   */
+  opcionesDeConOverride(hoja: string, ref: string, overrides: Map<string, string>): string[] | undefined;
+  /**
+   * Igual que `calculado`, pero simulando que ciertas celdas tuvieran otro valor — para releer una
+   * columna `calculado` (ej. Departamento/Provincia/Distrito, VLOOKUP contra Ubigeo) justo después de
+   * editar la celda de la que depende, SIN esperar a que `valoresPorCelda` (con debounce de 300 ms)
+   * se ponga al día. Sin esto, leer `calculado()` en el mismo instante del cambio devuelve el
+   * resultado calculado con el valor VIEJO de la celda de la que depende.
+   */
+  calculadoConOverride(hoja: string, ref: string, overrides: Map<string, string>): ResultadoCelda | undefined;
 }
 
 export const EXCEL_VIVO: InjectionKey<ComputedRef<ExcelVivo | null>> = Symbol('excelVivo');
@@ -129,6 +146,21 @@ export function useExcelVivo(
         const clave = `${hoja}!${ref}`;
         if (!memoCalculado.has(clave)) memoCalculado.set(clave, calcularCelda(l, valores, hoja, ref, memoFormulas));
         return memoCalculado.get(clave);
+      },
+      opcionesDeConOverride: (hoja, ref, overrides) => {
+        // Simulación puntual: no se comparte el caché permanente de listas (sería incorrecto
+        // memorizar como "definitiva" una resolución que depende de un valor hipotético), pero sí
+        // se reutiliza el mismo libro ya descargado — no hay red de por medio, solo cómputo local.
+        const valoresSimulados = new Map(valores ?? new Map());
+        for (const [clave, valor] of overrides) valoresSimulados.set(clave, valor);
+        return catalogoDeListas(l, valoresSimulados, undefined, false).opcionesDe(hoja, ref);
+      },
+      calculadoConOverride: (hoja, ref, overrides) => {
+        const valoresSimulados = new Map(valores ?? new Map());
+        for (const [clave, valor] of overrides) valoresSimulados.set(clave, valor);
+        // Sin memo compartido, igual que opcionesDeConOverride: es una simulación puntual con un
+        // mapa hipotético, no algo que valga la pena memorizar para otras celdas.
+        return calcularCelda(l, valoresSimulados, hoja, ref, undefined);
       },
     };
   });

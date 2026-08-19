@@ -21,6 +21,8 @@ export function useEjemplosByPlantillaQuery(plantillaId: MaybeRefOrGetter<string
   return useQuery({
     queryKey: ['ejemplos', 'byPlantilla', plantillaId],
     queryFn: () => ejemplosApi.listByPlantilla(toValue(plantillaId)),
+    // Sin id la URL cae en `plantillas//ejemplos` (404) — mismo motivo que usePlantillaQuery.
+    enabled: () => !!toValue(plantillaId),
   });
 }
 
@@ -44,6 +46,15 @@ export function useEliminarEjemplo() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => ejemplosApi.remove(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['ejemplos'] }),
+  });
+}
+
+export function useMarcarReferenciaIA() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, activo }: { id: string; activo: boolean }) => ejemplosApi.marcarReferenciaIA(id, activo),
+    // Invalida TODOS los ejemplos (no solo este id): activar uno desmarca a sus hermanos server-side.
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['ejemplos'] }),
   });
 }

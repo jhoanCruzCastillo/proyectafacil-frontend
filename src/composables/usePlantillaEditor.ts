@@ -1,6 +1,6 @@
 import { type Ref, computed, provide, ref, watch } from 'vue';
 import { usePlantillaQuery, useActualizarPlantilla } from '@/composables/usePlantillas';
-import { useEjemplosByPlantillaQuery, useCrearEjemplo, useActualizarEjemplo, useEliminarEjemplo } from '@/composables/useEjemplos';
+import { useEjemplosByPlantillaQuery, useCrearEjemplo, useActualizarEjemplo, useEliminarEjemplo, useMarcarReferenciaIA } from '@/composables/useEjemplos';
 import { useCatalogoExcelQuery } from '@/composables/useArchivosExcel';
 import { useExcelEjemploQuery, useSetExcelEjemplo } from '@/composables/useExcelEjemplos';
 import { generateId } from '@/api/mock/_shared';
@@ -12,6 +12,7 @@ import { usePushActividad } from '@/composables/useActividad';
 import { useExcelVivo, useAltoDeBloqueExcel, EXCEL_VIVO, type ModoCalculoExcel } from '@/composables/useListasExcel';
 import { useMapaValoresExcelDebounced, type ResolverValorCampo } from '@/composables/useMapaValoresExcelDebounced';
 import { mensajeAvisoListas } from '@/lib/xlsxListas';
+import { alturaFilaBase } from '@/lib/tableRowHelpers';
 import { useAutoguardado } from '@/composables/useAutoguardado';
 import { useUiStore } from '@/stores/ui';
 import type { VersionTab, Campo, Plantilla, Ejemplo, Seccion, TipologiaIoarr } from '@/types';
@@ -44,6 +45,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
   const crearEjemplo = useCrearEjemplo();
   const actualizarEjemplo = useActualizarEjemplo();
   const eliminarEjemplo = useEliminarEjemplo();
+  const marcarReferenciaIA = useMarcarReferenciaIA();
   const { data: catalogoExcel } = useCatalogoExcelQuery(plantillaId);
   const setExcelEjemplo = useSetExcelEjemplo();
   const pushActividad = usePushActividad();
@@ -67,7 +69,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
   const rightWidth = ref(DEFAULT_RIGHT);
   const examplesWidth = ref(DEFAULT_EXAMPLES);
   const highlightMissingCaptura = ref(false);
-  const jsonPreview = ref<{ title: string; json: string } | null>(null);
+  const jsonPreview = ref<{ title: string; json: string; editable?: boolean; identificador?: string; error?: string } | null>(null);
   const showImportEstructura = ref(false);
 
   const ejemplos = computed(() => ejemplosData.value ?? []);
@@ -297,8 +299,63 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     if (!activeEjemplo.value && list.length > 0) activeEjemplo.value = list[0];
   }, { immediate: true });
 
+  /**
+   * Tras editar una tabla, releer las columnas `calculado` (ej. Departamento/Provincia/Distrito,
+   * VLOOKUP contra el Ubigeo de la misma fila) y guardar el resultado dentro del JSON de la fila —
+   * el Excel real sigue ganando siempre: excelWriter.ts nunca escribe una columna `calculado` sin
+   * importar lo que diga este valor (ver el guard explícito en writeFilaColumnas/writeArbol). Esto
+   * es solo para que "Ver JSON"/el resto del sistema vean el dato real en vez de una celda vacía.
+   *
+   * Alcance: solo `filas_dinamicas` sin agrupador (el caso de las 3 tablas de ubicación — 2.01.01,
+   * 2.02.01, 3.03.01). Tablas jerárquicas/agrupadas quedan fuera por ahora: su aritmética de fila
+   * física (bloques fusionados de alto variable) es otro cálculo, no el de este helper.
+   */
+  function recalcularColumnasCalculadas(campo: Campo, hoja: string | undefined, raw: string): string {
+    const config = campo.configTabla;
+    const excel = excelVivo.value;
+    const filaInicial = config?.captura?.filaInicial;
+    if (!config || !excel || !hoja || !filaInicial) return raw;
+    if (config.subtipo !== 'filas_dinamicas' || config.agrupador) return raw;
+    const calculadas = config.columnas.filter((c) => c.tipo === 'calculado' && c.columnaExcel);
+    if (calculadas.length === 0) return raw;
+
+    let filas: unknown;
+    try {
+      filas = JSON.parse(raw);
+    } catch {
+      return raw;
+    }
+    if (!Array.isArray(filas)) return raw;
+
+    const alto = alturaFilaBase(config);
+    const filasNuevas = filas.map((filaCruda, ri) => {
+      if (!filaCruda || typeof filaCruda !== 'object') return filaCruda;
+      const fila = filaCruda as Record<string, unknown>;
+      const filaExcel = filaInicial + ri * alto;
+      // Mapa hipotético con TODAS las columnas de ESTA fila tal como quedaron tras la edición — así
+      // el VLOOKUP lee el ubigeo recién tipeado, no el que todavía tiene el mapa reactivo (ver
+      // calculadoConOverride en useListasExcel.ts).
+      const overrides = new Map<string, string>();
+      for (const col of config.columnas) {
+        const v = fila[col.id];
+        if (col.columnaExcel && typeof v === 'string') overrides.set(`${hoja}!${col.columnaExcel}${filaExcel}`, v);
+      }
+      const filaNueva = { ...fila };
+      for (const col of calculadas) {
+        const resultado = excel.calculadoConOverride(hoja, `${col.columnaExcel}${filaExcel}`, overrides);
+        if (resultado?.soportado) filaNueva[col.id] = resultado.texto;
+      }
+      return filaNueva;
+    });
+    return JSON.stringify(filasNuevas);
+  }
+
   function handleExampleValueChange(identificador: string, value: string) {
-    editedValores.value = { ...editedValores.value, [identificador]: value };
+    const campo = editData.value?.secciones
+      .flatMap((s) => s.subsecciones.flatMap((sub) => sub.campos.map((c) => ({ campo: c, hoja: s.hoja }))))
+      .find((x) => x.campo.identificador === identificador);
+    const valorFinal = campo?.campo.configTabla ? recalcularColumnasCalculadas(campo.campo, campo.hoja, value) : value;
+    editedValores.value = { ...editedValores.value, [identificador]: valorFinal };
     marcarExcelDesactualizado();
     excelMapTrigger.value++;
   }
@@ -338,6 +395,18 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     actualizarEjemplo.mutate({ id: ejemplo.id, data: { estado: nuevoEstado } });
     if (activeEjemplo.value?.id === ejemplo.id) activeEjemplo.value = { ...ejemplo, estado: nuevoEstado };
     ui.toast(nuevoEstado === 'publicado' ? `Ejemplo "${ejemplo.nombre}" publicado` : `Ejemplo "${ejemplo.nombre}" movido a borrador`);
+  }
+
+  /** A lo más un ejemplo de referencia por plantilla — el backend limpia cualquier otro al activar
+   * este, así que basta invalidar la lista para que el desmarcado del anterior también se refleje
+   * (ver useMarcarReferenciaIA). */
+  function handleToggleReferenciaIA(ejemplo: Ejemplo) {
+    const activar = !ejemplo.esReferenciaIA;
+    marcarReferenciaIA.mutate({ id: ejemplo.id, activo: activar });
+    if (activeEjemplo.value?.id === ejemplo.id) activeEjemplo.value = { ...ejemplo, esReferenciaIA: activar };
+    ui.toast(activar
+      ? `"${ejemplo.nombre}" ahora es el ejemplo de referencia para IA de esta plantilla`
+      : `"${ejemplo.nombre}" ya no es el ejemplo de referencia para IA`);
   }
 
   async function handleDownloadExcel(ejemplo: Ejemplo) {
@@ -925,6 +994,85 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     return excel.calculado(hoja, `${cap.columna}${cap.fila}`)?.texto || undefined;
   }
 
+  /** Igual que un campo cualquiera, pero para el valor de ejemplo tipo tabla/jerárquica: viene
+   * guardado como STRING JSON (`campo.valorEjemplo` / `editedValores[id]`) — sin esto el preview
+   * mostraría un JSON-dentro-de-JSON ilegible en vez de la estructura anidada real. */
+  function intentarParsearJson(valor: string | undefined): unknown {
+    if (valor === undefined || valor === '') return valor;
+    try {
+      return JSON.parse(valor);
+    } catch {
+      return valor;
+    }
+  }
+
+  /** "Ver JSON" de UN campo (botón junto a Eliminar en FieldCard, Estructura y Ejemplos) — muestra
+   * la definición interna del campo (id, tipo, configTabla, nota, etc.) junto con su valor actual:
+   * el de ejemplo activo si estamos en la pestaña Ejemplos, si no el valor por defecto de Estructura. */
+  function handleViewJsonCampo(campoId: string, subseccionId: string) {
+    if (!editData.value) return;
+    for (const sec of editData.value.secciones) {
+      const sub = sec.subsecciones.find((s) => s.id === subseccionId);
+      const campo = sub?.campos.find((c) => c.id === campoId);
+      if (campo) {
+        const valorCrudo = showExamples.value ? editedValores.value[campo.identificador] : campo.valorEjemplo;
+        const payload = { ...campo, valorEjemplo: intentarParsearJson(valorCrudo) };
+        jsonPreview.value = {
+          title: `${campo.identificador} — ${campo.etiqueta || 'Campo'}`,
+          json: JSON.stringify(payload, null, 2),
+        };
+      }
+    }
+  }
+
+  /** "Editar JSON" de UN campo — solo tab Ejemplos, solo admin (botón junto a "Ver JSON" en
+   * FieldCard, gateado por `showExampleValue`). Abre el mismo preview que `handleViewJsonCampo`
+   * pero editable; el guardado (`handleSaveJsonCampo`) solo aplica lo que traiga la clave
+   * "valorEjemplo" — pensado para probar rápido un JSON generado a mano o por IA sin pasar por la
+   * UI de la tabla, no para reescribir la definición del campo (eso se edita en Estructura). */
+  function handleEditJsonCampo(campoId: string, subseccionId: string) {
+    if (!editData.value || !showExamples.value) return;
+    for (const sec of editData.value.secciones) {
+      const sub = sec.subsecciones.find((s) => s.id === subseccionId);
+      const campo = sub?.campos.find((c) => c.id === campoId);
+      if (campo) {
+        const valorCrudo = editedValores.value[campo.identificador];
+        const payload = { ...campo, valorEjemplo: intentarParsearJson(valorCrudo) };
+        jsonPreview.value = {
+          title: `${campo.identificador} — ${campo.etiqueta || 'Campo'} (editar)`,
+          json: JSON.stringify(payload, null, 2),
+          editable: true,
+          identificador: campo.identificador,
+        };
+        return;
+      }
+    }
+  }
+
+  /** Guarda lo escrito en el editor de "Editar JSON" (solo tab Ejemplos). Solo lee la clave
+   * "valorEjemplo" del JSON pegado — el resto del objeto (id, configTabla, etc.) es contexto de
+   * lectura, no se aplica: cambiar la definición del campo sigue siendo cosa de Estructura. Pasa
+   * por `handleExampleValueChange`, así que el recálculo de columnas `calculado` corre igual que
+   * si se hubiera editado a mano en la tabla. */
+  function handleSaveJsonCampo(texto: string) {
+    if (!jsonPreview.value?.editable || !jsonPreview.value.identificador) return;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(texto);
+    } catch (e) {
+      jsonPreview.value = { ...jsonPreview.value, json: texto, error: `JSON inválido: ${e instanceof Error ? e.message : String(e)}` };
+      return;
+    }
+    if (typeof parsed !== 'object' || parsed === null || !('valorEjemplo' in parsed)) {
+      jsonPreview.value = { ...jsonPreview.value, json: texto, error: 'Falta la clave "valorEjemplo" en el JSON.' };
+      return;
+    }
+    const valorEjemplo = (parsed as { valorEjemplo: unknown }).valorEjemplo;
+    const valorString = typeof valorEjemplo === 'string' ? valorEjemplo : JSON.stringify(valorEjemplo);
+    handleExampleValueChange(jsonPreview.value.identificador, valorString);
+    jsonPreview.value = null;
+  }
+
   function handleViewJson() {
     if (!editData.value) return;
     if (activeTab.value === 'ejemplos' && activeEjemplo.value) {
@@ -951,10 +1099,10 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     goToPrevSection, goToNextSection, handleFieldUpdate, handleAddCampo, handleAddNota, handleDuplicarCampo, handleDeleteCampo,
     handleSectionNameChange, handleSectionHojaChange, handleSubsectionNameChange,
     handleSubseccionAyudaChange, handleAddSubsection, handleSubsectionCodigoChange, handleDeleteSubsection, handleAddSection, handleDuplicarSeccion,
-    handleExampleValueChange, handleCreateExample, handleDeleteEjemplo, handleToggleEjemploEstado,
+    handleExampleValueChange, handleCreateExample, handleDeleteEjemplo, handleToggleEjemploEstado, handleToggleReferenciaIA,
     handleDownloadExcel, handlePreviewExample, handleInsertExcel,
     handleVolcarExcel, handleVolcarEstructura, handleConfirmarVolcado, getDefaultValores,
     handleImportEstructura,
-    handleSave, handleViewJson,
+    handleSave, handleViewJson, handleViewJsonCampo, handleEditJsonCampo, handleSaveJsonCampo,
   };
 }

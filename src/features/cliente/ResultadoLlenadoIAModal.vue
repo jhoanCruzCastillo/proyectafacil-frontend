@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import {
   faXmark, faWandMagicSparkles, faCircleCheck, faTriangleExclamation,
-  faCircleInfo, faEye, faChevronDown, faCircle,
+  faCircleInfo, faEye, faChevronDown, faCircle, faTable,
 } from '@/lib/icons';
 import { fieldTypeIcons } from '@/lib/icons';
 import { etiquetaTipoCorta, formatoConfianza } from '@/lib/resultadoLlenadoIA';
@@ -16,7 +16,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   close: [];
-  terminar: [];
+  /** Cierra el modal para revisar campos en el editor (no termina la sesión IA). */
+  revisar: [];
 }>();
 
 /** Filas visibles al abrir; el resto se revela con “Ver N campos más…”. */
@@ -87,6 +88,9 @@ function textoValor(campo: CampoResultadoLlenadoIA): string {
                 <p class="text-sm text-muted mt-0.5">
                   La IA completó automáticamente estos campos con información extraída de tus documentos.
                 </p>
+                <p v-if="resumen.costoTotalUsd" class="text-[11px] text-muted mt-1 font-mono">
+                  Costo estimado de esta sección: ${{ resumen.costoTotalUsd.toFixed(5) }}
+                </p>
               </div>
             </div>
             <button
@@ -99,6 +103,22 @@ function textoValor(campo: CampoResultadoLlenadoIA): string {
           </div>
 
           <div class="px-6 pb-4 space-y-5 overflow-y-auto flex-1 min-h-0">
+            <div
+              v-if="resumen.camposTablaOmitidos > 0"
+              class="rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3 flex items-start gap-2.5"
+            >
+              <span class="w-8 h-8 rounded-lg bg-slate-200/80 text-slate-600 flex items-center justify-center shrink-0">
+                <FontAwesomeIcon :icon="faTable" class="w-3.5 h-3.5" />
+              </span>
+              <p class="text-sm text-heading leading-snug">
+                <span class="font-bold">{{ resumen.camposTablaOmitidos }}</span>
+                <span class="text-muted">
+                  {{ resumen.camposTablaOmitidos === 1 ? ' campo tabla no se llena' : ' campos tabla no se llenan' }}
+                  automáticamente todavía — complétalos a mano o pídele ayuda puntual al asesor de IA.
+                </span>
+              </p>
+            </div>
+
             <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
               <div class="rounded-xl border border-emerald-100 bg-emerald-50/70 px-3.5 py-3 flex items-center gap-2.5">
                 <span class="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
@@ -205,9 +225,9 @@ function textoValor(campo: CampoResultadoLlenadoIA): string {
             <button
               type="button"
               class="px-5 py-2.5 rounded-lg bg-violet-600 text-white text-sm font-semibold hover:bg-violet-700 transition-colors"
-              @click="emit('terminar')"
+              @click="emit('revisar')"
             >
-              Terminar proceso
+              Revisar
             </button>
           </div>
         </div>

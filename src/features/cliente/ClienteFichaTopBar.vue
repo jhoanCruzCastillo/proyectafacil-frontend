@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faArrowLeft, faSave, faDownload, faFileExport, faEye, faCircleCheck, faTriangleExclamation, faClockRotateLeft, faFileLines, faLightbulb, faWandMagicSparkles, instrumentoLabelsPlural } from '@/lib/icons';
+import { faArrowLeft, faSave, faDownload, faFileExport, faEye, faCircleCheck, faTriangleExclamation, faClockRotateLeft, faFileLines, faLightbulb, faWandMagicSparkles, faFlagCheckered, instrumentoLabelsPlural } from '@/lib/icons';
 import type { Ejemplo, Plantilla, TipoInstrumento } from '@/types';
 import type { ProgresoFicha } from '@/lib/valorValidation';
 
@@ -12,18 +12,25 @@ const RUTA_POR_INSTRUMENTO: Record<TipoInstrumento, string> = {
   perfil: 'perfiles',
 };
 
-defineProps<{
-  plantilla: Plantilla;
-  ejemplo: Ejemplo;
-  activeTab: 'mi-ficha' | 'ejemplos';
-  /** Cantidad de campos obligatorios sin llenar o con formato inválido */
-  erroresCount?: number;
-  progreso?: ProgresoFicha;
-  /** true = plan de entrenamiento vencido — se ocultan las acciones de edición (Guardar/Insertar) */
-  soloLectura?: boolean;
-  /** true = muestra el botón "Historial" (solo Nivel 2) */
-  showHistorial?: boolean;
-}>();
+withDefaults(
+  defineProps<{
+    plantilla: Plantilla;
+    ejemplo: Ejemplo;
+    activeTab: 'mi-ficha' | 'ejemplos';
+    /** Cantidad de campos obligatorios sin llenar o con formato inválido */
+    erroresCount?: number;
+    progreso?: ProgresoFicha;
+    /** true = plan de entrenamiento vencido — se ocultan las acciones de edición (Guardar/Insertar) */
+    soloLectura?: boolean;
+    /** true = muestra el botón "Historial" (solo Nivel 2) */
+    showHistorial?: boolean;
+    /** Tras llenado IA, hasta confirmar "Terminar" en la barra */
+    enRevisionIA?: boolean;
+    /** Parpadeo inicial de "Ver resumen" */
+    resaltarVerResumen?: boolean;
+  }>(),
+  { enRevisionIA: false, resaltarVerResumen: false },
+);
 
 const emit = defineEmits<{
   'change-tab': ['mi-ficha' | 'ejemplos'];
@@ -33,6 +40,7 @@ const emit = defineEmits<{
   insert: [];
   preview: [];
   'fuente-verdad': [];
+  'terminar-revision-ia': [];
 }>();
 
 const router = useRouter();
@@ -80,12 +88,24 @@ const tabs: { key: 'mi-ficha' | 'ejemplos'; label: string; icon: typeof faFileLi
       </div>
       <div class="flex items-center gap-3 shrink-0">
         <button
-          @click="emit('fuente-verdad')"
+          v-if="enRevisionIA"
           type="button"
+          title="Terminar de revisar"
+          class="px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 border border-white/20 text-white/90 bg-white/10 hover:bg-white/15 transition-colors"
+          @click="emit('terminar-revision-ia')"
+        >
+          <FontAwesomeIcon :icon="faFlagCheckered" class="w-3.5 h-3.5" />
+          Terminar
+        </button>
+        <button
+          type="button"
+          :title="enRevisionIA ? 'Ver resumen del llenado con IA' : 'Fuente de la verdad / Contexto IA'"
           class="px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 border border-violet-400/30 text-violet-100 bg-gradient-to-r from-violet-500/30 to-fuchsia-500/25 hover:from-violet-500/40 hover:to-fuchsia-500/35 transition-colors"
+          :class="resaltarVerResumen ? 'pf-blink-ver-resumen' : ''"
+          @click="emit('fuente-verdad')"
         >
           <FontAwesomeIcon :icon="faWandMagicSparkles" class="w-3.5 h-3.5" />
-          Contexto IA
+          {{ enRevisionIA ? 'Ver resumen' : 'Contexto IA' }}
         </button>
         <div class="flex rounded-lg border border-white/15 overflow-hidden">
           <button
@@ -151,3 +171,20 @@ const tabs: { key: 'mi-ficha' | 'ejemplos'; label: string; icon: typeof faFileLi
     </div>
   </div>
 </template>
+
+<style scoped>
+@keyframes pf-blink-ver-resumen {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(167, 139, 250, 0.55);
+    filter: brightness(1);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(167, 139, 250, 0);
+    filter: brightness(1.25);
+  }
+}
+.pf-blink-ver-resumen {
+  animation: pf-blink-ver-resumen 0.85s ease-in-out 5;
+}
+</style>

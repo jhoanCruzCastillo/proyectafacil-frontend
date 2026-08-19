@@ -65,6 +65,11 @@ export interface ColumnaTabla {
    * separadas de Excel. La partición se declara acá, una sola vez; qué filas van partidas y cuáles
    * fusionadas lo decide la forma del valor de cada fila (objeto = partida, plano = fusionada). */
   subcolumnas?: SubcolumnaTabla[];
+  /** Aclaración libre sobre la convención de esta columna que no se deduce del nombre ni del tipo —
+   * ej. "costo ANUAL, no mensual" o "monto en soles de ese trimestre, no %". Se muestra al llenado con
+   * IA (LlenadoIAController::construirPromptTabla) para evitar errores de unidad silenciosos; también
+   * puede mostrarse al editor humano como ayuda. */
+  nota?: string;
 }
 
 /** Una parte de una columna partida — misma forma que ColumnaTabla pero sin anidamiento propio. */
@@ -246,6 +251,8 @@ export interface ResumenSeccionLlenadoIA {
   nombre: string;
   campos: number;
   llenados: number;
+  /** Costo estimado (USD) de la consulta a la IA para esta sección. */
+  costoUsd?: number;
 }
 
 export interface ResultadoLlenadoIA {
@@ -254,7 +261,11 @@ export interface ResultadoLlenadoIA {
   estados?: Record<string, EstadoCampoIA>;
   /** Confianza 0–1 por identificador, si viene del modelo. */
   confianza?: Record<string, number>;
+  /** Origen breve por identificador ("¿de dónde salió este dato?"), si el modelo lo citó. */
+  fuentes?: Record<string, string>;
   secciones: ResumenSeccionLlenadoIA[];
+  /** Costo estimado (USD) de todas las consultas a la IA de este llenado. */
+  costoTotalUsd?: number;
 }
 
 /** Estado por campo que declara el prompt de llenado IA (y se muestra en el editor del cliente). */
@@ -292,7 +303,13 @@ export interface ResumenResultadoLlenadoIA {
   requierenRevision: number;
   yaExistian: number;
   sinInformacion: number;
+  /** Campos tipo tabla/tabla_jerarquica de las secciones procesadas — el llenado con IA no los toca
+   * (ver TIPOS_EXCLUIDOS en LlenadoIAController), así que no entran en `campos` ni en los conteos de
+   * arriba. Se cuentan aparte solo para poder avisarle al usuario que existen y quedaron fuera. */
+  camposTablaOmitidos: number;
   campos: CampoResultadoLlenadoIA[];
+  /** Costo estimado (USD) de todas las consultas a la IA de este llenado. */
+  costoTotalUsd?: number;
 }
 
 export interface Ejemplo {
@@ -303,6 +320,9 @@ export interface Ejemplo {
   plantillaId: string;
   activo?: boolean;
   valores: Record<string, string>;
+  /** Origen (breve) de cada valor llenado con IA, por identificador de campo — para el botón "?"
+   * del editor ("¿de dónde salió este dato?"). Ausente/vacío en campos llenados a mano. */
+  fuentes?: Record<string, string>;
   /** Solo relevante si la plantilla es IOARR: qué tipología(s) representa ESTE caso puntual
    * (a diferencia de Plantilla.tipologiasIoarr, que describe la cobertura del documento completo). */
   tipologiasIoarr?: TipologiaIoarr[];
@@ -327,6 +347,13 @@ export interface Ejemplo {
    * Se persiste en BD (`ejemplos.excel_actualizado`); no incluye historial ni autor.
    */
   excelActualizado?: boolean;
+  /**
+   * true = este es el "ejemplo de referencia para IA" de su plantilla — a lo más uno por plantilla
+   * (marcarlo desmarca cualquier otro, server-side). El llenado automático (LlenadoIAController) lo
+   * usa como few-shot: le muestra al modelo, campo por campo, cómo quedó ESTE dato ya resuelto
+   * correctamente en un caso real, en vez de solo reglas en prosa.
+   */
+  esReferenciaIA?: boolean;
 }
 
 export type RolUsuario = 'superusuario' | 'administrador' | 'cliente' | 'administrativo_asesorias' | 'asesor';

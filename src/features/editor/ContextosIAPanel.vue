@@ -6,6 +6,7 @@ import {
 } from '@/lib/icons';
 import ContextosIAPillarsNav, { type PilarContextosIA } from './ContextosIAPillarsNav.vue';
 import ContextosIAMarkdownEditor from './ContextosIAMarkdownEditor.vue';
+import PromptPreviewPanel from './PromptPreviewPanel.vue';
 import {
   useContextosIAQuery,
   useGuardarContextoSeccion,
@@ -209,6 +210,7 @@ const tituloPilar = computed(() => {
     case 'contexto': return { t: '2. Contexto general', d: 'Información general que utilizará la IA durante el procesamiento de la ficha.' };
     case 'guias': return { t: '3. Guías por sección', d: 'Configura las guías de llenado por sección que la IA utilizará para completar los campos correctamente.' };
     case 'json': return { t: '4. Estructura JSON', d: 'Esquema oficial de la ficha. La edición del árbol se hace en la pestaña Estructura.' };
+    case 'preview': return { t: '5. Vista previa del prompt', d: 'El prompt exacto que arma el sistema para cada sección, ya con las 4 piezas de arriba combinadas — solo lectura, sin costo.' };
   }
 });
 </script>
@@ -377,6 +379,11 @@ const tituloPilar = computed(() => {
             </div>
           </div>
         </div>
+      </template>
+
+      <!-- Vista previa del prompt -->
+      <template v-else-if="pilar === 'preview'">
+        <PromptPreviewPanel :plantilla="plantilla" :plantilla-id="plantillaId" />
       </template>
 
       <!-- Estructura JSON -->

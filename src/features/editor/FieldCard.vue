@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, inject, nextTick, ref } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { fieldTypeIcons, fieldTypeLabels, subtipoTablaLabels, columnTypeLabels, faTriangleExclamation, faClone, faTrash, faLightbulb, faWandMagicSparkles, faSpinner, faCheck } from '@/lib/icons';
+import { fieldTypeIcons, fieldTypeLabels, subtipoTablaLabels, columnTypeLabels, faTriangleExclamation, faClone, faTrash, faLightbulb, faWandMagicSparkles, faSpinner, faCheck, faCircleQuestion, faFileCode, faPen } from '@/lib/icons';
 import { campoFaltaCaptura } from '@/lib/campoValidation';
 import { mejorarTexto } from '@/lib/mejoraTexto';
+import { esTablaExcluidaDeIA } from '@/lib/camposTablaExcluidosIA';
 import ExampleTableEditor from './ExampleTableEditor.vue';
 import CampoCoordenadasInput from '@/components/CampoCoordenadasInput.vue';
 import CampoImagenInput from '@/components/CampoImagenInput.vue';
@@ -37,6 +38,17 @@ const props = defineProps<{
   permiteMejoraIA?: boolean;
   /** Estado del llenado IA para este campo (solo cliente, tras un llenado) */
   estadoIA?: EstadoCampoIA | null;
+  /** Código de la plantilla — solo para saber si esta tabla está en la lista de exclusión (tablas de solo-fórmula) */
+  plantillaCodigo?: string;
+  /** true mientras se espera la respuesta de "Llenar con IA" para esta tabla */
+  cargandoTablaIA?: boolean;
+  /** Mensaje de error de la última llamada a "Llenar con IA" para esta tabla, si falló */
+  errorTablaIA?: string;
+  /** Origen breve del valor actual ("¿de dónde salió este dato?"), si se llenó con IA */
+  fuenteCampo?: string;
+  /** Advertencias del último llenado con IA de esta tabla (ej. "Fila 2: no se pudo determinar el
+   * UBIGEO para 'X' — revísalo y complétalo manualmente"), si las hubo */
+  advertenciasCampo?: string[];
   /** Hoja de Excel de la sección a la que pertenece el campo — hace falta para localizar su celda
    * y saber si tiene lista desplegable */
   hoja?: string;
@@ -50,11 +62,14 @@ const emit = defineEmits<{
   click: [];
   delete: [];
   duplicate: [];
+  'view-json': [];
+  'edit-json': [];
   'update-default-value': [value: string];
   'update-example-value': [value: string];
   'update-config-tabla': [config: ConfigTabla];
   'confirmar-ia': [];
   'confirmar-borrador': [];
+  'llenar-tabla-ia': [];
 }>();
 
 const valorEditorEl = ref<HTMLElement | null>(null);
@@ -88,6 +103,9 @@ const valorDefaultMostrado = computed(() =>
   props.valorBorrador !== undefined ? props.valorBorrador : (props.campo.valorEjemplo || ''),
 );
 const isTableField = computed(() => props.campo.tipo === 'tabla' || props.campo.tipo === 'tabla_jerarquica');
+const tablaExcluidaDeIA = computed(() =>
+  props.plantillaCodigo ? esTablaExcluidaDeIA(props.plantillaCodigo, props.campo.identificador) : false,
+);
 // `configTabla.columnas` es plana: cada columna hija de un grupo (cabecera) o de un nivel
 // padre/hijo ya es una entrada propia ahí, así que contar sus elementos ya cuenta subcolumnas. La
 // columna dinámica (columnaDinamicaId) es la excepción: en el array cuenta como UNA entrada, pero
@@ -154,6 +172,7 @@ const esTextoLargo = computed(() => props.campo.tipo === 'texto_largo');
 
 const sugerenciaIA = ref<string | null>(null);
 const cargandoIA = ref(false);
+const mostrarFuenteInfo = ref(false);
 
 function pedirMejoraIA() {
   cargandoIA.value = true;
@@ -256,6 +275,12 @@ const claseLabelEjemplo = computed(() => {
         <button v-if="duplicable" @click.stop="emit('duplicate')" type="button" class="text-gray-300 hover:text-brand-600 transition-colors p-1" title="Duplicar nota">
           <FontAwesomeIcon :icon="faClone" class="w-3 h-3" />
         </button>
+        <button v-if="deletable" @click.stop="emit('view-json')" type="button" class="text-gray-300 hover:text-brand-600 transition-colors p-1" title="Ver JSON de la nota">
+          <FontAwesomeIcon :icon="faFileCode" class="w-3 h-3" />
+        </button>
+        <button v-if="deletable && showExampleValue" @click.stop="emit('edit-json')" type="button" class="text-gray-300 hover:text-brand-600 transition-colors p-1" title="Editar JSON de la nota">
+          <FontAwesomeIcon :icon="faPen" class="w-3 h-3" />
+        </button>
         <button v-if="deletable" @click.stop="emit('delete')" type="button" class="text-gray-300 hover:text-red-500 transition-colors p-1" title="Eliminar nota">
           <FontAwesomeIcon :icon="faTrash" class="w-3 h-3" />
         </button>
@@ -290,6 +315,35 @@ const claseLabelEjemplo = computed(() => {
               class="w-3 h-3 text-gray-400"
               title="Campo calculado (solo lectura)"
             />
+            <span v-if="fuenteCampo || (advertenciasCampo && advertenciasCampo.length > 0)" class="relative inline-flex shrink-0">
+              <button
+                type="button"
+                @click.stop="mostrarFuenteInfo = !mostrarFuenteInfo"
+                title="¿De dónde salió este dato? ¿Hay algo que revisar?"
+                class="w-4 h-4 rounded-full flex items-center justify-center transition-colors"
+                :class="advertenciasCampo && advertenciasCampo.length > 0
+                  ? (mostrarFuenteInfo ? 'text-amber-700 bg-amber-100' : 'text-amber-500 hover:text-amber-700 hover:bg-amber-100')
+                  : (mostrarFuenteInfo ? 'text-brand-600 bg-brand-50' : 'text-gray-300 hover:text-brand-600 hover:bg-brand-50')"
+              >
+                <FontAwesomeIcon :icon="faCircleQuestion" class="w-3 h-3" />
+              </button>
+              <div
+                v-if="mostrarFuenteInfo"
+                @click.stop
+                class="absolute z-20 top-5 left-0 w-72 p-2.5 rounded-lg bg-gray-900 text-white text-[11px] leading-snug shadow-lg space-y-2"
+              >
+                <div v-if="advertenciasCampo && advertenciasCampo.length > 0">
+                  <p class="font-semibold text-[10px] uppercase tracking-wide text-amber-400 mb-1">Para revisar</p>
+                  <ul class="space-y-1 list-disc list-inside">
+                    <li v-for="(a, i) in advertenciasCampo" :key="i">{{ a }}</li>
+                  </ul>
+                </div>
+                <div v-if="fuenteCampo">
+                  <p class="font-semibold text-[10px] uppercase tracking-wide text-gray-400 mb-1">Origen del dato</p>
+                  {{ fuenteCampo }}
+                </div>
+              </div>
+            </span>
             <span
               v-if="faltaCaptura"
               title="Falta registrar su posición en el Excel (columna/fila) — no se insertará al Excel hasta configurarla"
@@ -451,8 +505,23 @@ const claseLabelEjemplo = computed(() => {
                 <FontAwesomeIcon :icon="cargandoIA ? faSpinner : faWandMagicSparkles" class="w-2.5 h-2.5" :class="cargandoIA ? 'animate-spin' : ''" />
                 Mejorar con IA
               </button>
+              <button
+                v-if="editableExample && isTableField && !tablaAncha && permiteMejoraIA !== undefined && !tablaExcluidaDeIA"
+                @click.stop="emit('llenar-tabla-ia')"
+                :disabled="!permiteMejoraIA || cargandoTablaIA"
+                type="button"
+                :title="!permiteMejoraIA ? 'Disponible desde Nivel 1 — actualiza tu plan' : undefined"
+                class="inline-flex items-center gap-1 text-[10px] font-medium text-violet-600 hover:text-violet-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                <FontAwesomeIcon :icon="cargandoTablaIA ? faSpinner : faWandMagicSparkles" class="w-2.5 h-2.5" :class="cargandoTablaIA ? 'animate-spin' : ''" />
+                Llenar con IA
+              </button>
             </div>
           </div>
+          <p v-if="isTableField && !tablaAncha && errorTablaIA" class="mt-1 text-[11px] text-red-600 flex items-center gap-1">
+            <FontAwesomeIcon :icon="faTriangleExclamation" class="w-2.5 h-2.5 shrink-0" />
+            {{ errorTablaIA }}
+          </p>
           <!-- Tabla/coordenadas/imagen tienen forma propia — un volcado de texto plano mostraría el
                JSON crudo de la tabla, ilegible. Siempre se renderiza el widget real; si no es
                editable (tab "Ejemplos" del cliente, ficha en solo lectura), se envuelve en un
@@ -563,6 +632,24 @@ const claseLabelEjemplo = computed(() => {
         </button>
         <button
           v-if="deletable"
+          @click.stop="emit('view-json')"
+          type="button"
+          class="text-gray-300 hover:text-brand-600 transition-colors p-1"
+          title="Ver JSON del campo"
+        >
+          <FontAwesomeIcon :icon="faFileCode" class="w-3 h-3" />
+        </button>
+        <button
+          v-if="deletable && showExampleValue"
+          @click.stop="emit('edit-json')"
+          type="button"
+          class="text-gray-300 hover:text-brand-600 transition-colors p-1"
+          title="Editar JSON del campo"
+        >
+          <FontAwesomeIcon :icon="faPen" class="w-3 h-3" />
+        </button>
+        <button
+          v-if="deletable"
           @click.stop="emit('delete')"
           type="button"
           class="text-gray-300 hover:text-red-500 transition-colors p-1"
@@ -615,16 +702,33 @@ const claseLabelEjemplo = computed(() => {
     >
       <div class="flex items-center justify-between px-1.5">
         <span class="text-[10px] font-bold uppercase tracking-wider" :class="claseLabelEjemplo">Valor de ejemplo</span>
-        <button
-          v-if="tienePendiente"
-          type="button"
-          @click.stop="emit('confirmar-borrador')"
-          class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-brand-600 text-white hover:bg-brand-700 transition-colors"
-        >
-          <FontAwesomeIcon :icon="faCheck" class="w-2.5 h-2.5" />
-          Confirmar
-        </button>
+        <div class="flex items-center gap-2">
+          <button
+            v-if="tienePendiente"
+            type="button"
+            @click.stop="emit('confirmar-borrador')"
+            class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-brand-600 text-white hover:bg-brand-700 transition-colors"
+          >
+            <FontAwesomeIcon :icon="faCheck" class="w-2.5 h-2.5" />
+            Confirmar
+          </button>
+          <button
+            v-if="editableExample && permiteMejoraIA !== undefined && !tablaExcluidaDeIA"
+            @click.stop="emit('llenar-tabla-ia')"
+            :disabled="!permiteMejoraIA || cargandoTablaIA"
+            type="button"
+            :title="!permiteMejoraIA ? 'Disponible desde Nivel 1 — actualiza tu plan' : undefined"
+            class="inline-flex items-center gap-1 text-[10px] font-medium text-violet-600 hover:text-violet-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            <FontAwesomeIcon :icon="cargandoTablaIA ? faSpinner : faWandMagicSparkles" class="w-2.5 h-2.5" :class="cargandoTablaIA ? 'animate-spin' : ''" />
+            Llenar con IA
+          </button>
+        </div>
       </div>
+      <p v-if="errorTablaIA" class="mt-1 px-1.5 text-[11px] text-red-600 flex items-center gap-1">
+        <FontAwesomeIcon :icon="faTriangleExclamation" class="w-2.5 h-2.5 shrink-0" />
+        {{ errorTablaIA }}
+      </p>
       <fieldset :disabled="!editableExample" class="m-0 p-0 border-0 min-w-0 mt-1.5">
         <ExampleTableEditor
           v-if="campo.configTabla"

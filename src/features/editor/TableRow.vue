@@ -76,6 +76,15 @@ function refDe(col: ColumnaTabla): string | null {
 
 /** Opciones del desplegable de esa celda, o null si no tiene */
 function opcionesExcel(col: ColumnaTabla): string[] | null {
+  // `texto_largo` es SIEMPRE texto libre — nunca debe forzarse a un catálogo, aunque la validación
+  // de datos del Excel real diga lo contrario. Encontrado en vivo (2026-08-19, 4.03.01 "Situación
+  // negativa percibida"): el rango de data validation de la plantilla oficial quedó mal recortado en
+  // el Excel (`sqref="D38:F41"`, debería ser solo D) y se filtraba a la columna E de al lado — sin
+  // este guard, un campo de texto libre quedaba atrapado detrás de un desplegable de 4 opciones que
+  // no le correspondían, sin forma de escribir la descripción real. Corregir el rango en el .xlsx
+  // maestro es la solución de fondo, pero un texto_largo jamás debería depender de eso para
+  // comportarse bien.
+  if (col.tipo === 'texto_largo') return null;
   const ref = refDe(col);
   if (!ref || !props.hoja) return null;
   const ops = excel?.value?.opcionesDe(props.hoja, ref);

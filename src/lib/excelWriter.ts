@@ -136,6 +136,7 @@ function writeCeldaPartida(
     if (!subs.some((s) => (valor[s.id] ?? '') !== '')) return;
     if (hoja && rangoPadre) ediciones.desfusionar(hoja, rangoPadre);
     for (const sub of subs) {
+      if (sub.tipo === 'calculado') continue;
       const v = valor[sub.id] ?? '';
       if (v === '') continue;
       writeCellSpan(ediciones, hoja, sub.columnaExcel, row, valorDeColumna(sub, v), sub.abarcaColumnasExcel ?? 1);
@@ -159,6 +160,12 @@ function writeFilaColumnas(ediciones: LibroEdits, hoja: string | undefined, conf
   // las fusiones de las columnas que no la compartían.
   const alto = (col: ColumnaTabla) => (hoja ? Math.max(altoDeBloque?.(hoja, col.columnaExcel, row) ?? 1, 1) : 1);
   for (const col of config.columnas) {
+    // El Excel siempre gana: una columna `calculado` (ej. Departamento/Provincia/Distrito, VLOOKUP
+    // contra el Ubigeo) nunca se escribe, sin importar qué traiga el JSON — antes esta protección
+    // dependía solo de que el valor viniera vacío; ahora que `usePlantillaEditor.ts` puede rellenar
+    // esas columnas con el valor calculado en vivo (para que "Ver JSON" muestre el dato real), un
+    // valor no-vacío ya no basta como señal de "no tocar esta celda".
+    if (col.tipo === 'calculado') continue;
     if (col.subcolumnas?.length) {
       writeCeldaPartida(ediciones, hoja, col, fila[col.id], row);
       continue;
@@ -280,7 +287,7 @@ function writeArbol(
     if (valores) {
       for (let i = reparto.primeraCabeceraLibre; i < config.columnas.length; i++) {
         const libre = config.columnas[i];
-        if (!libre?.columnaExcel) continue;
+        if (!libre?.columnaExcel || libre.tipo === 'calculado') continue;
         const v = valores[libre.id];
         if (libre.id === config.columnaDinamicaId && Array.isArray(v)) {
           const ancho = libre.abarcaColumnasExcel ?? 1;
@@ -297,7 +304,7 @@ function writeArbol(
     }
     return filasConsumidas;
   }
-  if (col?.columnaExcel) {
+  if (col?.columnaExcel && col.tipo !== 'calculado') {
     if (col.id === config.columnaDinamicaId) {
       // Nivel dinámico del árbol: un valor por período, alineado horizontalmente igual que en las
       // tablas planas — nunca coexiste con una etiqueta de texto en el mismo nodo.

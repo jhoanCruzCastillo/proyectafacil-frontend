@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faWandMagicSparkles, faBook, faFileLines, faCode } from '@/lib/icons';
+import { faWandMagicSparkles, faBook, faFileLines, faCode, faEye } from '@/lib/icons';
 
-export type PilarContextosIA = 'prompt' | 'contexto' | 'guias' | 'json';
+export type PilarContextosIA = 'prompt' | 'contexto' | 'guias' | 'json' | 'preview';
 
 defineProps<{ activo: PilarContextosIA }>();
 const emit = defineEmits<{ select: [PilarContextosIA] }>();
@@ -36,11 +36,18 @@ const pilares = [
     desc: 'Esquema oficial de la ficha (estructura y campos).',
     icon: faCode,
   },
+  {
+    id: 'preview' as const,
+    n: 5,
+    titulo: 'Vista previa del prompt',
+    desc: 'El prompt exacto que se le manda a la IA, ya armado — solo lectura, sin costo.',
+    icon: faEye,
+  },
 ];
 </script>
 
 <template>
-  <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+  <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
     <button
       v-for="p in pilares"
       :key="p.id"

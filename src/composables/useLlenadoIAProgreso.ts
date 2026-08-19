@@ -30,7 +30,7 @@ const TIMEOUT_LOTE_MS = 30 * 60 * 1000;
  * para no exceder el timeout del proxy/gateway en producción (~60–100 s).
  *
  * La sesión UI (fase, badges, resumen, modales) se persiste en localStorage por ficha
- * hasta "Terminar proceso" — así sobrevive F5 y cerrar sesión en el mismo navegador.
+ * hasta "Terminar" en la barra superior — así sobrevive F5 y cerrar sesión en el mismo navegador.
  * Los valores ya los guarda el backend en cada sección.
  */
 export function useLlenadoIAProgreso(
@@ -54,10 +54,24 @@ export function useLlenadoIAProgreso(
   let timeoutLoteHandle: ReturnType<typeof setTimeout> | null = null;
   let restaurando = false;
   let persistTimer: ReturnType<typeof setTimeout> | null = null;
+  /** true mientras un lote está corriendo Y el usuario pidió cancelarlo (distingue de un timeout) —
+   * el bucle de tablas en ClienteFichaEditPage.vue también la revisa, para que "Cancelar" corte TODO
+   * el proceso (secciones de texto + tablas), no solo lo que está corriendo dentro de este composable. */
+  const cancelado = ref(false);
 
   const haySesionIA = computed(
     () => fase.value !== 'idle' || showResultado.value || Object.keys(estadosCamposIA.value).length > 0,
   );
+
+  /** Tras un llenado (o error con datos), hasta "Terminar" en la barra. */
+  const enRevisionIA = computed(
+    () =>
+      fase.value === 'completado'
+      || (fase.value === 'error' && (!!resumenResultado.value || Object.keys(estadosCamposIA.value).length > 0)),
+  );
+
+  /** Parpadeo inicial de "Ver resumen" hasta que el usuario lo abra desde la barra. */
+  const resaltarVerResumen = ref(false);
 
   /** True mientras hay una sección en vuelo esperando al servidor. */
   const esperandoServidor = computed(() => {
@@ -130,10 +144,15 @@ export function useLlenadoIAProgreso(
       if (guardada.modal === 'resultado' && guardada.resumenResultado) {
         showResultado.value = true;
         showProgreso.value = false;
-      } else if (guardada.modal === 'progreso' || faseRestaurada === 'error' || faseRestaurada === 'completado') {
-        // Dejar al usuario en el modal de progreso (100% / Ver resultados) si no había abierto el informe.
+      } else if (faseRestaurada === 'error' || guardada.modal === 'progreso') {
+        // Error o progreso a medias: reabrir el modal de procesamiento.
         showProgreso.value = true;
         showResultado.value = false;
+      } else if (faseRestaurada === 'completado' && guardada.resumenResultado) {
+        // Revisión pendiente: no forzar modal; Ver resumen en la barra.
+        showProgreso.value = false;
+        showResultado.value = false;
+        resaltarVerResumen.value = true;
       } else {
         showProgreso.value = false;
         showResultado.value = false;
@@ -159,6 +178,7 @@ export function useLlenadoIAProgreso(
       mensajeError.value = null;
       resumenResultado.value = null;
       estadosCamposIA.value = {};
+      resaltarVerResumen.value = false;
       restaurarDesdeStorage(id);
     },
     { immediate: true },
@@ -215,6 +235,7 @@ export function useLlenadoIAProgreso(
       requierenRevision: 0,
       yaExistian: 0,
       sinInformacion: 0,
+      camposTablaOmitidos: 0,
       campos: [],
     };
   }
@@ -235,8 +256,9 @@ export function useLlenadoIAProgreso(
     };
 
     fase.value = 'completado';
-    showResultado.value = false;
-    showProgreso.value = true;
+    showProgreso.value = false;
+    showResultado.value = true;
+    resaltarVerResumen.value = true;
 
     const total = (resultado.secciones ?? []).reduce((acc, s) => acc + (s.llenados ?? 0), 0);
     ui.toast(`Ficha llenada con IA — ${total} campos completados`);
@@ -278,7 +300,9 @@ export function useLlenadoIAProgreso(
       (e instanceof DOMException && e.name === 'AbortError') ||
       (e instanceof Error && e.name === 'AbortError')
     ) {
-      return 'El llenado con IA se canceló por tiempo de espera. Las secciones ya completadas se conservan; vuelve a intentar el resto.';
+      return cancelado.value
+        ? 'Cancelaste el llenado con IA. Las secciones y tablas ya completadas se conservan.'
+        : 'El llenado con IA se canceló por tiempo de espera. Las secciones ya completadas se conservan; vuelve a intentar el resto.';
     }
     const raw = e instanceof Error ? e.message : 'No se pudo llenar la ficha con IA';
     if (/504|timeout|timed out|gateway/i.test(raw)) {
@@ -305,6 +329,7 @@ export function useLlenadoIAProgreso(
   async function iniciar(idEjemplo: string, seccionIds?: string[] | null) {
     const ids = seccionIds && seccionIds.length > 0 ? [...seccionIds] : null;
     abortLote = false;
+    cancelado.value = false;
     abortRequest?.abort();
     abortRequest = null;
     limpiarTimeoutLote();
@@ -388,27 +413,28 @@ export function useLlenadoIAProgreso(
     }
   }
 
-  /** Contexto IA: reabre progreso / error / lista de campos, o el informe si ya lo abrió. */
+  /** Barra: durante proceso abre progreso; en revisión abre el resumen de campos. */
   function abrirSiHaySesion(): boolean {
-    if (fase.value === 'procesando' || fase.value === 'error') {
+    if (fase.value === 'procesando') {
       showProgreso.value = true;
       return true;
     }
-    if (fase.value === 'completado' && resumenResultado.value) {
-      if (!showResultado.value) {
-        showProgreso.value = true;
-        return true;
-      }
-      showResultado.value = true;
+    if (fase.value === 'error' && !resumenResultado.value) {
+      showProgreso.value = true;
       return true;
     }
     if (resumenResultado.value) {
+      showProgreso.value = false;
       showResultado.value = true;
-      fase.value = 'completado';
+      resaltarVerResumen.value = false;
+      if (fase.value === 'idle') fase.value = 'completado';
+      return true;
+    }
+    if (fase.value === 'error') {
+      showProgreso.value = true;
       return true;
     }
     if (Object.keys(estadosCamposIA.value).length > 0) {
-      showProgreso.value = true;
       if (fase.value === 'idle') fase.value = 'completado';
       return true;
     }
@@ -423,15 +449,40 @@ export function useLlenadoIAProgreso(
     }
   }
 
-  function verResultados() {
-    if (!resumenResultado.value) return;
+  /**
+   * `valoresActuales`: valores YA guardados del ejemplo (editedValores del editor) — se usan solo
+   * como red de seguridad cuando `resumenResultado` quedó vacío. Pasa esto cuando una sesión
+   * restaurada tras recargar la página quedó en 'error' con secciones "completada" en la lista pero
+   * sin resumen (el resumen solo se arma al terminar el lote completo en memoria — un F5 a mitad de
+   * camino lo pierde aunque las secciones ya se hayan guardado de verdad en el backend). Sin esto,
+   * "Ver resultados" no hacía nada visible — encontrado en vivo probando una sesión interrumpida.
+   */
+  function verResultados(valoresActuales?: Record<string, string>) {
+    if (!resumenResultado.value && valoresActuales && plantilla.value) {
+      const seccionIdsCompletadas = secciones.value.filter((s) => s.estado === 'completada').map((s) => s.id);
+      if (seccionIdsCompletadas.length > 0) {
+        resumenResultado.value = construirResumenResultadoLlenado(
+          plantilla.value,
+          { valores: valoresActuales, secciones: [] },
+          0,
+          seccionIdsCompletadas,
+        );
+      }
+    }
+    if (!resumenResultado.value) {
+      ui.toast('Esta sesión se interrumpió antes de guardar un resumen — los campos ya completados siguen guardados en la ficha.', 'error');
+      showProgreso.value = false;
+      return;
+    }
     showProgreso.value = false;
     showResultado.value = true;
+    resaltarVerResumen.value = false;
     if (fase.value !== 'error') {
       fase.value = 'completado';
     }
   }
 
+  /** Solo cierra el modal de resumen (botón Revisar / Cerrar); la sesión sigue hasta Terminar. */
   function cerrarResultado() {
     showResultado.value = false;
   }
@@ -449,7 +500,22 @@ export function useLlenadoIAProgreso(
     estadosCamposIA.value = {};
     secciones.value = [];
     mensajeError.value = null;
+    resaltarVerResumen.value = false;
     borrarSesionLlenadoIA(ejemploId.value);
+  }
+
+  /**
+   * Cancela un lote en curso (secciones de texto + tablas, ver `cancelado`) — a diferencia de
+   * `terminarProceso()`, NO resetea el estado a `idle` acá: deja que el `catch` del bucle en
+   * `iniciar()` procese el `AbortError` igual que ya hace con el timeout de lote, así se conserva
+   * el resumen parcial (secciones/tablas que sí llegaron a completarse antes de cancelar).
+   */
+  function cancelar() {
+    if (fase.value !== 'procesando') return;
+    cancelado.value = true;
+    abortLote = true;
+    limpiarTimeoutLote();
+    abortRequest?.abort();
   }
 
   function confirmarCampoIA(identificador: string) {
@@ -488,6 +554,8 @@ export function useLlenadoIAProgreso(
     estadosCamposIA,
     esperandoServidor,
     haySesionIA,
+    enRevisionIA,
+    resaltarVerResumen,
     iniciar,
     abrirSiHaySesion,
     cerrarProgreso,
@@ -496,5 +564,8 @@ export function useLlenadoIAProgreso(
     terminarProceso,
     confirmarCampoIA,
     alEditarCampoIA,
+    cancelado,
+    cancelar,
+    marcarSeccion,
   };
 }

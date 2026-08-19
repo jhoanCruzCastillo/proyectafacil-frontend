@@ -34,6 +34,21 @@ function camposLlenablesDe(plantilla: Plantilla): CampoIndexado[] {
   return out;
 }
 
+/** Cuenta los campos tipo tabla/tabla_jerarquica de las secciones procesadas — para avisarle al
+ * usuario que existen y que el llenado con IA no los toca (ver ResumenResultadoLlenadoIA). */
+function camposTablaDe(plantilla: Plantilla, filtro: Set<string> | null): number {
+  let n = 0;
+  for (const seccion of plantilla.secciones) {
+    if (filtro && !filtro.has(seccion.id)) continue;
+    for (const sub of seccion.subsecciones) {
+      for (const campo of sub.campos) {
+        if (campo.tipo === 'tabla' || campo.tipo === 'tabla_jerarquica') n++;
+      }
+    }
+  }
+  return n;
+}
+
 /** Etiquetas de campos con valor propuesto, agrupadas por id de sección (para el modal de progreso). */
 export function nombresCamposLlenadosPorSeccion(
   plantilla: Plantilla,
@@ -148,7 +163,9 @@ export function construirResumenResultadoLlenado(
     requierenRevision,
     yaExistian,
     sinInformacion,
+    camposTablaOmitidos: camposTablaDe(plantilla, filtro),
     campos,
+    costoTotalUsd: resultado.costoTotalUsd,
   };
 }
 

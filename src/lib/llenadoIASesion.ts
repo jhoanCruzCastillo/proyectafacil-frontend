@@ -3,7 +3,7 @@ import type { SeccionProgresoIA } from '@/features/cliente/ProcesamientoIAModal.
 
 export type FaseLlenadoIAPersistible = 'procesando' | 'completado' | 'error';
 
-/** Sesión de llenado IA pendiente de "Terminar proceso" — sobrevive logout/reload en este navegador. */
+/** Sesión de llenado IA pendiente de "Terminar" en la barra — sobrevive logout/reload en este navegador. */
 export interface SesionLlenadoIAGuardada {
   version: 1;
   ejemploId: string;
