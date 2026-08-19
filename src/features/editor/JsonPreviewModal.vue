@@ -1,22 +1,43 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faXmark, faFileCode, faCopy, faCheck, faDownload } from '@/lib/icons';
+import { faXmark, faFileCode, faCopy, faCheck, faDownload, faSave, faTriangleExclamation } from '@/lib/icons';
 
 const props = defineProps<{
   isOpen: boolean;
   title: string;
   json: string;
+  /** true = el JSON se puede editar y guardar (solo "Editar JSON" en tab Ejemplos) */
+  editable?: boolean;
+  /** Mensaje de validación de la última "Guardar" fallida (JSON inválido, clave faltante, etc.) */
+  error?: string;
 }>();
 
-const emit = defineEmits<{ close: [] }>();
+const emit = defineEmits<{ close: []; save: [json: string] }>();
 
 const copied = ref(false);
+const editableText = ref(props.json);
 
-async function handleCopy(json: string) {
-  await navigator.clipboard.writeText(json);
+// Se reinicia cada vez que se abre para un campo distinto (o el mismo, tras un guardado exitoso
+// que cierra y reabre con el valor ya persistido) — sin esto, el textarea arrastraría el texto del
+// campo anterior.
+watch(
+  () => [props.isOpen, props.json],
+  () => { editableText.value = props.json; },
+);
+
+function contenidoActual(): string {
+  return props.editable ? editableText.value : props.json;
+}
+
+async function handleCopy() {
+  await navigator.clipboard.writeText(contenidoActual());
   copied.value = true;
   setTimeout(() => { copied.value = false; }, 1500);
+}
+
+function handleGuardar() {
+  emit('save', editableText.value);
 }
 
 // El título llega como "CÓDIGO — Estructura" o "CÓDIGO — Ejemplo: Nombre"; se convierte en un
@@ -55,7 +76,7 @@ function handleDownload() {
               </div>
               <div class="min-w-0">
                 <h2 class="text-base font-bold text-heading truncate">{{ title }}</h2>
-                <p class="text-xs text-muted">Documento JSON generado — esquema oficial</p>
+                <p class="text-xs text-muted">{{ editable ? 'Edición manual del JSON — solo admin' : 'Documento JSON generado — esquema oficial' }}</p>
               </div>
             </div>
             <div class="flex items-center gap-2 shrink-0">
@@ -69,12 +90,21 @@ function handleDownload() {
                 Descargar
               </button>
               <button
-                @click="handleCopy(json)"
+                @click="handleCopy"
                 type="button"
                 class="px-4 py-2 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 transition-colors duration-75 flex items-center gap-2"
               >
                 <FontAwesomeIcon :icon="copied ? faCheck : faCopy" class="w-3.5 h-3.5" />
                 {{ copied ? 'Copiado' : 'Copiar' }}
+              </button>
+              <button
+                v-if="editable"
+                @click="handleGuardar"
+                type="button"
+                class="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-colors duration-75 flex items-center gap-2"
+              >
+                <FontAwesomeIcon :icon="faSave" class="w-3.5 h-3.5" />
+                Guardar
               </button>
               <button
                 @click="emit('close')"
@@ -87,8 +117,19 @@ function handleDownload() {
             </div>
           </div>
 
+          <div v-if="editable && error" class="shrink-0 mx-4 mt-3 px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
+            <FontAwesomeIcon :icon="faTriangleExclamation" class="w-3.5 h-3.5 shrink-0" />
+            {{ error }}
+          </div>
+
           <div class="flex-1 overflow-auto bg-gray-50 p-4">
-            <pre class="text-xs font-mono text-heading whitespace-pre-wrap break-words">{{ json }}</pre>
+            <textarea
+              v-if="editable"
+              v-model="editableText"
+              spellcheck="false"
+              class="w-full h-full min-h-[50vh] text-xs font-mono text-heading bg-white rounded-lg border border-gray-200 p-3 focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 resize-none"
+            />
+            <pre v-else class="text-xs font-mono text-heading whitespace-pre-wrap break-words">{{ json }}</pre>
           </div>
         </div>
       </Transition>

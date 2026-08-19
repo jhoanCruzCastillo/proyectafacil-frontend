@@ -57,6 +57,14 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
 
   const activeSectionIndex = ref(0);
   const editedValores = ref<Record<string, string>>({});
+  /** Origen breve por identificador ("¿de dónde salió este dato?"), para el botón "?" del editor. */
+  const fuentesPorCampo = ref<Record<string, string>>({});
+  /** Advertencias del último llenado con IA de una tabla (ej. "Fila 2: no se pudo determinar el
+   * UBIGEO para 'X' — revísalo"), por identificador — ver setAdvertenciasCampo. Efímero: a
+   * diferencia de `fuentesPorCampo`, no se persiste en el servidor (no tiene sentido arrastrar la
+   * advertencia de un llenado de hace una semana), así que se reinicia al cambiar de ejemplo, igual
+   * que `borradoresPorCampo`. */
+  const advertenciasPorCampo = ref<Record<string, string[]>>({});
   const leftWidth = ref(DEFAULT_LEFT);
   // 'ejemplos' reutiliza la misma navegación de secciones que 'mi-ficha' (activeSectionIndex es
   // compartido) — solo cambia qué panel de la izquierda se muestra y de dónde salen los valores
@@ -87,10 +95,45 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
   const fuenteExcelVivo = computed(() => archivoExcelAsignado.value?.dataUrl ?? null);
   const altoDeBloqueExcel = useAltoDeBloqueExcel(fuenteExcelVivo);
   const excelMapTrigger = ref(0);
+  /** Declarado acá (antes de resolverValorExcel, que lo lee) en vez de junto a setBorradorCampo/
+   * confirmarBorradorCampo más abajo, porque useMapaValoresExcelDebounced() lee resolverValorExcel.value
+   * de forma síncrona al armarse — si el ref existiera más abajo en el código, JS lanzaría
+   * "Cannot access before initialization" (temporal dead zone) aunque el cierre solo lo necesite en
+   * tiempo de ejecución posterior; encontrado en vivo al probar este fix. */
+  const borradoresPorCampo = ref<Record<string, string>>({});
+  // Los BORRADORES (propuestas de IA aún no confirmadas por el usuario, ver borradoresPorCampo más
+  // abajo) también deben alimentar el Excel vivo — si no, el llenado en lote de una sección con
+  // catálogos en cascada (ej. 5.02.02/5.02.04 dependen de la Causa Indirecta que la IA propuso en
+  // 5.01.02 un instante antes, dentro del mismo `llenarTablasFaltantes()`) siempre ve la tabla previa
+  // vacía, porque `editedValores` solo se actualiza al Confirmar. Encontrado en vivo: 5.01.02 se
+  // llenaba bien pero 5.02.02/5.02.04 quedaban con "medio"/"acciones" en blanco porque
+  // opcionesLlenadoCascada() no encontraba ninguna Causa Indirecta todavía confirmada. Esto NO cambia
+  // el estado de revisión (sigue en ámbar hasta que el usuario confirma) — solo hace que el motor de
+  // fórmulas del Excel pueda leer el valor propuesto.
+  const identificadorPorCampoId = computed(() => {
+    const mapa = new Map<string, string>();
+    for (const seccion of plantilla.value?.secciones ?? []) {
+      for (const sub of seccion.subsecciones) {
+        for (const campo of sub.campos) mapa.set(campo.id, campo.identificador);
+      }
+    }
+    return mapa;
+  });
   const resolverValorExcel = computed<ResolverValorCampo>(() => {
-    const valores =
-      activeTab.value === 'ejemplos' ? (referenciaEjemplo.value?.valores ?? {}) : editedValores.value;
-    return (identificador, valorEjemplo) => valores[identificador] ?? valorEjemplo ?? '';
+    if (activeTab.value === 'ejemplos') {
+      const valores = referenciaEjemplo.value?.valores ?? {};
+      return (identificador, valorEjemplo) => valores[identificador] ?? valorEjemplo ?? '';
+    }
+    const valores = editedValores.value;
+    const borradores = borradoresPorCampo.value;
+    const mapaIds = identificadorPorCampoId.value;
+    const borradoresPorIdentificador: Record<string, string> = {};
+    for (const [campoId, valor] of Object.entries(borradores)) {
+      const identificador = mapaIds.get(campoId);
+      if (identificador) borradoresPorIdentificador[identificador] = valor;
+    }
+    return (identificador, valorEjemplo) =>
+      borradoresPorIdentificador[identificador] ?? valores[identificador] ?? valorEjemplo ?? '';
   });
   const valoresPorCelda = useMapaValoresExcelDebounced(
     plantilla,
@@ -99,15 +142,49 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
     excelMapTrigger,
     300,
   );
-  provide(EXCEL_VIVO, useExcelVivo(fuenteExcelVivo, valoresPorCelda));
+  // Se guarda en una variable (además de `provide`) para que ClienteFichaEditPage.vue pueda
+  // resolver catálogos en vivo directamente (ej. la cascada de Sección 5 Problema-Objetivo), sin
+  // depender de un `inject` redundante en el mismo componente que ya hizo el `provide`.
+  const excelVivo = useExcelVivo(fuenteExcelVivo, valoresPorCelda);
+  provide(EXCEL_VIVO, excelVivo);
 
+  // OJO: NO limpiar `borradoresPorCampo` aquí. Este watch se dispara en CUALQUIER refetch del
+  // ejemplo (no solo al cambiar de ficha — para eso ya está el watch de `ejemploId` más abajo),
+  // incluido el refetch de fondo que dispara guardarValores() del llenado de texto con IA. Ese
+  // refetch aterriza de forma asíncrona MIENTRAS llenarTablasFaltantes() ya va procesando tablas en
+  // secuencia — si limpiábamos acá, el borrador recién puesto de la PRIMERA tabla (ej. 2.01.01)
+  // se perdía en silencio si el refetch llegaba justo entre esa tabla y la siguiente, mientras que
+  // las tablas posteriores (procesadas después de que el refetch ya había aterrizado) sí
+  // sobrevivían — encontrado en vivo: 2.01.01 nunca mostraba el borrador ámbar aunque el backend
+  // sí devolvía una propuesta válida (confirmado con Ver JSON / Red), pero 2.02.01 sí.
   watch(ejemplo, (ej) => {
     if (ej) {
       editedValores.value = { ...ej.valores };
-      borradoresPorCampo.value = {};
+      fuentesPorCampo.value = { ...(ej.fuentes ?? {}) };
       excelMapTrigger.value++;
     }
   });
+
+  /** Registra de dónde salió el valor propuesto por IA para un campo (tabla o texto), para el botón
+   * "?" del editor. A diferencia del llenado por sección (que ya persiste su `fuentes` en el
+   * servidor), esto cubre el llenado de tablas, que no persiste nada hasta que el cliente guarda. */
+  function setFuenteCampo(identificador: string, fuente: string) {
+    if (!fuente.trim()) return;
+    fuentesPorCampo.value = { ...fuentesPorCampo.value, [identificador]: fuente };
+  }
+
+  /** Advertencias del llenado con IA de una tabla — ver `advertenciasPorCampo`. Reemplaza (no
+   * acumula) las de ese campo: son del último intento, no un historial. */
+  function setAdvertenciasCampo(identificador: string, advertencias: string[]) {
+    if (advertencias.length === 0) {
+      if (!(identificador in advertenciasPorCampo.value)) return;
+      const next = { ...advertenciasPorCampo.value };
+      delete next[identificador];
+      advertenciasPorCampo.value = next;
+      return;
+    }
+    advertenciasPorCampo.value = { ...advertenciasPorCampo.value, [identificador]: advertencias };
+  }
 
   // En modo entrenamiento el solucionario es el punto central del ejercicio — se preselecciona
   // en vez de dejar que el cliente tenga que descubrir el selector de "Ejemplo de referencia".
@@ -117,9 +194,9 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
 
   // Cliente: siempre Confirmar (sin toggle). El Excel vivo solo se actualiza al confirmar cada campo.
   const modoEdicion = ref<ModoEdicionEditor>('confirmar');
-  const borradoresPorCampo = ref<Record<string, string>>({});
   watch(ejemploId, () => {
     borradoresPorCampo.value = {};
+    advertenciasPorCampo.value = {};
   }, { immediate: true });
   function setBorradorCampo(campoId: string, value: string, valorConfirmado: string) {
     if (value === (valorConfirmado || '')) {
@@ -139,6 +216,27 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
     borradoresPorCampo.value = next;
     editedValores.value = { ...editedValores.value, [identificador]: value };
     excelMapTrigger.value++;
+  }
+
+  /** Confirma TODOS los borradores pendientes de una vez (ej. al terminar la revisión del llenado
+   * con IA) — sin esto, cerrar esa sesión sin haber confirmado tabla por tabla dejaba las tablas
+   * llenadas por IA como borrador en memoria nomás: al salir de la ficha se perdían en silencio,
+   * aunque el modal de "Terminar" decía "los valores que ya están en la ficha se conservan". */
+  function confirmarTodosLosBorradores() {
+    const pendientes = Object.keys(borradoresPorCampo.value);
+    if (pendientes.length === 0 || !plantilla.value) return;
+    const identificadorPorCampoId = new Map<string, string>();
+    for (const seccion of plantilla.value.secciones) {
+      for (const sub of seccion.subsecciones) {
+        for (const campo of sub.campos) {
+          identificadorPorCampoId.set(campo.id, campo.identificador);
+        }
+      }
+    }
+    for (const campoId of pendientes) {
+      const identificador = identificadorPorCampoId.get(campoId);
+      if (identificador) confirmarBorradorCampo(campoId, identificador);
+    }
   }
 
   const errores = computed(() => (plantilla.value ? validarValoresPlantilla(plantilla.value, editedValores.value) : {}));
@@ -174,7 +272,10 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
   async function handleSave() {
     if (!plantilla.value || !ejemplo.value || !session.sesion) return;
     const cambios = calcularCambios(plantilla.value, ejemplo.value.valores, editedValores.value);
-    await actualizarEjemplo.mutateAsync({ id: ejemplo.value.id, data: { valores: editedValores.value } });
+    await actualizarEjemplo.mutateAsync({
+      id: ejemplo.value.id,
+      data: { valores: editedValores.value, fuentes: fuentesPorCampo.value },
+    });
     if (cambios.length > 0) {
       await registrarCambioFicha.mutateAsync({
         id: generateId(),
@@ -248,11 +349,12 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
     ejemplo, plantilla, archivoEjemplo, esNivel0, vencido, diasRestantes, numeroNivel,
     soloLectura, permiteMejoraIA, muestraHistorial, showHistorial, showFuenteVerdad,
     esPropietario, ejemplosReferencia, referenciaId, referenciaEjemplo,
-    activeSectionIndex, editedValores, leftWidth, activeTab, examplesWidth, showPreview, showInsertConfirm, isInserting, insertProgress, insertProgressLabel,
+    activeSectionIndex, editedValores, fuentesPorCampo, setFuenteCampo, advertenciasPorCampo, setAdvertenciasCampo, confirmarTodosLosBorradores, leftWidth, activeTab, examplesWidth, showPreview, showInsertConfirm, isInserting, insertProgress, insertProgressLabel,
     modoEdicion, borradoresPorCampo, confirmarBorradorCampo,
     errores, erroresCount, progreso, erroresPorSeccion,
     secciones, safeIdx, seccionActiva, isFirst, isLast,
     handleLeftResize, handleExamplesResize, handleSectionSelect, goToPrevSection, goToNextSection, handleValueChange,
     handleSave, handleDownload, handleInsert,
+    excelVivo,
   };
 }

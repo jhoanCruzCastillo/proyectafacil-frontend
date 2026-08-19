@@ -30,4 +30,8 @@ export const ejemplosHttp: EjemplosApi = {
   async remove(id) {
     await apiFetch<unknown>(`ejemplos/${id}`, { method: 'DELETE' });
   },
+
+  marcarReferenciaIA(id, activo) {
+    return apiFetch<Ejemplo>(`ejemplos/${id}/referencia-ia`, { method: 'PUT', body: JSON.stringify({ activo }) });
+  },
 };

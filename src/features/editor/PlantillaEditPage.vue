@@ -39,11 +39,11 @@ const {
   goToPrevSection, goToNextSection, handleFieldUpdate, handleAddCampo, handleAddNota, handleDuplicarCampo, handleDeleteCampo,
   handleSectionNameChange, handleSectionHojaChange, handleSubsectionNameChange,
   handleSubseccionAyudaChange, handleAddSubsection, handleSubsectionCodigoChange, handleDeleteSubsection, handleAddSection, handleDuplicarSeccion,
-  handleCreateExample, handleDeleteEjemplo, handleToggleEjemploEstado,
+  handleCreateExample, handleDeleteEjemplo, handleToggleEjemploEstado, handleToggleReferenciaIA,
   handleDownloadExcel, handlePreviewExample, handleInsertExcel,
   handleVolcarExcel, handleVolcarEstructura, handleConfirmarVolcado, getDefaultValores,
   handleImportEstructura,
-  handleSave, handleViewJson,
+  handleSave, handleViewJson, handleViewJsonCampo, handleEditJsonCampo, handleSaveJsonCampo,
 } = usePlantillaEditor(plantillaId);
 
 const mostrarTipologiasIoarr = computed(() => editData.value?.instrumento === 'ioarr');
@@ -89,6 +89,7 @@ const verContextosIA = ref(false);
             @download="handleDownloadExcel"
             @delete="deleteTarget = $event"
             @toggle-estado="handleToggleEjemploEstado"
+            @toggle-referencia-ia="handleToggleReferenciaIA"
             @volcar-excel="handleVolcarExcel"
           />
         </div>
@@ -131,6 +132,8 @@ const verContextosIA = ref(false);
             @add-campo="handleAddCampo"
             @add-nota="handleAddNota"
             @delete-campo="handleDeleteCampo"
+            @view-json-campo="handleViewJsonCampo"
+            @edit-json-campo="handleEditJsonCampo"
             @duplicate-campo="handleDuplicarCampo"
             @section-name-change="handleSectionNameChange"
             @section-hoja-change="handleSectionHojaChange"
@@ -241,7 +244,10 @@ const verContextosIA = ref(false);
       :is-open="!!jsonPreview"
       :title="jsonPreview?.title ?? ''"
       :json="jsonPreview?.json ?? ''"
+      :editable="jsonPreview?.editable"
+      :error="jsonPreview?.error"
       @close="jsonPreview = null"
+      @save="handleSaveJsonCampo"
     />
 
     <!-- Un solo modal para los dos destinos: en Estructura lee el Excel asignado y llena los valores

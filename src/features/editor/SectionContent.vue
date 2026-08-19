@@ -32,6 +32,17 @@ const props = defineProps<{
   modoEdicion?: ModoEdicionEditor;
   /** Borradores pendientes por campo.id en modo confirmar */
   borradoresPorCampo?: Record<string, string>;
+  /** Código de la plantilla — para que FieldCard sepa si una tabla está excluida del llenado con IA */
+  plantillaCodigo?: string;
+  /** "Llenar con IA" en curso, por campo.id (solo cliente) */
+  cargandoTablaIAPorCampo?: Record<string, boolean>;
+  /** Error de la última llamada a "Llenar con IA", por campo.id (solo cliente) */
+  erroresTablaIAPorCampo?: Record<string, string>;
+  /** Origen breve por identificador de campo ("¿de dónde salió este dato?") */
+  fuentesPorCampo?: Record<string, string>;
+  /** Advertencias del último llenado con IA de una tabla (ej. fila con UBIGEO sin resolver — ver
+   * "?" del editor), por identificador de campo */
+  advertenciasPorCampo?: Record<string, string[]>;
 }>();
 
 const emit = defineEmits<{
@@ -41,6 +52,8 @@ const emit = defineEmits<{
   /** Igual que `add-campo`, pero para una nota (4.11) — no lleva código de subsección: nunca numera. */
   'add-nota': [subseccionId: string, despuesDeCampoId?: string];
   'delete-campo': [campoId: string, subseccionId: string];
+  'view-json-campo': [campoId: string, subseccionId: string];
+  'edit-json-campo': [campoId: string, subseccionId: string];
   /** Copia el campo justo debajo, con el siguiente identificador libre de su subsección */
   'duplicate-campo': [campoId: string, subseccionId: string];
   'section-name-change': [seccionId: string, nombre: string];
@@ -57,6 +70,7 @@ const emit = defineEmits<{
   'update-config-tabla': [campoId: string, config: ConfigTabla];
   'confirmar-ia': [identificador: string];
   'confirmar-borrador': [campoId: string, identificador: string];
+  'llenar-tabla-ia': [campoId: string, identificador: string, seccionId: string];
 }>();
 
 const ayudaAbiertaId = ref<string | null>(null);
@@ -156,14 +170,22 @@ function abrirEditorCodigo(sub: Subseccion) {
           :estado-i-a="estadosIA?.[campo.identificador] ?? null"
           :modo-edicion="modoEdicion"
           :valor-borrador="borradoresPorCampo?.[campo.id]"
+          :plantilla-codigo="plantillaCodigo"
+          :cargando-tabla-i-a="cargandoTablaIAPorCampo?.[campo.id] ?? false"
+          :error-tabla-i-a="erroresTablaIAPorCampo?.[campo.id]"
+          :fuente-campo="fuentesPorCampo?.[campo.identificador]"
+          :advertencias-campo="advertenciasPorCampo?.[campo.identificador]"
           @click="emit('select-campo', campo)"
           @delete="emit('delete-campo', campo.id, sub.id)"
+          @view-json="emit('view-json-campo', campo.id, sub.id)"
+          @edit-json="emit('edit-json-campo', campo.id, sub.id)"
           @duplicate="emit('duplicate-campo', campo.id, sub.id)"
           @update-default-value="emit('update-default-value', campo.id, $event)"
           @update-example-value="emit('update-example-value', campo.id, campo.identificador, $event)"
           @update-config-tabla="emit('update-config-tabla', campo.id, $event)"
           @confirmar-ia="emit('confirmar-ia', campo.identificador)"
           @confirmar-borrador="emit('confirmar-borrador', campo.id, campo.identificador)"
+          @llenar-tabla-ia="emit('llenar-tabla-ia', campo.id, campo.identificador, seccion.id)"
         />
         <!-- Mismos botones que los del final de la subsección, pero pegados al campo seleccionado:
              lo nuevo entra justo detrás de él, no al final. -->

@@ -51,4 +51,21 @@ export const ejemplosMock: EjemplosApi = {
     await delay();
     save(load().filter((e) => e.id !== id));
   },
+
+  async marcarReferenciaIA(id, activo) {
+    await delay();
+    const data = load();
+    const idx = data.findIndex((e) => e.id === id);
+    if (idx === -1) throw new Error(`Ejemplo ${id} no encontrado`);
+    // Mismo comportamiento que el backend: a lo más uno marcado por plantilla.
+    if (activo) {
+      const plantillaId = data[idx].plantillaId;
+      for (const e of data) {
+        if (e.plantillaId === plantillaId) e.esReferenciaIA = false;
+      }
+    }
+    data[idx] = { ...data[idx], esReferenciaIA: activo };
+    save(data);
+    return data[idx];
+  },
 };

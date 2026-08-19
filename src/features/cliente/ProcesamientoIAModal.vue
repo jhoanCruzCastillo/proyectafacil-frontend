@@ -18,17 +18,26 @@ export interface SeccionProgresoIA {
   camposLlenadosNombres?: string[];
 }
 
-const props = defineProps<{
-  isOpen: boolean;
-  secciones: SeccionProgresoIA[];
-  /** idle no debería abrirse; procesando | completado | error */
-  fase: 'procesando' | 'completado' | 'error';
-  mensajeError?: string | null;
-  /** true = barra visual en la última sección, aún esperando el POST del backend */
-  esperandoServidor?: boolean;
-}>();
+const props = withDefaults(
+  defineProps<{
+    isOpen: boolean;
+    secciones: SeccionProgresoIA[];
+    /** idle no debería abrirse; procesando | completado | error */
+    fase: 'procesando' | 'completado' | 'error';
+    mensajeError?: string | null;
+    /** true = barra visual en la última sección, aún esperando el POST del backend */
+    esperandoServidor?: boolean;
+    /** 'tablas' = esta corrida es la segunda fase (tablas de las secciones que se acaban de llenar,
+     * no secciones nuevas) — cambia los textos para que no parezca que aparecieron más secciones de
+     * las que el usuario eligió. Encontrado en vivo: con 'secciones' fijo, alguien que eligió 2
+     * secciones veía "4" ítems en esta lista (las 4 tablas de esas 2 secciones) sin ninguna pista de
+     * qué eran. */
+    modo?: 'secciones' | 'tablas';
+  }>(),
+  { modo: 'secciones' },
+);
 
-const emit = defineEmits<{ close: []; 'ver-resultados': [] }>();
+const emit = defineEmits<{ close: []; 'ver-resultados': []; cancelar: [] }>();
 
 const expandidaId = ref<string | null>(null);
 
@@ -55,8 +64,12 @@ const tiempoEstimado = computed(() => {
 const tituloEstado = computed(() => {
   if (props.fase === 'error') return 'El procesamiento se interrumpió';
   if (props.fase === 'completado') return 'Procesamiento finalizado';
-  return 'La IA está analizando tus documentos, sección por sección.';
+  return props.modo === 'tablas'
+    ? 'Ya se llenaron los textos — ahora la IA propone valores para las tablas de esas secciones.'
+    : 'La IA está analizando tus documentos, sección por sección.';
 });
+
+const tituloLista = computed(() => (props.modo === 'tablas' ? 'Progreso por tabla' : 'Progreso por sección'));
 
 function toggleExpand(id: string) {
   expandidaId.value = expandidaId.value === id ? null : id;
@@ -121,13 +134,13 @@ function numeroSeccion(idx: number): string {
               </div>
               <p v-if="tiempoEstimado" class="text-xs text-muted mt-1.5">Tiempo estimado: {{ tiempoEstimado }}</p>
               <p v-else-if="fase === 'completado'" class="text-xs text-emerald-600 mt-1.5">
-                {{ completadas }} de {{ total }} secciones procesadas
+                {{ completadas }} de {{ total }} {{ modo === 'tablas' ? 'tablas procesadas' : 'secciones procesadas' }}
               </p>
               <p v-else-if="fase === 'error' && mensajeError" class="text-xs text-red-600 mt-1.5">{{ mensajeError }}</p>
             </div>
 
             <div>
-              <p class="text-sm font-bold text-heading mb-2">Progreso por sección</p>
+              <p class="text-sm font-bold text-heading mb-2">{{ tituloLista }}</p>
               <div class="rounded-xl border border-gray-200 divide-y divide-gray-100 overflow-hidden">
                 <div v-for="(s, idx) in secciones" :key="s.id">
                   <button
@@ -211,13 +224,13 @@ function numeroSeccion(idx: number): string {
                       <p class="text-muted">Los nombres de los campos llenados aparecerán al terminar el análisis.</p>
                     </template>
                     <template v-else-if="s.estado === 'procesando'">
-                      <p class="text-muted">Analizando documentos y aplicando la guía de esta sección…</p>
+                      <p class="text-muted">{{ modo === 'tablas' ? 'Proponiendo valores para esta tabla…' : 'Analizando documentos y aplicando la guía de esta sección…' }}</p>
                     </template>
                     <template v-else-if="s.estado === 'error'">
-                      <p class="text-muted">No se pudo completar esta sección. Revisa la fuente de la verdad e inténtalo de nuevo.</p>
+                      <p class="text-muted">{{ modo === 'tablas' ? 'No se pudo completar esta tabla. Puedes reintentarla desde su propio botón "Llenar con IA".' : 'No se pudo completar esta sección. Revisa la fuente de la verdad e inténtalo de nuevo.' }}</p>
                     </template>
                     <template v-else>
-                      <p class="text-muted">En cola. Se procesará cuando termine la sección anterior.</p>
+                      <p class="text-muted">{{ modo === 'tablas' ? 'En cola. Se procesará cuando termine la tabla anterior.' : 'En cola. Se procesará cuando termine la sección anterior.' }}</p>
                     </template>
                   </div>
                 </div>
@@ -238,10 +251,11 @@ function numeroSeccion(idx: number): string {
                 <strong>Contexto IA</strong>.
               </span>
               <span v-else-if="fase === 'error'">
-                Puedes cerrar y reabrir este resumen con <strong>Contexto IA</strong>, o volver a intentar desde la fuente de la verdad.
+                Puedes cerrar y reabrir este aviso con <strong>Contexto IA</strong>, o volver a intentar desde la fuente de la verdad.
+                Si hay campos sugeridos, ábrelos con <strong>Ver resumen</strong>.
               </span>
               <span v-else>
-                Revisa los campos llenados por sección. Luego abre el informe o termina el proceso cuando quieras.
+                El llenado terminó. Revisa el resumen de campos o continúa editando en la ficha.
               </span>
             </div>
           </div>
@@ -254,15 +268,23 @@ function numeroSeccion(idx: number): string {
             >
               Cerrar
             </button>
-            <button
-              v-if="fase === 'procesando'"
-              type="button"
-              disabled
-              class="px-5 py-2.5 rounded-lg bg-violet-600 text-white text-sm font-medium opacity-80 cursor-not-allowed flex items-center gap-2"
-            >
-              <FontAwesomeIcon :icon="faSpinner" class="w-3.5 h-3.5 animate-spin" />
-              Procesando…
-            </button>
+            <template v-if="fase === 'procesando'">
+              <button
+                type="button"
+                class="px-5 py-2.5 rounded-lg border border-red-200 text-red-600 text-sm font-medium hover:bg-red-50 transition-colors"
+                @click="emit('cancelar')"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled
+                class="px-5 py-2.5 rounded-lg bg-violet-600 text-white text-sm font-medium opacity-80 cursor-not-allowed flex items-center gap-2"
+              >
+                <FontAwesomeIcon :icon="faSpinner" class="w-3.5 h-3.5 animate-spin" />
+                Procesando…
+              </button>
+            </template>
             <button
               v-else-if="fase === 'completado' || (fase === 'error' && completadas > 0)"
               type="button"
