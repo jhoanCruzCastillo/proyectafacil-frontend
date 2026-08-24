@@ -198,6 +198,12 @@ const router = createRouter({
           meta: { soloAdministrativoAsesorias: true },
         },
         {
+          path: 'asesoria/configuracion-sla',
+          name: 'configuracion-sla',
+          component: () => import('@/features/administrativo/ConfiguracionSlaPage.vue'),
+          meta: { soloAdministrativoAsesorias: true },
+        },
+        {
           path: 'about',
           name: 'about',
           component: () => import('@/features/about/AboutPage.vue'),

@@ -12,18 +12,28 @@ import AsesoriaChatPanel from '@/features/asesoria/AsesoriaChatPanel.vue';
 import ResumenConsultaModal from './ResumenConsultaModal.vue';
 import { useSessionStore } from '@/stores/session';
 import { useUiStore } from '@/stores/ui';
-import { useMisSolicitudesQuery, useAceptarSolicitud } from '@/composables/useAsesoria';
+import { useMisSolicitudesQuery, useAceptarSolicitud, useCompletarVideo } from '@/composables/useAsesoria';
 import { useUsuariosQuery, useActualizarUsuario } from '@/composables/useUsuarios';
 import { tiempoHastaVencer, tiempoRelativo } from '@/lib/tiempoRelativo';
 import { ESTADO_ASESORIA_LABEL as ESTADO_LABEL, ESTADO_ASESORIA_CLASE as ESTADO_CLASE } from '@/lib/estadoAsesoria';
-import { colorCategoria, formatFechaHoraVideo, ventanaDeLlamada, unirseALlamada } from '@/lib/consultaAsesorUI';
+import { colorCategoria, formatFechaHoraVideo, ventanaDeLlamada, unirseALlamada, puedeCompletarAsesoria } from '@/lib/consultaAsesorUI';
+import { solicitudesFalsasPedroRios } from '@/lib/misConsultasDemoFake';
 import type { SolicitudAsesoria } from '@/types';
 
 const session = useSessionStore();
 const ui = useUiStore();
 const docenteId = computed(() => session.sesion?.usuarioId ?? '');
 
-const { data: solicitudes, isLoading } = useMisSolicitudesQuery(docenteId, 'asesor');
+const { data: solicitudesReales, isLoading } = useMisSolicitudesQuery(docenteId, 'asesor');
+// DEMO (frontend, no backend): Pedro Ríos (docente_id=6) ya tiene datos reales de sobra en
+// "Atendidas", pero cero en "Por Agendar"/"Agendadas" — se agregan unas cuantas solicitudes
+// ficticias solo para ÉL, para poder revisar el diseño de esas dos pestañas. Ver
+// lib/misConsultasDemoFake.ts — pedido explícito del usuario, quitar cuando ya no haga falta.
+const solicitudes = computed(() => (
+  docenteId.value === '6'
+    ? [...solicitudesFalsasPedroRios(docenteId.value), ...(solicitudesReales.value ?? [])]
+    : solicitudesReales.value
+));
 const aceptarSolicitud = useAceptarSolicitud();
 
 const { data: usuarios } = useUsuariosQuery();
@@ -51,6 +61,20 @@ async function aceptar(s: SolicitudAsesoria) {
     ui.toast(err instanceof Error ? err.message : 'No se pudo aceptar la solicitud', 'error');
   } finally {
     generandoLinkPara.value = null;
+  }
+}
+
+const completarVideo = useCompletarVideo();
+const completandoId = ref<string | null>(null);
+
+async function completar(s: SolicitudAsesoria) {
+  completandoId.value = s.id;
+  try {
+    await completarVideo.mutateAsync(s.id);
+  } catch (err) {
+    ui.toast(err instanceof Error ? err.message : 'No se pudo completar la asesoría', 'error');
+  } finally {
+    completandoId.value = null;
   }
 }
 
@@ -276,15 +300,25 @@ function cambiarPorPagina(valor: number) {
                 </td>
                 <td class="py-4 px-4 whitespace-nowrap">
                   <template v-if="s.estado === 'pendiente'">
-                    <button
-                      @click="aceptar(s)"
-                      :disabled="generandoLinkPara === s.id"
-                      type="button"
-                      class="px-4 py-2 rounded-lg bg-brand-600 text-white text-xs font-semibold hover:bg-brand-700 disabled:opacity-60 transition-colors duration-75 flex items-center gap-1.5"
-                    >
-                      <FontAwesomeIcon :icon="faCheck" class="w-3 h-3" />
-                      {{ generandoLinkPara === s.id ? 'Generando enlace…' : 'Aceptar' }}
-                    </button>
+                    <div class="flex items-center gap-2">
+                      <button
+                        @click="aceptar(s)"
+                        :disabled="generandoLinkPara === s.id"
+                        type="button"
+                        class="px-4 py-2 rounded-lg bg-brand-600 text-white text-xs font-semibold hover:bg-brand-700 disabled:opacity-60 transition-colors duration-75 flex items-center gap-1.5"
+                      >
+                        <FontAwesomeIcon :icon="faCheck" class="w-3 h-3" />
+                        {{ generandoLinkPara === s.id ? 'Generando enlace…' : 'Aceptar' }}
+                      </button>
+                      <button
+                        @click="resumenAbierto = s"
+                        type="button"
+                        class="px-4 py-2 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-colors duration-75 flex items-center gap-1.5"
+                      >
+                        <FontAwesomeIcon :icon="faCircleInfo" class="w-3 h-3" />
+                        Detalles
+                      </button>
+                    </div>
                   </template>
 
                   <button
@@ -300,16 +334,28 @@ function cambiarPorPagina(valor: number) {
 
                   <template v-else-if="s.estado === 'agendado'">
                     <button
-                      @click="unirseALlamada(s)"
-                      :disabled="!ventanaDeLlamada(s).disponible"
+                      v-if="puedeCompletarAsesoria(s)"
+                      @click="completar(s)"
+                      :disabled="completandoId === s.id"
                       type="button"
-                      class="px-4 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors duration-75"
-                      :class="ventanaDeLlamada(s).disponible ? 'bg-brand-600 text-white hover:bg-brand-700' : 'bg-gray-100 text-gray-400 cursor-not-allowed'"
+                      class="px-4 py-2 rounded-lg bg-brand-600 text-white text-xs font-semibold hover:bg-brand-700 disabled:opacity-60 transition-colors duration-75 flex items-center gap-1.5"
                     >
-                      <FontAwesomeIcon :icon="faVideo" class="w-3 h-3" />
-                      Unirse
+                      <FontAwesomeIcon :icon="faCheck" class="w-3 h-3" />
+                      {{ completandoId === s.id ? 'Completando…' : 'Completar' }}
                     </button>
-                    <p class="text-[11px] text-muted mt-1">{{ ventanaDeLlamada(s).texto }}</p>
+                    <template v-else>
+                      <button
+                        @click="unirseALlamada(s)"
+                        :disabled="!ventanaDeLlamada(s).disponible"
+                        type="button"
+                        class="px-4 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors duration-75"
+                        :class="ventanaDeLlamada(s).disponible ? 'bg-brand-600 text-white hover:bg-brand-700' : 'bg-gray-100 text-gray-400 cursor-not-allowed'"
+                      >
+                        <FontAwesomeIcon :icon="faVideo" class="w-3 h-3" />
+                        Unirse
+                      </button>
+                      <p class="text-[11px] text-muted mt-1">{{ ventanaDeLlamada(s).texto }}</p>
+                    </template>
                   </template>
 
                   <button

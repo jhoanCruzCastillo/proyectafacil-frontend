@@ -101,6 +101,21 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
    * "Cannot access before initialization" (temporal dead zone) aunque el cierre solo lo necesite en
    * tiempo de ejecución posterior; encontrado en vivo al probar este fix. */
   const borradoresPorCampo = ref<Record<string, string>>({});
+  /** true = hay confirmaciones (campo o tabla) posteriores a la última inserción en el Excel — ver
+   * marcarExcelDesactualizado()/handleInsert(). Mismo campo que ya usa el editor de ejemplos del
+   * admin (`ejemplos.excel_actualizado`, invertido), reutilizado acá para no duplicar el mecanismo:
+   * en vez de comparar fechas de última modificación vs. última inserción, un booleano que se
+   * prende en cada Confirmar y se apaga al insertar logra exactamente lo mismo con menos estado. */
+  const excelDesactualizado = ref(false);
+  /** Identificadores confirmados localmente (campo o tabla) que todavía no llegaron al backend vía
+   * handleSave() — ver el watch de `ejemplo` más abajo. Necesario desde que el llenado con IA
+   * empezó a auto-confirmar sin guardar de inmediato (ver confirmarBorradorCampo): el refetch que
+   * dispara `queryClient.invalidateQueries(['ejemplos'])` al terminar el lote de IA puede aterrizar
+   * DESPUÉS de que este sistema confirmó una tabla en cascada pero ANTES de que el usuario haga
+   * clic en Guardar — sin este guard, ese refetch pisaba `editedValores` con la versión vieja del
+   * servidor y la tabla recién confirmada quedaba vacía en la UI. Encontrado en vivo: las tablas de
+   * la fase 2 se veían llenas durante el proceso y aparecían vacías apenas terminaba. */
+  const identificadoresConfirmadosSinGuardar = ref<Set<string>>(new Set());
   // Los BORRADORES (propuestas de IA aún no confirmadas por el usuario, ver borradoresPorCampo más
   // abajo) también deben alimentar el Excel vivo — si no, el llenado en lote de una sección con
   // catálogos en cascada (ej. 5.02.02/5.02.04 dependen de la Causa Indirecta que la IA propuso en
@@ -158,10 +173,24 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
   // sobrevivían — encontrado en vivo: 2.01.01 nunca mostraba el borrador ámbar aunque el backend
   // sí devolvía una propuesta válida (confirmado con Ver JSON / Red), pero 2.02.01 sí.
   watch(ejemplo, (ej) => {
-    if (ej) {
-      editedValores.value = { ...ej.valores };
-      fuentesPorCampo.value = { ...(ej.fuentes ?? {}) };
-      excelMapTrigger.value++;
+    if (!ej) return;
+    const nuevosValores = { ...ej.valores };
+    // No pisar los campos confirmados localmente que todavía no se guardaron — ver
+    // identificadoresConfirmadosSinGuardar. El resto SÍ se adopta tal cual llega del servidor
+    // (incluye los textos que el lote de IA ya persistió solo, sin pasar por editedValores).
+    for (const identificador of identificadoresConfirmadosSinGuardar.value) {
+      if (identificador in editedValores.value) nuevosValores[identificador] = editedValores.value[identificador];
+    }
+    editedValores.value = nuevosValores;
+    fuentesPorCampo.value = { ...(ej.fuentes ?? {}) };
+    excelMapTrigger.value++;
+    // Mismo motivo: mientras haya confirmaciones sin guardar, `ej.excelActualizado` todavía no
+    // sabe de ellas — no lo pises, ya está en `true` desde que se confirmaron.
+    if (identificadoresConfirmadosSinGuardar.value.size === 0) {
+      // Invertido, mismo criterio que usePlantillaEditor.ts (editor de ejemplos del admin):
+      // excelActualizado=true → la copia de Excel ya refleja `valores`; false/ausente con false
+      // explícito → hay ediciones sin insertar.
+      excelDesactualizado.value = ej.excelActualizado === false;
     }
   });
 
@@ -197,6 +226,7 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
   watch(ejemploId, () => {
     borradoresPorCampo.value = {};
     advertenciasPorCampo.value = {};
+    identificadoresConfirmadosSinGuardar.value = new Set();
   }, { immediate: true });
   function setBorradorCampo(campoId: string, value: string, valorConfirmado: string) {
     if (value === (valorConfirmado || '')) {
@@ -216,6 +246,8 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
     borradoresPorCampo.value = next;
     editedValores.value = { ...editedValores.value, [identificador]: value };
     excelMapTrigger.value++;
+    excelDesactualizado.value = true;
+    identificadoresConfirmadosSinGuardar.value.add(identificador);
   }
 
   /** Confirma TODOS los borradores pendientes de una vez (ej. al terminar la revisión del llenado
@@ -274,8 +306,11 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
     const cambios = calcularCambios(plantilla.value, ejemplo.value.valores, editedValores.value);
     await actualizarEjemplo.mutateAsync({
       id: ejemplo.value.id,
-      data: { valores: editedValores.value, fuentes: fuentesPorCampo.value },
+      data: { valores: editedValores.value, fuentes: fuentesPorCampo.value, excelActualizado: !excelDesactualizado.value },
     });
+    // Ya llegó al backend — el próximo refetch puede volver a adoptar `valores` tal cual sin
+    // riesgo de pisar algo que todavía no se hubiera guardado.
+    identificadoresConfirmadosSinGuardar.value = new Set();
     if (cambios.length > 0) {
       await registrarCambioFicha.mutateAsync({
         id: generateId(),
@@ -328,6 +363,8 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
       await setExcelEjemplo.mutateAsync({ ejemploId: ejemplo.value.id, archivo: { ...archivoEjemplo.value, dataUrl: nuevaDataUrl } });
       insertProgress.value = 95;
       insertProgressLabel.value = 'Guardando…';
+      await actualizarEjemplo.mutateAsync({ id: ejemplo.value.id, data: { excelActualizado: true } });
+      excelDesactualizado.value = false;
       await pushActividad.mutateAsync({ mensaje: `Se insertaron los valores de "${ejemplo.value.nombre}" en su Excel`, color: 'blue' });
       insertProgress.value = 100;
       insertProgressLabel.value = 'Listo';
@@ -345,16 +382,49 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
     }
   }
 
+  // Botón único "Descargar" (reemplaza a los antiguos "Descargar" + "Insertar" separados): guarda
+  // primero (como si se hubiera hecho clic en Guardar), y solo si la copia de Excel quedó
+  // desactualizada por esa u otras confirmaciones pide insertar antes de proceder — si ya estaba al
+  // día, descarga directo sin pedir nada.
+  async function iniciarDescarga() {
+    await handleSave();
+    if (excelDesactualizado.value) {
+      showInsertConfirm.value = true;
+      return;
+    }
+    await handleDownload();
+  }
+
+  /** Confirmación del modal de "Insertar antes de descargar" — encadena la descarga solo si la
+   * inserción salió bien (handleInsert() no relanza sus errores; `excelDesactualizado` en false
+   * después de llamarlo es la señal de que sí terminó). */
+  async function confirmarInsertarYDescargar() {
+    await handleInsert();
+    if (!excelDesactualizado.value) await handleDownload();
+  }
+
+  /** Vista previa: si hay cambios sin insertar, inserta en silencio (sin pedir confirmación, es
+   * una acción de solo lectura) antes de abrir el modal — así nunca muestra un Excel desactualizado
+   * respecto a lo que el cliente ya confirmó en la ficha. */
+  async function abrirVistaPrevia() {
+    if (excelDesactualizado.value) {
+      await handleSave();
+      await handleInsert();
+      if (excelDesactualizado.value) return; // La inserción falló — handleInsert ya avisó por qué.
+    }
+    showPreview.value = true;
+  }
+
   return {
     ejemplo, plantilla, archivoEjemplo, esNivel0, vencido, diasRestantes, numeroNivel,
     soloLectura, permiteMejoraIA, muestraHistorial, showHistorial, showFuenteVerdad,
     esPropietario, ejemplosReferencia, referenciaId, referenciaEjemplo,
-    activeSectionIndex, editedValores, fuentesPorCampo, setFuenteCampo, advertenciasPorCampo, setAdvertenciasCampo, confirmarTodosLosBorradores, leftWidth, activeTab, examplesWidth, showPreview, showInsertConfirm, isInserting, insertProgress, insertProgressLabel,
+    activeSectionIndex, editedValores, fuentesPorCampo, setFuenteCampo, advertenciasPorCampo, setAdvertenciasCampo, confirmarTodosLosBorradores, leftWidth, activeTab, examplesWidth, showPreview, showInsertConfirm, isInserting, insertProgress, insertProgressLabel, excelDesactualizado,
     modoEdicion, borradoresPorCampo, confirmarBorradorCampo,
     errores, erroresCount, progreso, erroresPorSeccion,
     secciones, safeIdx, seccionActiva, isFirst, isLast,
     handleLeftResize, handleExamplesResize, handleSectionSelect, goToPrevSection, goToNextSection, handleValueChange,
-    handleSave, handleDownload, handleInsert,
+    handleSave, handleDownload, handleInsert, iniciarDescarga, confirmarInsertarYDescargar, abrirVistaPrevia,
     excelVivo,
   };
 }

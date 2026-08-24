@@ -26,6 +26,14 @@ export function useNoAtendidasQuery(usuarioId: MaybeRefOrGetter<string>) {
   });
 }
 
+export function useAgendadosPorRangoQuery(desde: MaybeRefOrGetter<string>, hasta: MaybeRefOrGetter<string>, enabled: MaybeRefOrGetter<boolean>) {
+  return useQuery({
+    queryKey: ['asesoria', 'agendados-por-rango', desde, hasta],
+    queryFn: () => asesoriaHttp.agendadosPorRango(toValue(desde), toValue(hasta)),
+    enabled: () => !!toValue(enabled) && !!toValue(desde) && !!toValue(hasta),
+  });
+}
+
 export function useCrearSolicitudAsesoria() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -50,6 +58,14 @@ export function useFinalizarSolicitud() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (solicitudId: string) => asesoriaHttp.finalizar(solicitudId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['asesoria', 'solicitudes'] }),
+  });
+}
+
+export function useCompletarVideo() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (solicitudId: string) => asesoriaHttp.completarVideo(solicitudId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['asesoria', 'solicitudes'] }),
   });
 }

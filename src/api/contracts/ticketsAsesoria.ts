@@ -1,9 +1,10 @@
-import type { DashboardAsesoria, DocenteDisponibleAhora, SolicitudAsesoria, TicketAsesoriaDetalle } from '@/types';
+import type { DashboardAsesoria, DocenteDisponibleAhora, HistorialConexion, SolicitudAsesoria, TicketAsesoriaDetalle } from '@/types';
 
 export interface TicketsAsesoriaApi {
   dashboard(): Promise<DashboardAsesoria>;
   index(): Promise<SolicitudAsesoria[]>;
   detalle(id: string): Promise<TicketAsesoriaDetalle>;
+  historialConexion(id: string): Promise<HistorialConexion>;
   docentesDisponibles(id: string): Promise<DocenteDisponibleAhora[]>;
   asignar(id: string, asesorId: string): Promise<SolicitudAsesoria>;
   marcarEnEspera(id: string): Promise<SolicitudAsesoria>;

@@ -279,7 +279,13 @@ class Parser {
       // Llamada a función
       if (this.esOp('(')) {
         this.comer();
-        const nombre = t.v.toUpperCase();
+        // OOXML antepone `_xlfn.` al nombre de cualquier función posterior a Excel 2007 (IFNA, IFS,
+        // TEXTJOIN…) — la UI de Excel lo oculta, pero el XML crudo lo guarda así. Sin quitarlo, una
+        // función SOPORTADA (ej. IFNA) se veía como "_XLFN.IFNA" y no calzaba con FUNCIONES_SOPORTADAS,
+        // cayendo a NO_SOPORTADO aunque el subconjunto cubierto SÍ sabe evaluarla. Encontrado en vivo:
+        // Infraestructura!AS4 (`+_xlfn.IFNA(VLOOKUP(...),"")`) quedaba sin calcular por esto, no por la
+        // fórmula en sí.
+        const nombre = t.v.toUpperCase().replace(/^_XLFN\./, '');
         const args: Valor[] = [];
         if (!this.esOp(')')) {
           for (;;) {
@@ -381,13 +387,24 @@ function valorDeCelda(ctx: Contexto, hoja: string, ref: string): Valor {
 // fórmulas hacen aritmética con ellas — restar dos fechas da los días entre ambas. Sin convertir,
 // esa resta recibía texto y devolvía #VALUE! (era el caso de "Fase de Ejecución", que divide entre
 // 365 la diferencia de dos fechas).
-const RE_FECHA_ISO = /^\d{4}-\d{2}-\d{2}$/;
-
 function comoEscalar(v: string): Escalar {
   const t = v.trim();
   if (t === '') return v;
-  if (RE_FECHA_ISO.test(t)) {
-    const ms = Date.parse(`${t}T00:00:00Z`);
+  // aFechaISO entiende tanto ISO como "DD/MM/YYYY" (el formato en que la IA y el <input type="date">
+  // del cliente lo escriben) — antes solo se reconocía ISO y una fecha en DD/MM/YYYY no se convertía
+  // a serial, así que una resta de fechas devolvía #VALUE! en vez del número de días esperado.
+  //
+  // BUG encontrado en vivo (2026-08-22): aquí NO sabemos si esta celda es una fecha o un número — a
+  // diferencia de excelWriter.ts/formula.ts, que solo llaman a esto cuando el CAMPO ya declara
+  // tipo:'fecha'. aFechaISO() cae en Date.parse(texto) para cubrir fechas sueltas, pero Date.parse
+  // interpreta CUALQUIER entero de 1-4 dígitos como un año ("2450" -> 2450-01-01, "135" -> 0135-01-01,
+  // "71" -> 1971-01-01): una "Cantidad" de tabla como 2450 se leía como fecha y se convertía en un
+  // número de serie de Excel gigante, rompiendo cualquier fórmula que dividiera esa celda (4.01.01
+  // "%" daba 200%/-320% en vez del 5.5%/59.2% real). Por eso solo se intenta la fecha si el texto
+  // TIENE pinta de fecha (trae separador) — un entero plano nunca se trata como fecha acá.
+  const iso = /[/-]/.test(t) ? aFechaISO(t, false) : null;
+  if (iso !== null) {
+    const ms = Date.parse(`${iso}T00:00:00Z`);
     if (!Number.isNaN(ms)) return dateASerialExcel(new Date(ms));
   }
   // "1.10%" guardado en el JSON vale 0.011 para cualquier fórmula que lea esa celda, igual que en

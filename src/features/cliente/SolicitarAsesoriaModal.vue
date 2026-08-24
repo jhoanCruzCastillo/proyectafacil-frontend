@@ -9,7 +9,7 @@ import { useSectoresQuery } from '@/composables/useSectores';
 import { useUsuariosQuery } from '@/composables/useUsuarios';
 import { useTicketsConsultaQuery } from '@/composables/useTicketsConsulta';
 import { useDisponibilidadHorariosQuery } from '@/composables/useDisponibilidadHorarios';
-import { useCrearSolicitudAsesoria } from '@/composables/useAsesoria';
+import { useCrearSolicitudAsesoria, useAgendadosPorRangoQuery } from '@/composables/useAsesoria';
 import { useSessionStore } from '@/stores/session';
 import { cuentaEfectivaDe } from '@/lib/permisos';
 import { sectorIcons } from '@/lib/icons';
@@ -57,6 +57,10 @@ const duda = ref('');
 const pidioAclaracion = ref(false);
 const analizando = ref(false);
 const enviando = ref(false);
+// `loteOffset` pagina de a 7 días (0 = el lote que arranca hoy, 1 = los 7 siguientes, …) — no
+// puede ir negativo, esas fechas ya pasaron y no se pueden agendar. `diaOffset` es la pestaña
+// seleccionada DENTRO del lote visible (0-6).
+const loteOffset = ref(0);
 const diaOffset = ref(0);
 const horarioElegido = ref<{ horaInicio: string; horaFin: string } | null>(null);
 
@@ -69,6 +73,7 @@ function reset() {
   duda.value = '';
   pidioAclaracion.value = false;
   analizando.value = false;
+  loteOffset.value = 0;
   diaOffset.value = 0;
   horarioElegido.value = null;
 }
@@ -139,21 +144,72 @@ async function enviarSolicitud(horario?: { fecha: string; horaInicio: string; ho
 // --- Ruta video: grilla de horarios agregados de todos los asesores, próximos 7 días ---
 const { data: bloquesAgregados } = useDisponibilidadHorariosQuery(() => paso.value === 'horario');
 
+// `toISOString()` convierte a UTC — en Lima (UTC-5), cualquier hora local desde las 7pm en
+// adelante cae ya en el día siguiente en UTC, desalineando el `iso` enviado al backend respecto
+// al `diaSemana` mostrado (que sí es local). Se arma el ISO a mano con los componentes locales.
+function fechaISOLocal(fecha: Date): string {
+  return `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}-${String(fecha.getDate()).padStart(2, '0')}`;
+}
+
+function mesCorto(fecha: Date): string {
+  return fecha.toLocaleDateString('es-PE', { month: 'short' }).replace('.', '');
+}
+
 const proximosDias = computed(() =>
   Array.from({ length: 7 }, (_, i) => {
     const d = new Date();
-    d.setDate(d.getDate() + i);
+    d.setDate(d.getDate() + loteOffset.value * 7 + i);
     const jsDay = d.getDay();
-    return { fecha: d, diaSemana: jsDay === 0 ? 7 : jsDay, iso: d.toISOString().slice(0, 10) };
+    return { fecha: d, diaSemana: jsDay === 0 ? 7 : jsDay, iso: fechaISOLocal(d) };
   }),
 );
 const diaActivo = computed(() => proximosDias.value[diaOffset.value]);
-const bloquesDelDia = computed(() =>
-  (bloquesAgregados.value ?? [])
-    .filter((b) => b.diaSemana === diaActivo.value.diaSemana)
-    .slice()
-    .sort((a, b) => a.horaInicio.localeCompare(b.horaInicio)),
+
+function loteAnterior() {
+  if (loteOffset.value === 0) return;
+  loteOffset.value -= 1;
+  diaOffset.value = 0;
+  horarioElegido.value = null;
+}
+function loteSiguiente() {
+  loteOffset.value += 1;
+  diaOffset.value = 0;
+  horarioElegido.value = null;
+}
+
+// Bloques ya agendados dentro del lote visible — para saber, cuando un horario recurrente lo
+// ofrece más de un asesor, si TODOS ya están ocupados esa fecha puntual o si todavía queda
+// alguno libre (ver AsesoriaController::agendadosPorRango).
+const { data: agendadosData } = useAgendadosPorRangoQuery(
+  () => proximosDias.value[0].iso,
+  () => proximosDias.value[6].iso,
+  () => paso.value === 'horario',
 );
+
+const bloquesDelDia = computed(() => {
+  const crudos = (bloquesAgregados.value ?? []).filter((b) => b.diaSemana === diaActivo.value.diaSemana);
+  const porHorario = new Map<string, string[]>();
+  for (const b of crudos) {
+    const clave = `${b.horaInicio}|${b.horaFin}`;
+    const docentes = porHorario.get(clave) ?? [];
+    docentes.push(b.docenteId);
+    porHorario.set(clave, docentes);
+  }
+
+  const ocupados = new Set(
+    (agendadosData.value ?? [])
+      .filter((a) => a.fecha === diaActivo.value.iso)
+      .map((a) => `${a.docenteId}|${a.horaInicio}|${a.horaFin}`),
+  );
+
+  return Array.from(porHorario.entries())
+    .map(([clave, docentes]) => {
+      const [horaInicio, horaFin] = clave.split('|');
+      const libre = docentes.some((docenteId) => !ocupados.has(`${docenteId}|${horaInicio}|${horaFin}`));
+      return { horaInicio, horaFin, disponible: libre };
+    })
+    .sort((a, b) => a.horaInicio.localeCompare(b.horaInicio));
+});
 
 watch(diaOffset, () => { horarioElegido.value = null; });
 
@@ -321,10 +377,10 @@ function confirmarHorario() {
             <div v-else-if="paso === 'horario'" class="space-y-4">
               <div class="flex items-center gap-2">
                 <button
-                  @click="diaOffset = Math.max(0, diaOffset - 1)"
-                  :disabled="diaOffset === 0"
+                  @click="loteAnterior"
+                  :disabled="loteOffset === 0"
                   type="button"
-                  class="w-8 h-8 rounded-lg border border-gray-200 flex items-center justify-center text-gray-500 hover:bg-gray-50 disabled:opacity-30 transition-colors duration-75 shrink-0"
+                  class="w-8 h-8 rounded-lg border border-gray-200 flex items-center justify-center text-gray-500 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-75 shrink-0"
                 >
                   <FontAwesomeIcon :icon="faChevronLeft" class="w-3 h-3" />
                 </button>
@@ -334,18 +390,18 @@ function confirmarHorario() {
                     :key="d.iso"
                     @click="diaOffset = i"
                     type="button"
-                    class="py-2 rounded-lg border text-center transition-colors"
+                    class="relative py-2 rounded-lg border text-center transition-colors"
                     :class="i === diaOffset ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-gray-200 text-gray-500 hover:bg-gray-50'"
                   >
                     <p class="text-[10px] font-medium">{{ DIAS_CORTO[d.diaSemana] }}</p>
                     <p class="text-xs font-bold">{{ d.fecha.getDate() }}</p>
+                    <span class="absolute bottom-0.5 right-1 text-[7px] uppercase" :class="i === diaOffset ? 'text-brand-400' : 'text-gray-400'">{{ mesCorto(d.fecha) }}</span>
                   </button>
                 </div>
                 <button
-                  @click="diaOffset = Math.min(6, diaOffset + 1)"
-                  :disabled="diaOffset === 6"
+                  @click="loteSiguiente"
                   type="button"
-                  class="w-8 h-8 rounded-lg border border-gray-200 flex items-center justify-center text-gray-500 hover:bg-gray-50 disabled:opacity-30 transition-colors duration-75 shrink-0"
+                  class="w-8 h-8 rounded-lg border border-gray-200 flex items-center justify-center text-gray-500 hover:bg-gray-50 transition-colors duration-75 shrink-0"
                 >
                   <FontAwesomeIcon :icon="faChevronRight" class="w-3 h-3" />
                 </button>
@@ -358,13 +414,17 @@ function confirmarHorario() {
                 <button
                   v-for="(b, i) in bloquesDelDia"
                   :key="i"
-                  @click="horarioElegido = { horaInicio: b.horaInicio, horaFin: b.horaFin }"
+                  @click="b.disponible && (horarioElegido = { horaInicio: b.horaInicio, horaFin: b.horaFin })"
+                  :disabled="!b.disponible"
                   type="button"
                   class="px-3 py-2.5 rounded-lg border text-sm text-left transition-colors flex items-center justify-between"
-                  :class="horarioElegido?.horaInicio === b.horaInicio ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50'"
+                  :class="!b.disponible
+                    ? 'border-gray-100 bg-gray-50 text-gray-400 cursor-not-allowed'
+                    : horarioElegido?.horaInicio === b.horaInicio ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50'"
                 >
-                  {{ b.horaInicio }} - {{ b.horaFin }}
-                  <FontAwesomeIcon v-if="horarioElegido?.horaInicio === b.horaInicio" :icon="faCheck" class="w-3 h-3" />
+                  <span>{{ b.horaInicio }} - {{ b.horaFin }}</span>
+                  <span v-if="!b.disponible" class="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Agendado</span>
+                  <FontAwesomeIcon v-else-if="horarioElegido?.horaInicio === b.horaInicio" :icon="faCheck" class="w-3 h-3" />
                 </button>
               </div>
 

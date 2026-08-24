@@ -11,6 +11,7 @@ import CampoImagenInput from '@/components/CampoImagenInput.vue';
 import CampoListaInput from '@/components/CampoListaInput.vue';
 import CampoEstadoIA from '@/features/cliente/CampoEstadoIA.vue';
 import CampoBooleanoInput from '@/components/CampoBooleanoInput.vue';
+import CampoFechaInput from '@/components/CampoFechaInput.vue';
 import { EXCEL_VIVO } from '@/composables/useListasExcel';
 import { etiquetaDeValor, textoVisibleDeNumero } from '@/lib/conversionesExcel';
 import type { ModoEdicionEditor } from '@/composables/usePlantillaEditor';
@@ -123,6 +124,7 @@ const numColumnasRenderizadas = computed(() => {
 const tablaAncha = computed(() => isTableField.value && numColumnasRenderizadas.value > 6);
 const isCoordField = computed(() => props.campo.tipo === 'mapa_coordenadas');
 const isBooleanoField = computed(() => props.campo.tipo === 'booleano');
+const isFechaField = computed(() => props.campo.tipo === 'fecha');
 // Campo tipo imagen: el valor es una URL, pero se edita con vista previa y carga de archivo.
 const isImagenField = computed(() => props.campo.tipo === 'imagen');
 const faltaCaptura = computed(() => campoFaltaCaptura(props.campo));
@@ -457,6 +459,11 @@ const claseLabelEjemplo = computed(() => {
             :opciones="opcionesExcel ?? []"
             @change="emit('update-default-value', $event)"
           />
+          <CampoFechaInput
+            v-else-if="isFechaField"
+            :value="valorDefaultMostrado"
+            @change="emit('update-default-value', $event)"
+          />
           <textarea
             v-else-if="esTextoLargo"
             :value="valorDefaultMostrado"
@@ -560,6 +567,13 @@ const claseLabelEjemplo = computed(() => {
               :etiquetas="campo.etiquetasBooleano ?? { true: 'Sí', false: 'No' }"
               variante="si_no"
               :editable="editableExample"
+              @change="emit('update-example-value', $event)"
+            />
+            <CampoFechaInput
+              v-else-if="isFechaField"
+              :value="displayValue || ''"
+              :editable="editableExample"
+              :error="!!error"
               @change="emit('update-example-value', $event)"
             />
             <textarea

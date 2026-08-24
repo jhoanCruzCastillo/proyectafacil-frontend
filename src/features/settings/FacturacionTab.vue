@@ -4,16 +4,17 @@ import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faTriangleExclamation, metodoPagoIcons, metodoPagoLabels } from '@/lib/icons';
 import { useSessionStore } from '@/stores/session';
 import { useFacturacionQuery, useActualizarFacturacion } from '@/composables/useFacturacion';
+import { useQuitarAddon, useAbrirPortal } from '@/composables/usePagos';
 import { useUsuariosQuery, useActualizarUsuario, useEliminarUsuario } from '@/composables/useUsuarios';
 import { usePushActividad } from '@/composables/useActividad';
 import { useUiStore } from '@/stores/ui';
 import { addOns, planes, calcularTotalMensual } from '@/data/planes';
 import ConfirmModal from '@/components/ConfirmModal.vue';
 import PlanesModal from './PlanesModal.vue';
-import ActualizarPagoModal from './ActualizarPagoModal.vue';
 import ComprarAddOnModal from './ComprarAddOnModal.vue';
 import ColaboradorModal from './ColaboradorModal.vue';
 import AddOnsGrid from './AddOnsGrid.vue';
+import BeneficiosGrid from './BeneficiosGrid.vue';
 import ColaboradoresTable from './ColaboradoresTable.vue';
 import type { AddOn, Usuario } from '@/types';
 
@@ -23,13 +24,14 @@ const usuarioId = computed(() => session.sesion?.usuarioId ?? '');
 
 const { data: facturacionData } = useFacturacionQuery(usuarioId);
 const actualizarFacturacion = useActualizarFacturacion();
+const quitarAddon = useQuitarAddon();
+const abrirPortal = useAbrirPortal();
 const { data: usuariosData } = useUsuariosQuery();
 const actualizarUsuario = useActualizarUsuario();
 const eliminarUsuario = useEliminarUsuario();
 const pushActividad = usePushActividad();
 
 const showPlanes = ref(false);
-const showPago = ref(false);
 const comprandoAddon = ref<AddOn | null>(null);
 const colaboradorModal = ref<{ mode: 'nuevo' | 'editar'; usuario: Usuario | null } | null>(null);
 const eliminarColaborador = ref<Usuario | null>(null);
@@ -40,6 +42,8 @@ const colaboradores = computed(() => (usuariosData.value ?? []).filter((u) => u.
 const asientosComprados = computed(() => facturacionData.value?.addons?.['usuario-adicional'] ?? 0);
 const asientosTotales = computed(() => plan.value.limiteUsuariosBase + asientosComprados.value);
 
+// `cancelada` sigue pasando por el mismo PUT de siempre — FacturacionController ahora cancela/
+// reactiva la suscripción real en Stripe antes de guardar la bandera (ver actualizarCancelacion()).
 async function handleCancelar() {
   await actualizarFacturacion.mutateAsync({ usuarioId: usuarioId.value, data: { cancelada: true } });
   ui.toast('Tu plan se cancelará al finalizar el periodo actual');
@@ -51,10 +55,20 @@ async function handleReactivar() {
 }
 
 async function handleQuitarAddon(addon: AddOn) {
-  const actual = facturacionData.value?.addons ?? {};
-  const cantidad = Math.max(0, (actual[addon.id] ?? 0) - 1);
-  await actualizarFacturacion.mutateAsync({ usuarioId: usuarioId.value, data: { addons: { ...actual, [addon.id]: cantidad } } });
-  ui.toast(`Quitaste 1 × ${addon.nombre}`);
+  try {
+    await quitarAddon.mutateAsync({ usuarioId: usuarioId.value, addonSlug: addon.id });
+    ui.toast(`Quitaste 1 × ${addon.nombre}`);
+  } catch (e) {
+    ui.toast(e instanceof Error ? e.message : 'No se pudo quitar el add-on', 'error');
+  }
+}
+
+async function handleAbrirPortal() {
+  try {
+    await abrirPortal.mutateAsync(usuarioId.value);
+  } catch (e) {
+    ui.toast(e instanceof Error ? e.message : 'No se pudo abrir el portal de facturación', 'error');
+  }
 }
 
 async function toggleEstadoColaborador(c: Usuario) {
@@ -125,8 +139,14 @@ async function handleEliminarColaborador() {
             <template v-else>{{ facturacionData.tarjetaMarca }} •••• {{ facturacionData.tarjetaUltimos4 }}</template>
           </span>
         </div>
-        <button @click="showPago = true" type="button" class="px-4 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors duration-75">
-          Actualizar
+        <button
+          @click="handleAbrirPortal"
+          :disabled="!facturacionData.stripeCustomerId || abrirPortal.isPending.value"
+          :title="!facturacionData.stripeCustomerId ? 'Se activa después de tu primera compra real (un plan o un add-on)' : undefined"
+          type="button"
+          class="px-4 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-75"
+        >
+          {{ abrirPortal.isPending.value ? 'Abriendo…' : 'Actualizar' }}
         </button>
       </div>
       <button v-if="!facturacionData.cancelada" @click="handleCancelar" type="button" class="mt-2 text-xs text-red-500 hover:text-red-600 transition-colors duration-75">
@@ -135,6 +155,8 @@ async function handleEliminarColaborador() {
     </div>
 
     <AddOnsGrid :plan="plan" :addons="facturacionData.addons ?? {}" @comprar="comprandoAddon = $event" @quitar="handleQuitarAddon" />
+
+    <BeneficiosGrid :usuario-id="usuarioId" />
 
     <ColaboradoresTable
       v-if="asientosTotales > 1"
@@ -173,7 +195,6 @@ async function handleEliminarColaborador() {
     </div>
 
     <PlanesModal :is-open="showPlanes" :usuario-id="usuarioId" @close="showPlanes = false" />
-    <ActualizarPagoModal :is-open="showPago" :usuario-id="usuarioId" @close="showPago = false" />
     <ComprarAddOnModal :is-open="!!comprandoAddon" :usuario-id="usuarioId" :addon="comprandoAddon" @close="comprandoAddon = null" />
     <ColaboradorModal
       :is-open="!!colaboradorModal"

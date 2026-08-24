@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faCheck, faComments, faVideo, faChevronRight, faXmark } from '@/lib/icons';
-import { colorCategoria } from '@/lib/consultaAsesorUI';
-import { ESTADO_ASESORIA_LABEL as ESTADO_LABEL, ESTADO_ASESORIA_CLASE as ESTADO_CLASE } from '@/lib/estadoAsesoria';
+import { faCheck, faComments, faChevronRight, faXmark } from '@/lib/icons';
+import ResumenSolicitudCard from './ResumenSolicitudCard.vue';
 import type { SolicitudAsesoria } from '@/types';
 
 // Confirmación al enviar una consulta (mockup de referencia del usuario) — reemplaza el cierre
@@ -45,27 +44,8 @@ const emit = defineEmits<{ close: []; verConsultas: [] }>();
             </p>
           </div>
 
-          <div class="mx-6 mb-6 rounded-xl bg-gray-50 p-5">
-            <p class="text-sm font-semibold text-heading mb-3">Resumen de tu consulta</p>
-            <div class="flex items-start justify-between gap-3 flex-wrap">
-              <div class="flex items-center gap-2.5">
-                <div class="w-9 h-9 rounded-lg bg-white text-brand-600 flex items-center justify-center shrink-0 shadow-sm">
-                  <FontAwesomeIcon :icon="solicitud.tipo === 'video' ? faVideo : faComments" class="w-3.5 h-3.5" />
-                </div>
-                <div>
-                  <p class="text-xs text-muted">Ticket N.°</p>
-                  <p class="font-semibold text-heading text-sm">#{{ solicitud.id }}</p>
-                </div>
-              </div>
-              <div>
-                <p class="text-xs text-muted mb-1">Categoría</p>
-                <span class="px-2.5 py-1 rounded-full text-xs font-medium" :class="colorCategoria(solicitud.sectorNombre)">{{ solicitud.sectorNombre ?? '—' }}</span>
-              </div>
-              <div>
-                <p class="text-xs text-muted mb-1">Estado actual</p>
-                <span class="px-2.5 py-1 rounded-full text-xs font-medium" :class="ESTADO_CLASE[solicitud.estado]">{{ ESTADO_LABEL[solicitud.estado] }}</span>
-              </div>
-            </div>
+          <div class="mx-6 mb-6">
+            <ResumenSolicitudCard :solicitud="solicitud" />
           </div>
 
           <div class="px-6 pb-6 space-y-3">

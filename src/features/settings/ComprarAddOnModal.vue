@@ -2,8 +2,8 @@
 import { computed, ref, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faXmark, faMinus, faPlus, faCartShopping } from '@/lib/icons';
-import { useFacturacionQuery, useActualizarFacturacion } from '@/composables/useFacturacion';
-import { generateId } from '@/api/mock/_shared';
+import { useFacturacionQuery } from '@/composables/useFacturacion';
+import { useCheckoutAddon } from '@/composables/usePagos';
 import { useUiStore } from '@/stores/ui';
 import type { AddOn } from '@/types';
 
@@ -17,7 +17,7 @@ const emit = defineEmits<{ close: [] }>();
 
 const ui = useUiStore();
 const { data: facturacionData } = useFacturacionQuery(() => props.usuarioId);
-const actualizarFacturacion = useActualizarFacturacion();
+const checkoutAddon = useCheckoutAddon();
 const cantidad = ref(1);
 
 watch(
@@ -28,23 +28,21 @@ watch(
 const cantidadActual = computed(() => (props.addon ? facturacionData.value?.addons?.[props.addon.id] ?? 0 : 0));
 const total = computed(() => (props.addon ? props.addon.precio * cantidad.value : 0));
 
+// Recurrente + ya suscrito: se ajusta directo en la suscripción (responde sin `url`, se queda
+// acá). No recurrente, o recurrente sin suscripción aún: redirige a Checkout real de Stripe.
 async function handleConfirmar() {
-  if (!props.addon || !facturacionData.value) return;
+  if (!props.addon) return;
   const addon = props.addon;
-  const addons = { ...(facturacionData.value.addons ?? {}) };
-  addons[addon.id] = (addons[addon.id] ?? 0) + cantidad.value;
-  const factura = {
-    id: generateId(),
-    fecha: new Date().toLocaleDateString('es-PE'),
-    total: `$${total.value.toFixed(2)}`,
-    estado: 'Pagado' as const,
-  };
-  await actualizarFacturacion.mutateAsync({
-    usuarioId: props.usuarioId,
-    data: { addons, facturas: [factura, ...facturacionData.value.facturas] },
-  });
-  ui.toast(`Compraste ${cantidad.value} × ${addon.nombre}`);
-  emit('close');
+  try {
+    const resultado = await checkoutAddon.mutateAsync({ usuarioId: props.usuarioId, addonSlug: addon.id, cantidad: cantidad.value });
+    if (resultado.ok) {
+      ui.toast(`Agregaste ${cantidad.value} × ${addon.nombre}`);
+      emit('close');
+    }
+    // Si vino `url`, useCheckoutAddon ya redirigió — no hay nada más que hacer acá.
+  } catch (e) {
+    ui.toast(e instanceof Error ? e.message : 'No se pudo procesar la compra', 'error');
+  }
 }
 </script>
 
@@ -102,11 +100,12 @@ async function handleConfirmar() {
             </button>
             <button
               @click="handleConfirmar"
+              :disabled="checkoutAddon.isPending.value"
               type="button"
-              class="px-5 py-2.5 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 transition-colors duration-75 flex items-center gap-2"
+              class="px-5 py-2.5 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 disabled:opacity-60 transition-colors duration-75 flex items-center gap-2"
             >
               <FontAwesomeIcon :icon="faCartShopping" class="w-3.5 h-3.5" />
-              Confirmar compra
+              {{ checkoutAddon.isPending.value ? 'Procesando…' : 'Confirmar compra' }}
             </button>
           </div>
         </div>

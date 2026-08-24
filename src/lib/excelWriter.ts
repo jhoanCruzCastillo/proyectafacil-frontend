@@ -1,7 +1,7 @@
 import { parseDynamicRows, parseGroupedRows, parseTree, getPeriodos, esJerarquica, esCeldaPartida, agrupadorProfundidad, posicionesArbol, posicionDe, posicionesGrupos, grupoOcupaFila, repartoAgrupador, alturaFilaBase, type FilaDinamica, type ValorCelda, type PosicionNodo } from './tableRowHelpers';
 import { LibroEdits, aplicarEdicionesXlsx } from './xlsxXmlPatcher';
 import { crearResolver, esFormula, evaluarFormula, traducirFormulaAExcel, type ResolucionToken, type ResolucionCelda } from './formula';
-import { booleanoATexto, dateASerialExcel, dePorcentaje, numeroDesdeTextoVisible, type EtiquetasBooleano } from './conversionesExcel';
+import { aFechaISO, booleanoATexto, dateASerialExcel, dePorcentaje, numeroDesdeTextoVisible, type EtiquetasBooleano } from './conversionesExcel';
 import { parseCoords, coordsATexto } from './coords';
 import { leerLibroXlsx } from './xlsxXmlReader';
 import { catalogoDeListas, normalizarOpcion, type AvisoLista } from './xlsxListas';
@@ -35,7 +35,6 @@ function addCols(letter: string, delta: number): string {
 // `etiquetasBooleano` son las palabras con que la plantilla oficial escribe un booleano en el Excel
 // ("Sí"/"No"). Sin ellas se escribe un booleano nativo (TRUE/FALSE), que es el comportamiento
 // previo — pero una plantilla que las declara debe recuperar su propio texto, no el genérico.
-const RE_FECHA_ISO = /^\d{4}-\d{2}-\d{2}$/;
 
 function coerceValor(
   tipo: TipoCampo | TipoColumna,
@@ -54,11 +53,17 @@ function coerceValor(
     const n = numeroDesdeTextoVisible(raw);
     return n === null ? '' : n;
   }
-  // Excel guarda las fechas como número de serie. Escribir el texto ISO dejaría la celda como texto:
-  // se vería con el formato roto y cualquier fórmula que opere con ella fallaría.
-  if (tipo === 'fecha' && RE_FECHA_ISO.test(raw.trim())) {
-    const ms = Date.parse(`${raw.trim()}T00:00:00Z`);
-    if (!Number.isNaN(ms)) return dateASerialExcel(new Date(ms));
+  // Excel guarda las fechas como número de serie. Escribir el texto tal cual dejaría la celda como
+  // texto: se vería con el formato roto y cualquier fórmula que opere con ella fallaría. aFechaISO
+  // entiende tanto ISO como "DD/MM/YYYY" (el formato en que la IA y el <input type="date"> del
+  // cliente lo escriben) — antes solo se reconocía ISO y una fecha en DD/MM/YYYY se colaba como
+  // texto plano a la celda, sin que nada lo avisara.
+  if (tipo === 'fecha') {
+    const iso = aFechaISO(raw.trim(), false);
+    if (iso !== null) {
+      const ms = Date.parse(`${iso}T00:00:00Z`);
+      if (!Number.isNaN(ms)) return dateASerialExcel(new Date(ms));
+    }
   }
   if (tipo === 'booleano') return booleanoATexto(raw, etiquetasBooleano);
   // Coordenadas: en el JSON viajan como objeto {lat,lng}, pero la celda del Excel lleva el par en
