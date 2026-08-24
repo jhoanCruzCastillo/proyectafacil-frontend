@@ -563,21 +563,28 @@ export interface CambioFicha {
   campos: CampoCambio[];
 }
 
-// Asesoría 1:1 cliente↔docente (chat o videollamada por link externo). diaSemana: 1=lunes .. 7=domingo.
+// Asesoría 1:1 cliente↔docente (chat o videollamada por link externo). Cada bloque es una regla
+// de disponibilidad recurrente: fecha ancla (fechaInicio) + tipo de repetición, expandida a
+// ocurrencias concretas por src/lib/horarioRecurrencia.ts.
+export type TipoRepeticionHorario = 'diaria' | 'lunes_a_viernes' | 'semanal' | 'mensual' | 'anual';
+
 export interface HorarioDocente {
   id: string;
-  diaSemana: number;
+  /** "YYYY-MM-DD" — primera ocurrencia de la regla. */
+  fechaInicio: string;
   /** "HH:MM" */
   horaInicio: string;
   /** "HH:MM" */
   horaFin: string;
+  todoElDia: boolean;
+  tipoRepeticion: TipoRepeticionHorario;
 }
 
 export interface Docente {
   id: string;
   nombre: string;
   fotoUrl?: string | null;
-  /** Bloques semanales de referencia — no es un calendario de citas, solo indica cuándo suele estar disponible */
+  /** Reglas de disponibilidad recurrente — no es un calendario de citas, solo indica cuándo suele estar disponible */
   horario: HorarioDocente[];
 }
 

@@ -6,6 +6,7 @@ import PageShell from '@/components/PageShell.vue';
 import { useSessionStore } from '@/stores/session';
 import { useDocentesQuery } from '@/composables/useDocentes';
 import { useMisSolicitudesQuery } from '@/composables/useAsesoria';
+import { ocurrenciasEnRango } from '@/lib/horarioRecurrencia';
 
 // Mismo patrón de grilla semanal que "Mi disponibilidad" (HorarioDocenteEditor.vue) — misma
 // escala de filas (FILA_PX + GAP_PX por hora) para que los bloques de citas reales, que NO están
@@ -111,16 +112,25 @@ function fechaISO(fecha: Date): string {
   return `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}-${String(fecha.getDate()).padStart(2, '0')}`;
 }
 
-// "Disponible" — el horario recurrente ya viene como bloques con horaInicio/horaFin, uno por
-// franja contigua, así que se dibuja directo sin recorrer hora por hora.
-function bloquesDisponibleDia(diaValor: number) {
+// "Disponible" — cada regla de horario recurrente se expande a sus ocurrencias reales dentro de
+// la semana visible (ver src/lib/horarioRecurrencia.ts); "todo el día" se muestra aparte, en su
+// propia franja, para no forzar bloques 00:00-23:59 dentro de la grilla horaria.
+const ocurrenciasSemana = computed(() => {
   const horario = propio.value?.horario ?? [];
-  return horario
-    .filter((h) => h.diaSemana === diaValor)
-    .map((h) => ({
-      id: h.id,
-      top: topPx(horaADecimal(h.horaInicio)),
-      alto: (horaADecimal(h.horaFin) - horaADecimal(h.horaInicio)) * (FILA_PX + GAP_PX) - GAP_PX,
+  return ocurrenciasEnRango(horario, fechaISO(fechasSemana.value[0]), fechaISO(fechasSemana.value[6]));
+});
+
+function todoElDiaEnDia(fechaIso: string) {
+  return ocurrenciasSemana.value.filter((o) => o.todoElDia && o.fecha === fechaIso);
+}
+
+function bloquesDisponibleDia(fechaIso: string) {
+  return ocurrenciasSemana.value
+    .filter((o) => !o.todoElDia && o.fecha === fechaIso)
+    .map((o) => ({
+      id: `${o.id}-${o.fecha}`,
+      top: topPx(horaADecimal(o.horaInicio)),
+      alto: (horaADecimal(o.horaFin) - horaADecimal(o.horaInicio)) * (FILA_PX + GAP_PX) - GAP_PX,
     }));
 }
 
@@ -141,13 +151,14 @@ const citasSemana = computed(() => {
   );
 });
 
-// Hora en la que arranca la grilla: 6am por defecto, adelantada si hay un bloque disponible
-// recurrente (aplica sin importar la semana) o una cita real dentro de la semana visible que
-// empiecen antes de esa hora.
+// Hora en la que arranca la grilla: 6am por defecto, adelantada si hay una ocurrencia disponible
+// con horario puntual (no "todo el día", que va en su propia franja) o una cita real dentro de la
+// semana visible que empiecen antes de esa hora.
 const horaInicioGrid = computed(() => {
   let min = 6;
-  for (const h of propio.value?.horario ?? []) {
-    min = Math.min(min, Math.floor(horaADecimal(h.horaInicio)));
+  for (const o of ocurrenciasSemana.value) {
+    if (o.todoElDia) continue;
+    min = Math.min(min, Math.floor(horaADecimal(o.horaInicio)));
   }
   for (const s of citasSemana.value) {
     min = Math.min(min, Math.floor(horaADecimal(s.horarioHoraInicio!)));
@@ -223,6 +234,19 @@ watch(isLoading, async (cargando) => {
             </div>
           </div>
 
+          <div class="grid gap-1 px-1 pb-1" style="grid-template-columns: 64px repeat(7, 1fr)">
+            <div class="flex items-start justify-end pr-2 pt-1 text-[10px] text-gray-400">Todo el día</div>
+            <div v-for="(dia, i) in DIAS" :key="`tdia-${dia.valor}`" class="flex flex-col gap-1 bg-white rounded-md p-1 min-h-[30px]">
+              <div
+                v-for="o in todoElDiaEnDia(fechaISO(fechasSemana[i]))"
+                :key="`tdia-${o.id}-${o.fecha}`"
+                class="w-full rounded-md border-2 border-brand-500/50 bg-transparent text-[10px] font-semibold text-brand-700 py-1 px-1.5 truncate"
+              >
+                Todo el día
+              </div>
+            </div>
+          </div>
+
           <div ref="scrollRef" class="overflow-y-auto" :style="{ maxHeight: `${ALTO_VISIBLE_PX}px` }">
             <div class="grid p-1 divide-x divide-gray-200" style="grid-template-columns: 64px repeat(7, 1fr)">
               <div
@@ -247,7 +271,7 @@ watch(isLoading, async (cargando) => {
                 :style="{ height: `${alturaTotalPx}px`, backgroundImage: lineasHoraCss, backgroundPosition: `0 ${PADDING_PX}px` }"
               >
                 <div
-                  v-for="bloque in bloquesDisponibleDia(dia.valor)"
+                  v-for="bloque in bloquesDisponibleDia(fechaISO(fechasSemana[i]))"
                   :key="`disp-${bloque.id}`"
                   class="absolute left-0.5 right-0.5 rounded-md border-2 border-brand-500/50 bg-transparent"
                   :style="{ top: `${bloque.top}px`, height: `${bloque.alto}px` }"
