@@ -49,7 +49,7 @@ function disponible(a: AddOn): boolean {
           <span class="text-xs text-brand-600 font-medium">
             {{ addons[a.id] }} contratado{{ (addons[a.id] ?? 0) > 1 ? 's' : '' }}
           </span>
-          <button @click="emit('quitar', a)" type="button" class="text-xs text-red-500 hover:text-red-600 transition-colors duration-75">
+          <button v-if="a.recurrente" @click="emit('quitar', a)" type="button" class="text-xs text-red-500 hover:text-red-600 transition-colors duration-75">
             Quitar 1
           </button>
         </div>

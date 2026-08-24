@@ -34,6 +34,9 @@ export function anioDesdeSerial(serial: number): string {
 
 // --- Entradas desde Excel (texto crudo de la celda) ---
 
+// "DD/MM/YYYY" o "DD-MM-YYYY" — el formato en que la IA y los usuarios peruanos escriben una fecha.
+const FECHA_DD_MM_YYYY = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/;
+
 /**
  * Normaliza cualquier representación de FECHA a "YYYY-MM-DD".
  * `esSerialDeExcel` viene de haber detectado formato de fecha en la celda; si es false, se intenta
@@ -48,8 +51,31 @@ export function aFechaISO(valor: string, esSerialDeExcel: boolean): string | nul
     if (Number.isFinite(serial)) return fechaISODesdeSerial(serial);
   }
 
+  // DD/MM/YYYY explícito ANTES del fallback genérico: Date.parse interpreta "15/09/2026" como
+  // MM/DD/YYYY (convención estadounidense) y da NaN apenas el día supera 12 — encontrado en vivo con
+  // fechas propuestas por la IA ("Debe ser una fecha válida" en campos con una fecha perfectamente
+  // válida). Se valida también que la fecha exista de verdad (rechaza "31/02/2026").
+  const conBarras = texto.match(FECHA_DD_MM_YYYY);
+  if (conBarras) {
+    const dia = Number(conBarras[1]);
+    const mes = Number(conBarras[2]);
+    const anio = Number(conBarras[3]);
+    const fecha = new Date(Date.UTC(anio, mes - 1, dia));
+    if (fecha.getUTCFullYear() === anio && fecha.getUTCMonth() === mes - 1 && fecha.getUTCDate() === dia) {
+      return fecha.toISOString().slice(0, 10);
+    }
+    return null;
+  }
+
   const ms = Date.parse(texto);
   return Number.isNaN(ms) ? null : new Date(ms).toISOString().slice(0, 10);
+}
+
+/** "YYYY-MM-DD" -> "DD/MM/YYYY", para mostrar/guardar en el formato que usa el resto de la app
+ * (ej. el valor que emite un <input type="date"> nativo, que solo habla ISO). */
+export function fechaISOaDDMMYYYY(iso: string): string {
+  const [anio, mes, dia] = iso.split('-');
+  return `${dia}/${mes}/${anio}`;
 }
 
 /**
@@ -147,6 +173,17 @@ function aplicarMascaraNumero(codigo: string, valor: number): string {
     literales.push(c);
     return m;
   });
+
+  // Relleno de alineación contable (`_-`, `_)`, …): en Excel deja un hueco del ancho de ese
+  // carácter para alinear con los paréntesis de los negativos en columnas vecinas — no aporta nada
+  // en una celda de tabla suelta, así que se descarta entero. Encontrado en vivo: formatos tipo
+  // `_-S/* #,##0_-` (moneda contable) se mostraban con el `_-`/`*` literales pegados al número
+  // ("_-S/* 1,530_-") en vez de solo "S/ 1,530".
+  plantilla = plantilla.replace(/_./g, '');
+  // Relleno "hasta llenar la columna" (`* `, `*.`, …): en Excel repite el carácter siguiente para
+  // ocupar el ancho de columna; acá basta con UNA sola instancia para conservar el espacio visual
+  // (ej. entre el símbolo de moneda y el número) sin repetirlo de verdad.
+  plantilla = plantilla.replace(/\*(.)/g, '$1');
 
   let n = valor;
   const esPct = plantilla.includes('%');

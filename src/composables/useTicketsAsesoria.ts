@@ -30,6 +30,14 @@ export function useTicketDetalleQuery(id: MaybeRefOrGetter<string | null>) {
   });
 }
 
+export function useHistorialConexionQuery(id: MaybeRefOrGetter<string | null>) {
+  return useQuery({
+    queryKey: ['asesoria', 'tickets', 'historial-conexion', id],
+    queryFn: () => ticketsAsesoriaHttp.historialConexion(toValue(id) as string),
+    enabled: () => !!toValue(id),
+  });
+}
+
 export function useDocentesDisponiblesQuery(id: MaybeRefOrGetter<string | null>) {
   return useQuery({
     queryKey: ['asesoria', 'tickets', 'docentes-disponibles', id],

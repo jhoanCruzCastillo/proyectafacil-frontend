@@ -9,6 +9,7 @@ import {
   useExcepcionesHorarioQuery, useActualizarExcepcionesHorario,
 } from '@/composables/useDocentes';
 import { useUiStore } from '@/stores/ui';
+import { horaAmPm } from '@/lib/consultaAsesorUI';
 import type { BloqueHorario, BloqueExcepcion } from '@/api/contracts/docentes';
 
 // Horario semanal de referencia (no es un calendario de citas con fechas puntuales) — el cliente
@@ -91,8 +92,16 @@ const slots = computed(() => {
   return lista;
 });
 
+// Traslape con la franja [slot, slot+PASO) — no "contiene el punto entero" (eso dejaba invisible
+// cualquier bloque que no cruzara una hora en punto, ej. 20:50-21:00).
 function estaDisponible(dia: number, slot: number): boolean {
-  return bloques.value.some((b) => b.diaSemana === dia && horaADecimal(b.horaInicio) <= slot && slot < horaADecimal(b.horaFin));
+  return bloques.value.some((b) => b.diaSemana === dia && horaADecimal(b.horaInicio) < slot + PASO && horaADecimal(b.horaFin) > slot);
+}
+
+// El bloque, si lo hay, que arranca justo en esta casilla — para pintar el rango "8:00am-11:00am"
+// una sola vez, en la primera casilla del bloque (no en cada hora que ocupa).
+function bloqueQueEmpiezaEn(dia: number, slot: number): BloqueHorario | undefined {
+  return bloques.value.find((b) => b.diaSemana === dia && Math.floor(horaADecimal(b.horaInicio)) === slot);
 }
 
 // Reconstruye el día completo como un set de medias horas marcadas, aplica el toggle, y vuelve a
@@ -144,7 +153,7 @@ function fechaISO(fecha: Date): string {
 }
 
 function excepcionEn(fechaIso: string, slot: number): BloqueExcepcion | undefined {
-  return excepciones.value.find((e) => e.fecha === fechaIso && horaADecimal(e.horaInicio) <= slot && slot < horaADecimal(e.horaFin));
+  return excepciones.value.find((e) => e.fecha === fechaIso && horaADecimal(e.horaInicio) < slot + PASO && horaADecimal(e.horaFin) > slot);
 }
 
 function quitarExcepcion(exc: BloqueExcepcion) {
@@ -216,19 +225,33 @@ function abrirAgregarDisponible() {
   showAgregarDisponible.value = true;
 }
 
+// Fusiona intervalos en horas decimales SIN redondear a la cuadrícula de horas enteras (a
+// diferencia de comprimirEnBloques, pensada para el click-toggle) — así el modal respeta minutos
+// exactos, incluyendo bloques de menos de una hora (ej. 20:00-20:10).
+function fusionarIntervalos(dia: number, intervalos: { inicio: number; fin: number }[]): BloqueHorario[] {
+  const ordenados = [...intervalos].sort((a, b) => a.inicio - b.inicio);
+  const fusionados: { inicio: number; fin: number }[] = [];
+  for (const actual of ordenados) {
+    const ultimo = fusionados[fusionados.length - 1];
+    if (ultimo && actual.inicio <= ultimo.fin) {
+      ultimo.fin = Math.max(ultimo.fin, actual.fin);
+    } else {
+      fusionados.push({ ...actual });
+    }
+  }
+  return fusionados.map((f) => ({ diaSemana: dia, horaInicio: horaAString(f.inicio), horaFin: horaAString(f.fin) }));
+}
+
 function confirmarAgregarDisponible() {
   if (nuevoDesde.value >= nuevoHasta.value) {
     ui.toast('La hora de inicio debe ser antes que la hora de fin', 'error');
     return;
   }
   const propios = bloques.value.filter((b) => b.diaSemana === nuevoDia.value);
-  const marcados = new Set<number>();
-  for (const b of propios) {
-    for (let s = horaADecimal(b.horaInicio); s < horaADecimal(b.horaFin) - 0.001; s += PASO) marcados.add(Math.round(s / PASO) * PASO);
-  }
-  for (let s = horaADecimal(nuevoDesde.value); s < horaADecimal(nuevoHasta.value) - 0.001; s += PASO) marcados.add(Math.round(s / PASO) * PASO);
+  const intervalos = propios.map((b) => ({ inicio: horaADecimal(b.horaInicio), fin: horaADecimal(b.horaFin) }));
+  intervalos.push({ inicio: horaADecimal(nuevoDesde.value), fin: horaADecimal(nuevoHasta.value) });
 
-  bloques.value = [...bloques.value.filter((b) => b.diaSemana !== nuevoDia.value), ...comprimirEnBloques(nuevoDia.value, marcados)];
+  bloques.value = [...bloques.value.filter((b) => b.diaSemana !== nuevoDia.value), ...fusionarIntervalos(nuevoDia.value, intervalos)];
   showAgregarDisponible.value = false;
 }
 
@@ -381,10 +404,17 @@ watch(isLoading, async (cargando) => {
                     v-else
                     @click="toggleSlot(dia.valor, slot)"
                     type="button"
-                    class="rounded transition-colors duration-75"
+                    class="rounded transition-colors duration-75 flex items-center justify-center overflow-hidden px-0.5"
                     :class="estaDisponible(dia.valor, slot) ? 'bg-brand-500 hover:bg-brand-600' : 'bg-white hover:bg-brand-50 border border-gray-100'"
                     :style="{ height: `${FILA_PX}px` }"
-                  />
+                  >
+                    <span
+                      v-if="bloqueQueEmpiezaEn(dia.valor, slot)"
+                      class="text-[9px] font-semibold text-white leading-none truncate"
+                    >
+                      {{ horaAmPm(bloqueQueEmpiezaEn(dia.valor, slot)!.horaInicio) }}-{{ horaAmPm(bloqueQueEmpiezaEn(dia.valor, slot)!.horaFin) }}
+                    </span>
+                  </button>
                 </template>
               </template>
             </div>

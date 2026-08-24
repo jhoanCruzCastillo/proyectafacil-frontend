@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faXmark, faUser, faCircleUser, faCreditCard } from '@/lib/icons';
+import Avatar from '@/components/Avatar.vue';
+import { useSessionStore } from '@/stores/session';
+import { useUsuariosQuery } from '@/composables/useUsuarios';
 import GeneralTab from './GeneralTab.vue';
 import CuentaTab from './CuentaTab.vue';
 import FacturacionTab from './FacturacionTab.vue';
@@ -9,6 +12,10 @@ import type { IconDefinition } from '@fortawesome/free-solid-svg-icons';
 
 defineProps<{ isOpen: boolean }>();
 const emit = defineEmits<{ close: [] }>();
+
+const session = useSessionStore();
+const { data: usuariosData } = useUsuariosQuery();
+const usuario = computed(() => usuariosData.value?.find((u) => u.id === session.sesion?.usuarioId) ?? null);
 
 type Tab = 'general' | 'cuenta' | 'facturacion';
 
@@ -34,18 +41,32 @@ const tab = ref<Tab>('general');
             <FontAwesomeIcon :icon="faXmark" />
           </button>
 
-          <div class="w-52 shrink-0 bg-gray-50 border-r border-gray-100 p-4">
-            <h2 class="text-sm font-bold text-heading px-2 mb-4">Ajustes</h2>
+          <div class="w-56 shrink-0 bg-gray-50 border-r border-gray-100 p-4 flex flex-col">
+            <h2 class="text-xs font-semibold uppercase tracking-widest text-muted px-2 mb-3">Ajustes</h2>
+
+            <div v-if="usuario" class="flex items-center gap-3 px-2 pb-4 mb-3 border-b border-gray-200">
+              <Avatar :nombre="usuario.nombre" :foto-url="usuario.fotoUrl" size="w-10 h-10" />
+              <div class="min-w-0">
+                <p class="text-sm font-semibold text-heading truncate">{{ usuario.nombre }}</p>
+                <p class="text-xs text-muted truncate">{{ usuario.correo || 'Sin correo' }}</p>
+              </div>
+            </div>
+
             <nav class="space-y-1">
               <button
                 v-for="t in tabs"
                 :key="t.id"
                 @click="tab = t.id"
                 type="button"
-                class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-75"
-                :class="tab === t.id ? 'bg-brand-50 text-brand-700' : 'text-gray-600 hover:bg-gray-100'"
+                class="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-colors duration-75"
+                :class="tab === t.id ? 'bg-white text-brand-700 shadow-sm' : 'text-gray-600 hover:bg-gray-100'"
               >
-                <FontAwesomeIcon :icon="t.icon" class="w-3.5 text-center" />
+                <span
+                  class="w-7 h-7 rounded-md flex items-center justify-center shrink-0 transition-colors duration-75"
+                  :class="tab === t.id ? 'bg-brand-100 text-brand-600' : 'bg-gray-100 text-gray-400'"
+                >
+                  <FontAwesomeIcon :icon="t.icon" class="w-3.5 h-3.5" />
+                </span>
                 {{ t.label }}
               </button>
             </nav>

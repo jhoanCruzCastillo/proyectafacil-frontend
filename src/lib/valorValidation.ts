@@ -1,4 +1,5 @@
 import type { Campo, Plantilla } from '@/types';
+import { aFechaISO, numeroDesdeTextoVisible } from './conversionesExcel';
 
 // Validación de los VALORES que llena el cliente (obligatoriedad + tipo) — distinto de
 // campoValidation.ts, que valida la posición de captura en Excel (cosa del admin).
@@ -7,9 +8,15 @@ export function validarValorCampo(campo: Campo, valor: string | undefined): stri
   const v = (valor ?? '').trim();
   if (!v) return campo.requerido ? 'Este campo es obligatorio' : null;
   if (campo.tipo === 'numero' || campo.tipo === 'decimal') {
-    if (Number.isNaN(Number(v))) return 'Debe ser un número válido';
+    // Misma lectura que excelWriter.ts (coerceValor -> numeroDesdeTextoVisible): acepta "68%" (el
+    // Excel real lo admite en una celda con formato de porcentaje) además de números planos — sin
+    // esto, un valor que el Excel acepta sin problema quedaba rechazado aquí antes de guardarse.
+    if (numeroDesdeTextoVisible(v) === null) return 'Debe ser un número válido';
   }
-  if (campo.tipo === 'fecha' && Number.isNaN(Date.parse(v))) {
+  // Misma lectura que conversionesExcel.ts (aFechaISO): acepta "DD/MM/YYYY" además de lo que ya
+  // entiende Date.parse — sin esto, un Date.parse crudo interpreta "15/09/2026" como MM/DD/YYYY
+  // (día 15 no es mes válido) y rechazaba fechas perfectamente válidas.
+  if (campo.tipo === 'fecha' && aFechaISO(v, false) === null) {
     return 'Debe ser una fecha válida';
   }
   return null;

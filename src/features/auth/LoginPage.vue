@@ -16,11 +16,12 @@ const password = ref('Super#2026');
 const showPassword = ref(false);
 const error = ref('');
 
-// Solo en desarrollo (npm run dev): credenciales de los 6 usuarios de muestra sembrados por
+// Solo en desarrollo (npm run dev): credenciales de los usuarios de muestra sembrados por
 // UsuariosSeeder — un usuario por rol (Cliente cuenta con uno de origen Alumno y otro Externo,
-// ya que esa distinción cambia el comportamiento de la app) — acelera probar cada combinación sin
-// escribir usuario/contraseña a mano. Se excluye del build de producción — el template no puede
-// evaluar import.meta directamente, así que se resuelve una sola vez acá.
+// ya que esa distinción cambia el comportamiento de la app; Asesor cuenta con dos, para poder
+// probar flujos con múltiples asesores — ej. un horario cubierto por más de uno) — acelera probar
+// cada combinación sin escribir usuario/contraseña a mano. Se excluye del build de producción — el
+// template no puede evaluar import.meta directamente, así que se resuelve una sola vez acá.
 const esDev = import.meta.env.DEV;
 const credencialesDev = [
   { id: 'superusuario', label: `${rolUsuarioLabels.superusuario} — Carlos Núñez`, usuario: 'superuser', password: 'Super#2026' },
@@ -29,6 +30,7 @@ const credencialesDev = [
   { id: 'cliente-alumno', label: `${rolUsuarioLabels.cliente} (Alumno) — Juan Pérez`, usuario: 'cliente', password: 'Cliente#2026' },
   { id: 'cliente-externo', label: `${rolUsuarioLabels.cliente} (Externo) — Ana Gómez`, usuario: 'cliente2', password: 'Cliente#2026' },
   { id: 'asesor', label: `${rolUsuarioLabels.asesor} — Pedro Ríos`, usuario: 'asesor1', password: 'Asesor#2026' },
+  { id: 'asesor2', label: `${rolUsuarioLabels.asesor} — Laura Medina`, usuario: 'asesor2', password: 'Asesor#2026' },
 ];
 
 function usarCredencialDev(id: string) {

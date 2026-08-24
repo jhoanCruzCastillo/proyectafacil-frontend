@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faXmark, faCheck } from '@/lib/icons';
-import { useFacturacionQuery, useActualizarFacturacion } from '@/composables/useFacturacion';
+import { useFacturacionQuery } from '@/composables/useFacturacion';
+import { useCheckoutPlan, useCambiarPlan } from '@/composables/usePagos';
 import { useUiStore } from '@/stores/ui';
 import { planes } from '@/data/planes';
 import type { Plan } from '@/types';
@@ -15,25 +16,38 @@ const emit = defineEmits<{ close: [] }>();
 
 const ui = useUiStore();
 const { data: facturacionData } = useFacturacionQuery(() => props.usuarioId);
-const actualizarFacturacion = useActualizarFacturacion();
+const checkoutPlan = useCheckoutPlan();
+const cambiarPlan = useCambiarPlan();
 
+// Sin suscripción activa todavía (nunca compró, o solo tiene el Nivel 0 de pago único) → Checkout
+// real de Stripe (redirige). Con una suscripción activa (Nivel 1/2) → swap directo del plan,
+// instantáneo, cobrando/prorrateando de verdad — salvo que el destino sea el Nivel 0 (no es un
+// ítem de suscripción, hay que cancelar primero desde el portal).
 async function handleElegir(p: Plan) {
-  const renovacion = new Date();
-  renovacion.setMonth(renovacion.getMonth() + 1);
-  await actualizarFacturacion.mutateAsync({
-    usuarioId: props.usuarioId,
-    data: {
-      planId: p.id,
-      plan: `Nivel ${p.numeroNivel} — ${p.nombre}`,
-      precio: `$${p.precio}`,
-      periodicidad: p.periodicidad,
-      cancelada: false,
-      fechaRenovacion: renovacion.toLocaleDateString('es-PE'),
-      fechaInicioPlan: new Date().toISOString(),
-    },
-  });
-  ui.toast(`Ahora estás en el Nivel ${p.numeroNivel} — ${p.nombre}`);
-  emit('close');
+  const yaSuscrito = !!facturacionData.value?.stripeSubscriptionId;
+  const esPagoUnico = p.periodicidad === 'Único';
+
+  if (yaSuscrito && esPagoUnico) {
+    ui.toast('Para pasar al Nivel 0 primero cancela tu suscripción actual desde "Actualizar método de pago".', 'error');
+    return;
+  }
+
+  try {
+    if (yaSuscrito) {
+      await cambiarPlan.mutateAsync({ usuarioId: props.usuarioId, planId: p.id });
+      ui.toast(`Ahora estás en el Nivel ${p.numeroNivel} — ${p.nombre}`);
+      emit('close');
+    } else {
+      await checkoutPlan.mutateAsync({ usuarioId: props.usuarioId, planId: p.id });
+      // Sin más que hacer acá — useCheckoutPlan ya redirigió a Stripe.
+    }
+  } catch (e) {
+    ui.toast(e instanceof Error ? e.message : 'No se pudo procesar el cambio de plan', 'error');
+  }
+}
+
+function cargando(p: Plan): boolean {
+  return (checkoutPlan.isPending.value || cambiarPlan.isPending.value) && (checkoutPlan.variables.value?.planId === p.id || cambiarPlan.variables.value?.planId === p.id);
 }
 </script>
 
@@ -78,10 +92,11 @@ async function handleElegir(p: Plan) {
               <button
                 v-else
                 @click="handleElegir(p)"
+                :disabled="cargando(p)"
                 type="button"
-                class="px-4 py-2 rounded-md bg-brand-600 text-white text-xs font-medium hover:bg-brand-700 transition-colors duration-75"
+                class="px-4 py-2 rounded-md bg-brand-600 text-white text-xs font-medium hover:bg-brand-700 disabled:opacity-60 transition-colors duration-75"
               >
-                Elegir
+                {{ cargando(p) ? 'Procesando…' : 'Elegir' }}
               </button>
             </div>
           </div>

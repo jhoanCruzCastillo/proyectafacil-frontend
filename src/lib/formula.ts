@@ -1,4 +1,5 @@
 import type { Campo } from '../types';
+import { aFechaISO } from './conversionesExcel';
 
 // Fórmulas tipo Excel para campos calculados (no-tabla): "=1.01.1+1.02.3*2". Los operandos son
 // identificadores de OTROS campos (deben ser tipo numero/decimal/fecha — fecha se resuelve como
@@ -135,7 +136,12 @@ export function traducirFormulaAExcel(formula: string, resolver: (token: string)
 // Convierte una fecha ISO ('YYYY-MM-DD') al número de días desde época (1970-01-01) — Excel
 // también guarda sus fechas como un número de días (desde 1899-12-30), así que restar dos de estos
 // números da la misma cantidad de días que restar las celdas de fecha nativas en Excel.
-function fechaANumero(iso: string): number | null {
+function fechaANumero(valor: string): number | null {
+  // aFechaISO entiende tanto ISO como "DD/MM/YYYY" (el formato en que la IA y el <input type="date">
+  // del cliente lo escriben) — un `new Date(valor)` directo interpretaba "15/09/2026" como
+  // MM/DD/YYYY (convención estadounidense) y daba Invalid Date apenas el día superaba 12.
+  const iso = aFechaISO(valor, false);
+  if (iso === null) return null;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
   return Math.floor(d.getTime() / 86400000);

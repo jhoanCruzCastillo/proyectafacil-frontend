@@ -11,6 +11,7 @@ import { cuentaEfectivaDe } from '@/lib/permisos';
 import { planes } from '@/data/planes';
 import SimpleInfoModal from '@/components/SimpleInfoModal.vue';
 import SettingsModal from './SettingsModal.vue';
+import Avatar from '@/components/Avatar.vue';
 import type { RolUsuario } from '@/types';
 
 const rolColor: Record<RolUsuario, string> = {
@@ -20,10 +21,6 @@ const rolColor: Record<RolUsuario, string> = {
   administrativo_asesorias: 'text-teal-300',
   asesor: 'text-fuchsia-300',
 };
-
-function iniciales(nombre: string): string {
-  return nombre.split(' ').slice(0, 2).map((p) => p[0]).join('').toUpperCase();
-}
 
 const props = defineProps<{ collapsed?: boolean }>();
 const session = useSessionStore();
@@ -69,6 +66,7 @@ function handleResize() {
 }
 
 const { data: usuariosData } = useUsuariosQuery();
+const fotoUrl = computed(() => usuariosData.value?.find((u) => u.id === session.sesion?.usuarioId)?.fotoUrl ?? null);
 const cuentaId = computed(() => {
   if (session.sesion?.rol !== 'cliente') return '';
   return cuentaEfectivaDe(usuariosData.value ?? [], session.sesion);
@@ -153,9 +151,7 @@ function handleLogout() {
       class="w-full flex items-center text-left rounded-lg hover:bg-white/5 transition-colors duration-75 -mx-1 px-1 py-1"
       :class="collapsed ? 'justify-center' : 'gap-3'"
     >
-      <div class="w-8 h-8 rounded-full bg-sidebar-active flex items-center justify-center text-xs font-bold shrink-0">
-        {{ iniciales(session.sesion.nombre) }}
-      </div>
+      <Avatar :nombre="session.sesion.nombre" :foto-url="fotoUrl" size="w-8 h-8" />
       <div v-if="!collapsed" class="flex-1 min-w-0">
         <div class="text-sm font-medium truncate text-white">{{ session.sesion.nombre }}</div>
         <div class="flex items-center gap-1.5 min-w-0">

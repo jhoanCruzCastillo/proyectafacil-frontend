@@ -9,6 +9,8 @@ export const ESTADO_ASESORIA_LABEL: Record<EstadoSolicitudAsesoria, string> = {
   completado: 'Completado',
   cancelado: 'Cancelado',
   en_espera: 'En espera',
+  observado: 'Observado',
+  vencido: 'Vencido',
 };
 
 export const ESTADO_ASESORIA_CLASE: Record<EstadoSolicitudAsesoria, string> = {
@@ -18,4 +20,6 @@ export const ESTADO_ASESORIA_CLASE: Record<EstadoSolicitudAsesoria, string> = {
   completado: 'bg-green-100 text-green-700',
   cancelado: 'bg-gray-100 text-gray-500',
   en_espera: 'bg-orange-100 text-orange-700',
+  observado: 'bg-yellow-100 text-yellow-700',
+  vencido: 'bg-red-100 text-red-700',
 };

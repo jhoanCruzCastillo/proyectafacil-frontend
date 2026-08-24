@@ -30,15 +30,18 @@ export function formatFechaHoraVideo(s: SolicitudAsesoria): string {
   return rango ? `${fecha} · ${rango}` : fecha;
 }
 
-// La llamada se habilita desde 15 min antes de la hora agendada hasta que termina el bloque —
-// mismo margen que `tiempo_extra_conexion_minutos` en configuracion_sla (15 min por defecto).
-const MARGEN_CONEXION_MIN = 15;
+// La llamada se habilita desde 10 min antes de la hora agendada hasta 10 min después de que
+// termina el bloque — pedido explícito del usuario, para que nadie se quede afuera por llegar
+// unos minutos antes o por pasarse un poco del horario.
+const MARGEN_ENTRADA_MIN = 10;
+const MARGEN_SALIDA_MIN = 10;
 export function ventanaDeLlamada(s: SolicitudAsesoria): { disponible: boolean; texto: string } {
   if (!s.horarioFecha || !s.horarioHoraInicio) return { disponible: !!s.linkReunion, texto: '' };
 
   const inicio = new Date(`${s.horarioFecha}T${s.horarioHoraInicio}:00`);
-  const fin = s.horarioHoraFin ? new Date(`${s.horarioFecha}T${s.horarioHoraFin}:00`) : new Date(inicio.getTime() + 30 * 60_000);
-  const ventanaInicio = new Date(inicio.getTime() - MARGEN_CONEXION_MIN * 60_000);
+  const finAgendado = s.horarioHoraFin ? new Date(`${s.horarioFecha}T${s.horarioHoraFin}:00`) : new Date(inicio.getTime() + 30 * 60_000);
+  const ventanaInicio = new Date(inicio.getTime() - MARGEN_ENTRADA_MIN * 60_000);
+  const fin = new Date(finAgendado.getTime() + MARGEN_SALIDA_MIN * 60_000);
   const ahora = new Date();
 
   if (ahora >= ventanaInicio && ahora <= fin) return { disponible: true, texto: 'Disponible ahora' };
@@ -50,6 +53,16 @@ export function ventanaDeLlamada(s: SolicitudAsesoria): { disponible: boolean; t
   if (horas < 24) return { disponible: false, texto: `Disponible en ${String(horas).padStart(2, '0')}:${String(minFaltantes % 60).padStart(2, '0')} min` };
   const dias = Math.ceil(horas / 24);
   return { disponible: false, texto: `Disponible en ${dias} día${dias === 1 ? '' : 's'}` };
+}
+
+// "Doble seguridad" pedida por el usuario: el botón manual se habilita apenas termina el horario
+// acordado (sin esperar el margen de salida); si el asesor no lo usa, resolverAsistenciaSiCorresponde
+// en el backend igual resuelve la solicitud sola una vez pasado ese margen (ver MARGEN_SALIDA_MIN
+// en SolicitudAsesoriaHelpersTrait, mismo valor que el de arriba pero para el camino automático).
+export function puedeCompletarAsesoria(s: SolicitudAsesoria): boolean {
+  if (s.tipo !== 'video' || !s.horarioFecha || !s.horarioHoraFin) return false;
+  const finAgendado = new Date(`${s.horarioFecha}T${s.horarioHoraFin}:00`);
+  return new Date() >= finAgendado;
 }
 
 export function unirseALlamada(s: SolicitudAsesoria): void {

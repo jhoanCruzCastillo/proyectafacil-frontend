@@ -23,6 +23,8 @@ function generarFacturacionDefault(): FacturacionMock {
     metodoPago: 'tarjeta',
     tarjetaMarca: 'Visa',
     tarjetaUltimos4: '4242',
+    stripeCustomerId: null,
+    stripeSubscriptionId: null,
     facturas: [
       { id: generateId(), fecha: facturaMesPasado.toLocaleDateString('es-PE'), total: '$150.00', estado: 'Pagado' },
       { id: generateId(), fecha: facturaDosMeses.toLocaleDateString('es-PE'), total: '$150.00', estado: 'Pagado' },

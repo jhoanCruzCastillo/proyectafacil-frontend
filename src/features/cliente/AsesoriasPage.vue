@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import {
   faUserTie, faCalendarCheck, faComments, faVideo, faXmark,
-  faTriangleExclamation, faCartShopping, faClock, faStar,
+  faTriangleExclamation, faCartShopping, faClock, faStar, faHeadset,
   faChevronLeft, faChevronRight,
 } from '@/lib/icons';
 import PageShell from '@/components/PageShell.vue';
@@ -13,6 +13,7 @@ import SolicitarAsesoriaModal from './SolicitarAsesoriaModal.vue';
 import RatingModal from './RatingModal.vue';
 import VideollamadaConfirmadaModal from './VideollamadaConfirmadaModal.vue';
 import ConsultaEnviadaModal from './ConsultaEnviadaModal.vue';
+import ResumenSolicitudCard from './ResumenSolicitudCard.vue';
 import ComprarAddOnModal from '@/features/settings/ComprarAddOnModal.vue';
 import AsesoriaChatPanel from '@/features/asesoria/AsesoriaChatPanel.vue';
 import { useSessionStore } from '@/stores/session';
@@ -104,51 +105,58 @@ function formatFechaHoraAgendada(s: SolicitudAsesoria): string | null {
 <template>
   <PageShell :icon="faUserTie" title="Asesorías" description="Solicita orientación personalizada para tus fichas técnicas.">
     <div class="rounded-2xl p-8 mb-8 relative overflow-hidden" :class="ticketsDisponibles > 0 ? 'bg-brand-50 border border-brand-100' : 'bg-amber-50 border border-amber-200'">
-      <div v-if="ticketsDisponibles > 0" class="relative flex flex-col items-center text-center">
-        <div class="w-12 h-12 rounded-xl bg-white text-brand-600 flex items-center justify-center shadow-sm mb-4">
-          <FontAwesomeIcon :icon="faCalendarCheck" class="w-5 h-5" />
+      <div v-if="ticketsDisponibles > 0" class="relative flex items-center gap-6 flex-wrap">
+        <div class="flex items-center gap-3 flex-1 min-w-[220px]">
+          <div class="w-12 h-12 rounded-xl bg-white text-brand-600 flex items-center justify-center shadow-sm shrink-0">
+            <FontAwesomeIcon :icon="faHeadset" class="w-5 h-5" />
+          </div>
+          <div>
+            <p class="font-bold text-brand-700">
+              {{ ticketsDisponibles }} ficha{{ ticketsDisponibles === 1 ? '' : 's' }} de consulta disponible{{ ticketsDisponibles === 1 ? '' : 's' }} este mes
+            </p>
+            <p class="text-xs text-brand-600/70 mt-0.5">Cada ficha es para una modalidad específica — úsalas cuando las necesites.</p>
+          </div>
         </div>
-        <p class="text-lg font-bold text-brand-700">
-          {{ ticketsDisponibles }} ficha{{ ticketsDisponibles === 1 ? '' : 's' }} de consulta disponible{{ ticketsDisponibles === 1 ? '' : 's' }} este mes
-        </p>
-        <p class="text-sm text-brand-600/70 mt-1">Cada ficha es para una modalidad específica — úsalas cuando las necesites</p>
 
-        <div class="w-full max-w-md grid grid-cols-2 gap-3 mt-6">
+        <div class="flex items-center gap-3">
           <div
-            class="rounded-xl bg-white p-4 flex flex-col items-center transition-opacity"
+            class="rounded-xl bg-white px-4 py-3 flex items-center gap-3 transition-opacity"
             :class="fichasChat.length > 0 ? 'border border-brand-200' : 'border border-gray-200 opacity-50'"
           >
-            <div class="w-9 h-9 rounded-lg bg-brand-100 text-brand-600 flex items-center justify-center mb-2">
+            <div class="w-9 h-9 rounded-lg bg-brand-100 text-brand-600 flex items-center justify-center shrink-0">
               <FontAwesomeIcon :icon="faComments" class="w-4 h-4" />
             </div>
-            <p class="text-2xl font-bold text-heading">{{ fichasChat.length }}</p>
-            <p class="text-xs text-muted">Ficha{{ fichasChat.length === 1 ? '' : 's' }} de chat</p>
-            <p v-if="duracionChat" class="text-[11px] text-muted mt-1.5 flex items-center gap-1">
-              <FontAwesomeIcon :icon="faClock" class="w-2.5 h-2.5" />
-              {{ duracionChat }} min c/u
-            </p>
+            <div>
+              <p class="text-2xl font-bold text-heading leading-tight">{{ fichasChat.length }}</p>
+              <p class="text-xs text-muted whitespace-nowrap">Ficha{{ fichasChat.length === 1 ? '' : 's' }} de chat</p>
+              <p v-if="duracionChat" class="text-[11px] text-muted mt-0.5 flex items-center gap-1">
+                <FontAwesomeIcon :icon="faClock" class="w-2.5 h-2.5" />
+                {{ duracionChat }} min c/u
+              </p>
+            </div>
           </div>
           <div
-            class="rounded-xl bg-white p-4 flex flex-col items-center transition-opacity"
+            class="rounded-xl bg-white px-4 py-3 flex items-center gap-3 transition-opacity"
             :class="fichasVideo.length > 0 ? 'border border-violet-200' : 'border border-gray-200 opacity-50'"
           >
-            <div class="w-9 h-9 rounded-lg bg-violet-100 text-violet-600 flex items-center justify-center mb-2">
+            <div class="w-9 h-9 rounded-lg bg-violet-100 text-violet-600 flex items-center justify-center shrink-0">
               <FontAwesomeIcon :icon="faVideo" class="w-4 h-4" />
             </div>
-            <p class="text-2xl font-bold text-heading">{{ fichasVideo.length }}</p>
-            <p class="text-xs text-muted">Ficha{{ fichasVideo.length === 1 ? '' : 's' }} de videoconferencia</p>
-            <p v-if="duracionVideo" class="text-[11px] text-muted mt-1.5 flex items-center gap-1">
-              <FontAwesomeIcon :icon="faClock" class="w-2.5 h-2.5" />
-              {{ duracionVideo }} min c/u
-            </p>
+            <div>
+              <p class="text-2xl font-bold text-heading leading-tight">{{ fichasVideo.length }}</p>
+              <p class="text-xs text-muted whitespace-nowrap">Ficha{{ fichasVideo.length === 1 ? '' : 's' }} de videoconferencia</p>
+              <p v-if="duracionVideo" class="text-[11px] text-muted mt-0.5 flex items-center gap-1">
+                <FontAwesomeIcon :icon="faClock" class="w-2.5 h-2.5" />
+                {{ duracionVideo }} min c/u
+              </p>
+            </div>
           </div>
         </div>
 
-        <div class="w-full max-w-xs border-t border-dashed border-brand-200 my-6" />
         <button
           @click="showSolicitar = true"
           type="button"
-          class="px-8 py-3 rounded-lg bg-brand-600 text-white font-semibold text-sm hover:bg-brand-700 transition-colors flex items-center gap-2"
+          class="px-6 py-3 rounded-lg bg-brand-600 text-white font-semibold text-sm hover:bg-brand-700 transition-colors flex items-center gap-2 shrink-0"
         >
           <FontAwesomeIcon :icon="faCalendarCheck" class="w-3.5 h-3.5" />
           Solicitar asesoría
@@ -290,7 +298,7 @@ function formatFechaHoraAgendada(s: SolicitudAsesoria): string | null {
 
   <Transition name="fade">
     <div v-if="detalle" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" @click="detalle = null">
-      <div class="bg-white rounded-2xl shadow-modal w-full max-w-sm p-6 text-center relative" @click.stop>
+      <div class="bg-white rounded-2xl shadow-modal w-full max-w-md relative" @click.stop>
         <button
           @click="detalle = null"
           type="button"
@@ -299,26 +307,25 @@ function formatFechaHoraAgendada(s: SolicitudAsesoria): string | null {
           <FontAwesomeIcon :icon="faXmark" />
         </button>
 
-        <div class="w-16 h-16 mx-auto rounded-full bg-amber-100 text-amber-500 flex items-center justify-center mb-4">
-          <FontAwesomeIcon :icon="faClock" class="w-7 h-7" />
+        <div class="pt-8 pb-5 px-8 text-center">
+          <div class="w-14 h-14 mx-auto rounded-full bg-amber-100 text-amber-500 flex items-center justify-center mb-4">
+            <FontAwesomeIcon :icon="faClock" class="w-6 h-6" />
+          </div>
+          <h3 class="text-lg font-bold text-heading mb-1">
+            {{ detalle?.estado === 'pendiente' ? 'Buscando un asesor disponible' : detalle ? ESTADO_LABEL[detalle.estado] : '' }}
+          </h3>
+          <p v-if="detalle?.estado === 'pendiente'" class="text-sm text-muted">Te notificaremos en cuanto un asesor confirme tu consulta.</p>
         </div>
-        <h3 class="text-lg font-bold text-heading mb-1">
-          {{ detalle?.estado === 'pendiente' ? 'Buscando un asesor disponible' : detalle ? ESTADO_LABEL[detalle.estado] : '' }}
-        </h3>
-        <p class="text-sm text-muted mb-5">
-          <template v-if="detalle?.tipo === 'video' && detalle.horarioFecha">
-            Elegiste el {{ formatFecha(detalle.horarioFecha) }}, {{ detalle.horarioHoraInicio }} - {{ detalle.horarioHoraFin }}.<br />
-          </template>
-          <template v-if="detalle?.estado === 'pendiente'">Te notificaremos en cuanto un asesor confirme tu consulta.</template>
-        </p>
-        <button
-          v-if="detalle?.estado === 'pendiente'"
-          @click="showConfirmarCancelar = true"
-          type="button"
-          class="text-sm text-red-600 font-medium hover:underline"
-        >
-          Cancelar solicitud
-        </button>
+
+        <div class="mx-6 mb-6">
+          <ResumenSolicitudCard v-if="detalle" :solicitud="detalle" />
+        </div>
+
+        <div v-if="detalle?.estado === 'pendiente'" class="px-6 pb-6 text-center">
+          <button @click="showConfirmarCancelar = true" type="button" class="text-sm text-red-600 font-medium hover:underline">
+            Cancelar solicitud
+          </button>
+        </div>
       </div>
     </div>
   </Transition>

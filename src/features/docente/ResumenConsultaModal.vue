@@ -5,9 +5,10 @@ import Avatar from '@/components/Avatar.vue';
 import { colorCategoria } from '@/lib/consultaAsesorUI';
 import type { SolicitudAsesoria } from '@/types';
 
-// Resumen de solo lectura de una consulta completada — mensaje inicial del alumno + su
-// calificación si ya la dejó. Compartido entre el dashboard (DocenteHomePage) y el listado
-// completo (MisConsultasPage) del lado asesor.
+// Resumen de solo lectura de una consulta — mensaje inicial del alumno y, solo cuando ya está
+// completada, su calificación (si la dejó). Compartido entre el dashboard (DocenteHomePage) y el
+// listado completo (MisConsultasPage) del lado asesor, tanto para "Ver resumen" de una atendida
+// como para "Detalles" de una pendiente todavía sin aceptar.
 defineProps<{ isOpen: boolean; solicitud: SolicitudAsesoria | null }>();
 const emit = defineEmits<{ close: [] }>();
 </script>
@@ -36,14 +37,16 @@ const emit = defineEmits<{ close: [] }>();
           "{{ solicitud.mensajeInicial }}"
         </p>
 
-        <div v-if="solicitud.calificacion" class="border-t border-gray-100 pt-4">
-          <p class="text-xs font-semibold uppercase tracking-widest text-muted mb-2">Calificación del alumno</p>
-          <div class="flex items-center gap-1">
-            <FontAwesomeIcon v-for="n in 5" :key="n" :icon="faStar" class="w-4 h-4" :class="n <= solicitud.calificacion ? 'text-amber-400' : 'text-gray-200'" />
+        <template v-if="solicitud.estado === 'completado'">
+          <div v-if="solicitud.calificacion" class="border-t border-gray-100 pt-4">
+            <p class="text-xs font-semibold uppercase tracking-widest text-muted mb-2">Calificación del alumno</p>
+            <div class="flex items-center gap-1">
+              <FontAwesomeIcon v-for="n in 5" :key="n" :icon="faStar" class="w-4 h-4" :class="n <= solicitud.calificacion ? 'text-amber-400' : 'text-gray-200'" />
+            </div>
+            <p v-if="solicitud.calificacionComentario" class="text-sm text-muted mt-2 italic">"{{ solicitud.calificacionComentario }}"</p>
           </div>
-          <p v-if="solicitud.calificacionComentario" class="text-sm text-muted mt-2 italic">"{{ solicitud.calificacionComentario }}"</p>
-        </div>
-        <p v-else class="text-xs text-muted border-t border-gray-100 pt-4">El alumno todavía no calificó esta consulta.</p>
+          <p v-else class="text-xs text-muted border-t border-gray-100 pt-4">El alumno todavía no calificó esta consulta.</p>
+        </template>
       </div>
     </div>
   </Transition>

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faArrowLeft, faSave, faDownload, faFileExport, faEye, faCircleCheck, faTriangleExclamation, faClockRotateLeft, faFileLines, faLightbulb, faWandMagicSparkles, faFlagCheckered, instrumentoLabelsPlural } from '@/lib/icons';
+import { faArrowLeft, faSave, faDownload, faEye, faSpinner, faCircleCheck, faTriangleExclamation, faClockRotateLeft, faFileLines, faLightbulb, faWandMagicSparkles, instrumentoLabelsPlural } from '@/lib/icons';
 import type { Ejemplo, Plantilla, TipoInstrumento } from '@/types';
 import type { ProgresoFicha } from '@/lib/valorValidation';
 
@@ -20,16 +20,22 @@ withDefaults(
     /** Cantidad de campos obligatorios sin llenar o con formato inválido */
     erroresCount?: number;
     progreso?: ProgresoFicha;
-    /** true = plan de entrenamiento vencido — se ocultan las acciones de edición (Guardar/Insertar) */
+    /** true = plan de entrenamiento vencido — se oculta Guardar */
     soloLectura?: boolean;
     /** true = muestra el botón "Historial" (solo Nivel 2) */
     showHistorial?: boolean;
-    /** Tras llenado IA, hasta confirmar "Terminar" en la barra */
+    /** Tras llenado IA: cambia la etiqueta del botón IA a "Ver resumen" */
     enRevisionIA?: boolean;
     /** Parpadeo inicial de "Ver resumen" */
     resaltarVerResumen?: boolean;
+    /** Parpadeo de "Guardar" tras un llenado con IA — el sistema ya confirmó los borradores solo,
+     * falta persistirlos. Deja de parpadear al hacer clic en Guardar. */
+    resaltarGuardar?: boolean;
+    /** true mientras Descargar/Vista previa están guardando o insertando en el Excel de fondo —
+     * deshabilita ambos íconos para evitar un segundo clic a mitad del proceso. */
+    cargandoAccionArchivo?: boolean;
   }>(),
-  { enRevisionIA: false, resaltarVerResumen: false },
+  { enRevisionIA: false, resaltarVerResumen: false, resaltarGuardar: false, cargandoAccionArchivo: false },
 );
 
 const emit = defineEmits<{
@@ -37,10 +43,8 @@ const emit = defineEmits<{
   historial: [];
   save: [];
   download: [];
-  insert: [];
   preview: [];
   'fuente-verdad': [];
-  'terminar-revision-ia': [];
 }>();
 
 const router = useRouter();
@@ -71,12 +75,13 @@ const tabs: { key: 'mi-ficha' | 'ejemplos'; label: string; icon: typeof faFileLi
           <h1 class="text-lg font-bold text-white truncate">{{ ejemplo.nombre }}</h1>
           <p class="text-xs text-white/50 truncate">{{ plantilla.nombre }}</p>
         </div>
-        <div v-if="progreso && progreso.total > 0" class="w-28 shrink-0" :title="`${progreso.llenos} de ${progreso.total} campos llenados`">
-          <div class="h-1.5 rounded-full bg-white/10 overflow-hidden">
-            <div class="h-full bg-brand-500 rounded-full" :style="{ width: `${progreso.porcentaje}%` }" />
-          </div>
-          <p class="text-[10px] text-white/50 mt-0.5">{{ progreso.porcentaje }}% llenado</p>
-        </div>
+        <span
+          v-if="progreso && progreso.total > 0"
+          class="text-xs font-medium text-white/60 shrink-0"
+          :title="`${progreso.llenos} de ${progreso.total} campos llenados`"
+        >
+          {{ progreso.porcentaje }}% llenado
+        </span>
         <span v-if="(erroresCount ?? 0) > 0" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-400/15 text-amber-300 border border-amber-400/30 shrink-0">
           <FontAwesomeIcon :icon="faTriangleExclamation" class="w-3 h-3" />
           {{ erroresCount }} pendiente{{ (erroresCount ?? 0) > 1 ? 's' : '' }}
@@ -87,16 +92,6 @@ const tabs: { key: 'mi-ficha' | 'ejemplos'; label: string; icon: typeof faFileLi
         </span>
       </div>
       <div class="flex items-center gap-3 shrink-0">
-        <button
-          v-if="enRevisionIA"
-          type="button"
-          title="Terminar de revisar"
-          class="px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 border border-white/20 text-white/90 bg-white/10 hover:bg-white/15 transition-colors"
-          @click="emit('terminar-revision-ia')"
-        >
-          <FontAwesomeIcon :icon="faFlagCheckered" class="w-3.5 h-3.5" />
-          Terminar
-        </button>
         <button
           type="button"
           :title="enRevisionIA ? 'Ver resumen del llenado con IA' : 'Fuente de la verdad / Contexto IA'"
@@ -131,31 +126,21 @@ const tabs: { key: 'mi-ficha' | 'ejemplos'; label: string; icon: typeof faFileLi
         </button>
         <button
           @click="emit('download')"
-          :disabled="activeTab !== 'mi-ficha'"
+          :disabled="activeTab !== 'mi-ficha' || cargandoAccionArchivo"
           type="button"
-          class="px-4 py-2 rounded-lg border border-white/15 text-sm font-medium text-white/80 hover:bg-white/10 hover:text-white transition-colors flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+          title="Descargar"
+          class="w-9 h-9 rounded-full border border-white/15 text-white/80 hover:bg-white/10 hover:text-white transition-colors flex items-center justify-center shrink-0 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
         >
-          <FontAwesomeIcon :icon="faDownload" class="w-3.5 h-3.5" />
-          Descargar
-        </button>
-        <button
-          v-if="!soloLectura"
-          @click="emit('insert')"
-          :disabled="activeTab !== 'mi-ficha'"
-          type="button"
-          class="px-4 py-2 rounded-lg border border-white/15 text-sm font-medium text-white/80 hover:bg-white/10 hover:text-white transition-colors flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-        >
-          <FontAwesomeIcon :icon="faFileExport" class="w-3.5 h-3.5" />
-          Insertar
+          <FontAwesomeIcon :icon="cargandoAccionArchivo ? faSpinner : faDownload" class="w-3.5 h-3.5" :class="cargandoAccionArchivo ? 'animate-spin' : ''" />
         </button>
         <button
           @click="emit('preview')"
-          :disabled="activeTab !== 'mi-ficha'"
+          :disabled="activeTab !== 'mi-ficha' || cargandoAccionArchivo"
           type="button"
-          class="px-4 py-2 rounded-lg border border-white/15 text-sm font-medium text-white/80 hover:bg-white/10 hover:text-white transition-colors flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+          title="Vista previa"
+          class="w-9 h-9 rounded-full border border-white/15 text-white/80 hover:bg-white/10 hover:text-white transition-colors flex items-center justify-center shrink-0 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
         >
-          <FontAwesomeIcon :icon="faEye" class="w-3.5 h-3.5" />
-          Vista previa
+          <FontAwesomeIcon :icon="cargandoAccionArchivo ? faSpinner : faEye" class="w-3.5 h-3.5" :class="cargandoAccionArchivo ? 'animate-spin' : ''" />
         </button>
         <button
           v-if="!soloLectura"
@@ -163,6 +148,7 @@ const tabs: { key: 'mi-ficha' | 'ejemplos'; label: string; icon: typeof faFileLi
           :disabled="activeTab !== 'mi-ficha'"
           type="button"
           class="px-4 py-2 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 transition-colors flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-brand-600"
+          :class="resaltarGuardar ? 'pf-blink-guardar' : ''"
         >
           <FontAwesomeIcon :icon="faSave" class="w-3.5 h-3.5" />
           Guardar
@@ -186,5 +172,22 @@ const tabs: { key: 'mi-ficha' | 'ejemplos'; label: string; icon: typeof faFileLi
 }
 .pf-blink-ver-resumen {
   animation: pf-blink-ver-resumen 0.85s ease-in-out 5;
+}
+@keyframes pf-blink-guardar {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.55);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(74, 222, 128, 0);
+  }
+}
+.pf-blink-guardar {
+  /* A diferencia de "Ver resumen" (5 parpadeos y se aquieta), este sigue parpadeando sin límite
+     hasta que el usuario hace clic en Guardar — hay cambios reales sin persistir todavía. Verde
+     (brand-400, #4ade80) en vez del violeta de "Contexto IA"/"Ver resumen" — Guardar ya es verde
+     de fondo, así que el parpadeo refuerza ese mismo color en vez de contrastar con otro distinto. */
+  animation: pf-blink-guardar 0.85s ease-in-out infinite;
+  box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.7);
 }
 </style>

@@ -1,5 +1,5 @@
 import { apiFetch } from './_shared';
-import type { AsesoriaApi } from '../contracts/asesoria';
+import type { AsesoriaApi, BloqueAgendado } from '../contracts/asesoria';
 import type { SolicitudAsesoria, MensajeAsesoria, NoAtendidasAsesor } from '@/types';
 
 export const asesoriaHttp: AsesoriaApi = {
@@ -9,6 +9,10 @@ export const asesoriaHttp: AsesoriaApi = {
 
   noAtendidas(usuarioId) {
     return apiFetch<NoAtendidasAsesor>(`asesoria/no-atendidas?usuarioId=${usuarioId}`);
+  },
+
+  agendadosPorRango(desde, hasta) {
+    return apiFetch<BloqueAgendado[]>(`asesoria/agendados-por-rango?desde=${desde}&hasta=${hasta}`);
   },
 
   crear(data) {
@@ -24,6 +28,10 @@ export const asesoriaHttp: AsesoriaApi = {
 
   finalizar(solicitudId) {
     return apiFetch<SolicitudAsesoria>(`asesoria/solicitudes/${solicitudId}/finalizar`, { method: 'POST' });
+  },
+
+  completarVideo(solicitudId) {
+    return apiFetch<SolicitudAsesoria>(`asesoria/solicitudes/${solicitudId}/completar-video`, { method: 'POST' });
   },
 
   cancelar(solicitudId) {

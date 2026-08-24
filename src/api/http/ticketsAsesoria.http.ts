@@ -1,6 +1,6 @@
 import { apiFetch } from './_shared';
 import type { TicketsAsesoriaApi } from '../contracts/ticketsAsesoria';
-import type { DashboardAsesoria, DocenteDisponibleAhora, SolicitudAsesoria, TicketAsesoriaDetalle } from '@/types';
+import type { DashboardAsesoria, DocenteDisponibleAhora, HistorialConexion, SolicitudAsesoria, TicketAsesoriaDetalle } from '@/types';
 
 export const ticketsAsesoriaHttp: TicketsAsesoriaApi = {
   dashboard() {
@@ -13,6 +13,10 @@ export const ticketsAsesoriaHttp: TicketsAsesoriaApi = {
 
   detalle(id) {
     return apiFetch<TicketAsesoriaDetalle>(`asesoria/tickets/${id}`);
+  },
+
+  historialConexion(id) {
+    return apiFetch<HistorialConexion>(`asesoria/tickets/${id}/historial-conexion`);
   },
 
   docentesDisponibles(id) {

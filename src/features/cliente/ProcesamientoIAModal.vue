@@ -33,8 +33,14 @@ const props = withDefaults(
      * secciones veía "4" ítems en esta lista (las 4 tablas de esas 2 secciones) sin ninguna pista de
      * qué eran. */
     modo?: 'secciones' | 'tablas';
+    /** Progreso REAL de OpenAI (request_counts del lote) — cuando viene, reemplaza el conteo de
+     * `secciones` para calcular el %. Sin esto, un lote (ver useLlenadoIALote.ts) marca TODAS sus
+     * secciones "procesando" a la vez y ninguna pasa a "completada" hasta que el lote ENTERO termina
+     * — la barra quedaba pegada en un 2-3% fijo durante todo el procesamiento (encontrado en vivo) y
+     * solo saltaba a 100% al final, sin dar ninguna pista real de avance mientras tanto. */
+    progresoReal?: { total: number; completed: number } | null;
   }>(),
-  { modo: 'secciones' },
+  { modo: 'secciones', progresoReal: null },
 );
 
 const emit = defineEmits<{ close: []; 'ver-resultados': []; cancelar: [] }>();
@@ -44,21 +50,23 @@ const expandidaId = ref<string | null>(null);
 const total = computed(() => props.secciones.length);
 const completadas = computed(() => props.secciones.filter((s) => s.estado === 'completada').length);
 const porcentaje = computed(() => {
-  if (total.value === 0) return 0;
   if (props.fase === 'completado') return 100;
-  // La sección en curso cuenta la mitad para que la barra se mueva antes de cerrar.
-  const parcial = props.secciones.some((s) => s.estado === 'procesando') ? 0.5 : 0;
+  if (props.progresoReal && props.progresoReal.total > 0) {
+    return Math.min(99, Math.round((props.progresoReal.completed / props.progresoReal.total) * 100));
+  }
+  if (total.value === 0) return 0;
+  // El heurístico de "la sección en curso cuenta la mitad" solo aplica en fase de tablas, donde es
+  // la ÚNICA señal de progreso disponible (llenado síncrono, sin request_counts). En fase de
+  // secciones (modo 'secciones') este cálculo se usa nomás mientras se envía el lote y todavía no
+  // llegó `progresoReal` — encontrado en vivo: ese adelanto (ej. 3%) quedaba pisado en cuanto
+  // `progresoReal` aparecía en 0% real, y la barra retrocedía visiblemente antes de volver a subir.
+  const parcial = props.modo === 'tablas' && props.secciones.some((s) => s.estado === 'procesando') ? 0.5 : 0;
   return Math.min(99, Math.round(((completadas.value + parcial) / total.value) * 100));
 });
 
-const tiempoEstimado = computed(() => {
+const faseLabel = computed(() => {
   if (props.fase !== 'procesando') return null;
-  const restantes = props.secciones.filter((s) => s.estado === 'pendiente' || s.estado === 'procesando').length;
-  if (restantes <= 1) return 'Casi listo…';
-  if (restantes <= 2) return 'Menos de 1 minuto';
-  if (restantes <= 6) return '1 - 3 minutos más';
-  if (restantes <= 12) return '3 - 6 minutos más';
-  return 'Varios minutos más';
+  return props.modo === 'tablas' ? 'Fase 2/2 — Llenando tablas' : 'Fase 1/2 — Llenando campos';
 });
 
 const tituloEstado = computed(() => {
@@ -132,7 +140,7 @@ function numeroSeccion(idx: number): string {
                 </div>
                 <span class="text-sm font-semibold text-heading tabular-nums shrink-0">{{ porcentaje }}% completado</span>
               </div>
-              <p v-if="tiempoEstimado" class="text-xs text-muted mt-1.5">Tiempo estimado: {{ tiempoEstimado }}</p>
+              <p v-if="faseLabel" class="text-xs text-muted mt-1.5">{{ faseLabel }}</p>
               <p v-else-if="fase === 'completado'" class="text-xs text-emerald-600 mt-1.5">
                 {{ completadas }} de {{ total }} {{ modo === 'tablas' ? 'tablas procesadas' : 'secciones procesadas' }}
               </p>

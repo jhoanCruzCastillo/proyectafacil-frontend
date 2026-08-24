@@ -8,7 +8,7 @@ import { useSessionStore } from '@/stores/session';
 import { useNoAtendidasQuery } from '@/composables/useAsesoria';
 import { tiempoRelativo } from '@/lib/tiempoRelativo';
 import { colorCategoria, formatFechaHoraVideo } from '@/lib/consultaAsesorUI';
-import type { MotivoNoAceptada } from '@/types';
+import type { MotivoNoAceptada, SolicitudNoAceptada } from '@/types';
 
 // Pantalla "de pérdidas" del asesor: no hay acciones que tomar acá, es puramente informativa —
 // sirve para que dimensione cuánto trabajo se le está escapando y por qué.
@@ -52,6 +52,18 @@ const conteo = computed(() => ({
 
 const tomadasPorOtro = computed(() => noAceptadas.value.filter((s) => s.motivo === 'tomada_por_otro').length);
 const vencidas = computed(() => noAceptadas.value.filter((s) => s.motivo === 'vencida_sin_respuesta').length);
+
+function formatFechaHoraExacta(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('es-PE', { day: '2-digit', month: 'short', hour: 'numeric', minute: '2-digit' });
+}
+
+// Cuándo "terminó" la solicitud, según el motivo — vencida_sin_respuesta nunca vuelve a tocar la
+// fila en BD (nadie la actualiza al expirar), así que su `actualizadoEn` seguiría siendo el de la
+// creación; el momento real de vencimiento es el SLA que ya se le había calculado al crearla.
+function fechaResolucionIso(s: SolicitudNoAceptada): string | null | undefined {
+  return s.motivo === 'vencida_sin_respuesta' ? s.slaVenceEn : s.actualizadoEn;
+}
 </script>
 
 <template>
@@ -130,6 +142,7 @@ const vencidas = computed(() => noAceptadas.value.filter((s) => s.motivo === 've
                     <div class="min-w-0">
                       <p class="font-semibold text-heading text-sm truncate">{{ s.clienteNombre }}</p>
                       <p class="text-xs text-muted">Solicitado {{ tiempoRelativo(s.creadoEn) }}</p>
+                      <p class="text-[11px] text-gray-400">{{ formatFechaHoraExacta(s.creadoEn) }}</p>
                     </div>
                   </div>
                 </td>
@@ -149,6 +162,7 @@ const vencidas = computed(() => noAceptadas.value.filter((s) => s.motivo === 've
                     <FontAwesomeIcon :icon="MOTIVO_ICONO[s.motivo]" class="w-2.5 h-2.5" />
                     {{ MOTIVO_LABEL[s.motivo] }}
                   </span>
+                  <p v-if="fechaResolucionIso(s)" class="text-[11px] text-muted mt-1">{{ formatFechaHoraExacta(fechaResolucionIso(s)) }}</p>
                 </td>
                 <td class="py-4 px-4 text-sm">
                   <span v-if="s.docenteNombre" class="text-gray-700">{{ s.docenteNombre }}</span>

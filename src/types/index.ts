@@ -515,6 +515,10 @@ export interface FacturacionMock {
   facturas: FacturaMock[];
   /** Add-ons contratados: id del add-on → cantidad */
   addons: Record<string, number>;
+  /** Presente una vez que hubo al menos una compra real (Stripe) — antes de eso es null. */
+  stripeCustomerId: string | null;
+  /** Presente solo si hay una suscripción real activa (Nivel 1/2) — null en Nivel 0 o sin comprar aún. */
+  stripeSubscriptionId: string | null;
 }
 
 export interface ActividadReciente {
@@ -728,7 +732,15 @@ export type TipoAsesoria = 'chat' | 'video';
 // Vocabulario final del documento (docs/proyectafacil-asesorias.md §3.2): Pendiente → Asignado
 // (chat) / Agendado (video) — el matchmaking por broadcast del Módulo 3 asigna un asesor — →
 // Completado | Cancelado | En espera (sin cobertura para reasignar, Módulo 4).
-export type EstadoSolicitudAsesoria = 'pendiente' | 'asignado' | 'agendado' | 'completado' | 'cancelado' | 'en_espera';
+// 'observado'/'vencido' son de video únicamente — resueltos automáticamente contra la asistencia
+// real (Meet API) una vez que pasa el horario agendado + margen de salida (ver
+// SolicitudAsesoriaHelpersTrait::resolverAsistenciaSiCorresponde en el backend), comparando el
+// tiempo conectado en simultáneo contra la duración pactada: 'observado' = ambos se conectaron
+// pero el tiempo simultáneo no alcanzó la duración pactada, 'vencido' = nunca coincidieron
+// conectados (incluye que nadie haya entrado). Reutiliza el mismo nombre "vencido" que ya se usa
+// para el SLA de aceptación (antes de agendarse) — son contextos distintos por decisión explícita,
+// no una colisión accidental.
+export type EstadoSolicitudAsesoria = 'pendiente' | 'asignado' | 'agendado' | 'completado' | 'cancelado' | 'en_espera' | 'observado' | 'vencido';
 
 // Los 4 tipos de documento del Formato 6A (docs/proyectafacil-asesorias.md §3.3) — paso 2 del
 // chatbot guiado, misma categorización que la asesor autogestiona en Mis especialidades.
@@ -785,6 +797,32 @@ export interface TicketAsesoriaDetalle extends SolicitudAsesoria {
   docentesNotificados: DocenteNotificado[];
 }
 
+/** Una entrada+salida real de la videollamada (Meet API) — un participante puede tener varias si
+ * se desconectó y volvió a entrar. */
+export interface SesionConexion {
+  /** ISO datetime, o null si nunca llegó a cerrarse (la llamada sigue activa). */
+  entrada: string | null;
+  salida: string | null;
+}
+
+/** Historial real de conexión de un participante a la videollamada, vía Meet API — siempre con la
+ * identidad conocida en la plataforma (nombre + correo configurado), nunca el nombre de la cuenta
+ * real de Google que entró (puede ser cualquier cosa: apodo, cuenta personal distinta). */
+export interface HistorialConexionParticipante {
+  nombre: string;
+  correo: string | null;
+  rol: 'Alumno' | 'Docente' | null;
+  fotoUrl?: string | null;
+  sesiones: SesionConexion[];
+}
+
+/** Respuesta completa del historial: los participantes que realmente se conectaron, más el total
+ * de tiempo en que AMBOS coincidieron conectados a la vez ("tiempo coincidente"). */
+export interface HistorialConexion {
+  participantes: HistorialConexionParticipante[];
+  tiempoCoincidenteSegundos: number;
+}
+
 export interface DocenteDisponibleAhora {
   id: string;
   nombre: string;
@@ -799,9 +837,23 @@ export interface DocenteDisponibleAhora {
 
 export interface DashboardAsesoria {
   pendientes: number;
-  enEspera: number;
   completadosHoy: number;
-  slaPorVencer: number;
+}
+
+// Sistema de "beneficios": entidades comprables (vía Stripe, modo prueba por ahora) que, en un
+// paso posterior y separado, se asocian a funcionalidades concretas de la plataforma — si la
+// cuenta no tiene el beneficio, no tiene acceso a lo que ese beneficio proteja. A diferencia de
+// TicketConsulta (créditos que se consumen de a uno), un beneficio es una propiedad binaria: se
+// tiene o no se tiene. `comprable` es false mientras el beneficio no tenga un Price real
+// configurado en Stripe (ver BeneficiosController).
+export interface Beneficio {
+  id: string;
+  slug: string;
+  nombre: string;
+  descripcion: string | null;
+  precio: number;
+  recurrente: boolean;
+  comprable: boolean;
 }
 
 // Módulo 6 — honorarios y Liquidaciones (Administrativo de Asesorías).
@@ -821,6 +873,19 @@ export interface Liquidaciones {
   periodo: string;
   honorarioPorTicket: number;
   asesores: LiquidacionAsesor[];
+}
+
+// Configuración de SLA de asesorías (Módulo 4). Un único registro global, sin historial. Solo
+// tiempoEsperaChatHoras y tiempoAceptacionVideoMinutos alimentan hoy calcularSlaVenceEn() en el
+// backend — los otros dos campos existen en la tabla pero ninguna lógica los usa todavía.
+export interface ConfiguracionSla {
+  tiempoEsperaChatHoras: number;
+  tiempoAceptacionVideoMinutos: number;
+  tiempoExtraConexionMinutos: number;
+  vigenciaHorarioDias: number;
+  /** Minutos desde que el alumno envía una solicitud dentro de los que puede cancelarla él mismo.
+   * null = puede cancelar en cualquier momento ("permanentemente" habilitado). */
+  cancelacionLimiteMinutos: number | null;
 }
 
 // Módulo 5 — mapa de calor de cobertura de horarios y gestión de docentes.

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faGraduationCap, faChevronLeft, faChevronRight } from '@/lib/icons';
@@ -12,15 +12,17 @@ import ClienteFichaTopBar from './ClienteFichaTopBar.vue';
 import EjemplosReferenciaPanel from './EjemplosReferenciaPanel.vue';
 import FuenteVerdadModal from './FuenteVerdadModal.vue';
 import ProcesamientoIAModal from './ProcesamientoIAModal.vue';
+import type { SeccionProgresoIA } from './ProcesamientoIAModal.vue';
 import ResultadoLlenadoIAModal from './ResultadoLlenadoIAModal.vue';
 import AsesorIAChat from './AsesorIAChat.vue';
 import AsesoriaHumanaFAB from './AsesoriaHumanaFAB.vue';
 import HistorialFichaModal from './HistorialFichaModal.vue';
 import { useClienteFichaEditor } from '@/composables/useClienteFichaEditor';
-import { useLlenadoIAProgreso } from '@/composables/useLlenadoIAProgreso';
+import { useLlenadoIALote } from '@/composables/useLlenadoIALote';
 import { useLlenadoTablaIA } from '@/composables/useLlenadoTablaIA';
 import { opcionesLlenadoCascada } from '@/lib/cascadaProblemaObjetivo';
-import { esTablaExcluidaDeIA } from '@/lib/camposTablaExcluidosIA';
+import { opcionesEstaticasPorColumna } from '@/lib/opcionesEstaticasTabla';
+import { esTablaCascadaFueraDeLote } from '@/lib/tablasCascadaFueraDeLote';
 import { useUiStore } from '@/stores/ui';
 
 const route = useRoute();
@@ -35,7 +37,7 @@ const {
   errores, erroresCount, progreso, erroresPorSeccion,
   secciones, safeIdx, seccionActiva, isFirst, isLast,
   handleLeftResize, handleExamplesResize, handleSectionSelect, goToPrevSection, goToNextSection, handleValueChange,
-  handleSave, handleDownload, handleInsert,
+  handleSave, iniciarDescarga, confirmarInsertarYDescargar, abrirVistaPrevia,
   excelVivo,
 } = useClienteFichaEditor(ejemploId);
 
@@ -47,6 +49,8 @@ const {
   mensajeError: mensajeErrorLlenadoIA,
   resumenResultado,
   estadosCamposIA,
+  tablasPropuestas,
+  progresoLote,
   esperandoServidor: esperandoServidorLlenadoIA,
   enRevisionIA,
   resaltarVerResumen,
@@ -58,23 +62,85 @@ const {
   terminarProceso: terminarProcesoLlenadoIA,
   confirmarCampoIA,
   alEditarCampoIA,
-  cancelado: canceladoLlenadoIA,
   cancelar: cancelarLlenadoIAJob,
-  marcarSeccion: marcarItemProgresoIA,
-} = useLlenadoIAProgreso(plantilla, ejemploId);
+} = useLlenadoIALote(plantilla);
 
 const { cargandoPorCampo: cargandoTablaIAPorCampo, erroresPorCampo: erroresTablaIAPorCampo, llenarTabla } = useLlenadoTablaIA(ejemploId);
 const ui = useUiStore();
 
-const showTerminarRevisionConfirm = ref(false);
 const showCancelarLlenadoConfirm = ref(false);
-/** Qué lista muestra el modal de progreso: secciones de texto (fase 1) o tablas (fase 2) — ver
- * llenarTablasFaltantes(). Sin esto, el modal reutilizado mostraba "Progreso por sección" con
- * nombres de tablas adentro, y alguien que eligió 2 secciones veía "4" ítems sin entender por qué. */
+/** Parpadeo de "Guardar" en la topbar tras un llenado con IA — se prende cuando el sistema termina
+ * de auto-confirmar los borradores de una fase (ver el watch de faseLlenadoIA y el final de
+ * llenarTablasCascadaFaltantes) y se apaga al hacer clic en Guardar (ver onGuardar). Reemplaza al
+ * botón "Terminar" que existía antes: ya no hace falta un paso explícito de "terminar de revisar",
+ * el propio Guardar cumple ese rol. */
+const resaltarGuardar = ref(false);
+/** Qué lista muestra el modal de progreso: secciones de texto (fase 1, vía lote) o tablas en
+ * cascada (fase 2) — ver llenarTablasCascadaFaltantes(). Sin esto, el modal reutilizado mostraba
+ * "Progreso por sección" con nombres de tablas adentro, y alguien que eligió 2 secciones veía "4"
+ * ítems sin entender por qué. */
 const modoProgresoIA = ref<'secciones' | 'tablas'>('secciones');
+
+/** useLlenadoIALote no expone un `cancelado` propio (su cancelar() solo deja de pollear en esta
+ * pestaña — el lote sigue en OpenAI) — la fase 2 síncrona de tablas en cascada, que corre en esta
+ * misma página después de que el lote termina, necesita su propia bandera de cancelación. */
+const canceladoFaseTablasIA = ref(false);
+/** Evita reentradas: llenarTablasCascadaFaltantes() vuelve a poner faseLlenadoIA en 'completado' al
+ * terminar, lo que re-dispara el watch de abajo si no se protege. */
+const faseTablasYaEjecutada = ref(false);
+const seccionIdsPendientesFaseTablas = ref<string[] | null>(null);
+
+function marcarItemProgresoIA(id: string, patch: Partial<SeccionProgresoIA>) {
+  seccionesProgresoIA.value = seccionesProgresoIA.value.map((s) => (s.id === id ? { ...s, ...patch } : s));
+}
+
+function campoIdPorIdentificador(identificador: string): string | null {
+  if (!plantilla.value) return null;
+  for (const seccion of plantilla.value.secciones) {
+    for (const sub of seccion.subsecciones) {
+      for (const campo of sub.campos) {
+        if (campo.identificador === identificador) return campo.id;
+      }
+    }
+  }
+  return null;
+}
+
+// El lote propone tablas (salvo las de cascada) sin persistirlas — igual que onLlenarTablaIA(), entran
+// como borrador (ámbar) por el mismo circuito de useClienteFichaEditor, para revisar y confirmar antes
+// de Guardar. tablasPropuestas trae `valor` ya como estructura nativa (misma forma que valorEjemplo),
+// por eso se serializa aquí — onValueChange/handleValueChange esperan el mismo string JSON que produce
+// llenarTabla() en el flujo síncrono de una tabla suelta.
+function aplicarTablasPropuestasDelLote() {
+  for (const t of tablasPropuestas.value) {
+    if (t.error) continue;
+    const campoId = campoIdPorIdentificador(t.identificador);
+    if (!campoId) continue;
+    onValueChange(campoId, t.identificador, JSON.stringify(t.valor));
+    if (t.fuente) setFuenteCampo(t.identificador, t.fuente);
+    if (t.advertencias) setAdvertenciasCampo(t.identificador, t.advertencias);
+  }
+}
+
+// El lote llena secciones de texto y tablas (salvo las de cascada, ver tablasCascadaFueraDeLote.ts)
+// de forma asíncrona en el servidor — cuando termina (fase pasa a 'completado'), esta página aplica
+// las tablas propuestas y encadena la fase 2: las 3 tablas de cascada de Sección 5, que dependen del
+// Excel vivo del cliente y no se pueden resolver dentro de un lote server-side (ver useLlenadoIALote.ts).
+watch(faseLlenadoIA, (fase) => {
+  if (fase !== 'completado' || faseTablasYaEjecutada.value) return;
+  faseTablasYaEjecutada.value = true;
+  aplicarTablasPropuestasDelLote();
+  // Proceso de sistema, no de IA (no cuesta nada): confirma solo las tablas que el lote propuso,
+  // sin esperar a que el usuario haga clic en "Confirmar" campo por campo. Lo único pendiente
+  // después de esto es persistir con Guardar, por eso se prende su parpadeo.
+  confirmarTodosLosBorradores();
+  resaltarGuardar.value = true;
+  void llenarTablasCascadaFaltantes(seccionIdsPendientesFaseTablas.value);
+});
 
 function confirmarCancelarLlenadoIA() {
   showCancelarLlenadoConfirm.value = false;
+  canceladoFaseTablasIA.value = true;
   cancelarLlenadoIAJob();
 }
 
@@ -86,10 +152,22 @@ function abrirContextoIA() {
 async function onLlenarTablaIA(campoId: string, identificador: string, seccionId: string) {
   // Sección 5 (Problema-Objetivo): 3 de sus tablas dependen de un desplegable del Excel que a su vez
   // depende de otro campo (INDIRECT en cascada) — se resuelven las opciones vigentes ANTES de llamar
-  // a la IA, para que no tenga que adivinar el catálogo. El resto de los campos no usa esto
-  // (`opcionesLlenadoCascada` devuelve undefined) y llenarTabla() se comporta exactamente igual que
-  // antes. Ver frontend/src/lib/cascadaProblemaObjetivo.ts.
-  const opciones = opcionesLlenadoCascada(identificador, excelVivo.value);
+  // a la IA, para que no tenga que adivinar el catálogo. Ver frontend/src/lib/cascadaProblemaObjetivo.ts.
+  let opciones = opcionesLlenadoCascada(identificador, excelVivo.value);
+  // Cualquier OTRA tabla puede tener una columna con desplegable fijo en el Excel que el JSON de
+  // estructura no capturó como `opciones` (encontrado en vivo: 08.03.1 "¿Se incluye como parte del
+  // PI?" — la IA proponía "Sí", que no es ninguna de las 2 opciones reales del Excel). Se resuelve
+  // igual para CUALQUIER tabla, no solo para las de cascada — ver opcionesEstaticasTabla.ts.
+  if (!opciones && excelVivo.value) {
+    const seccion = plantilla.value?.secciones.find((s) => s.id === seccionId);
+    const campo = seccion?.subsecciones.flatMap((sub) => sub.campos).find((c) => c.identificador === identificador);
+    if (campo?.configTabla && seccion?.hoja) {
+      const opcionesPorColumna = opcionesEstaticasPorColumna(excelVivo.value, seccion.hoja, campo.configTabla);
+      if (Object.keys(opcionesPorColumna).length > 0) {
+        opciones = { opcionesPorColumna };
+      }
+    }
+  }
   const resultado = await llenarTabla(campoId, identificador, seccionId, opciones);
   if (resultado !== null) {
     onValueChange(campoId, identificador, resultado.valorJson);
@@ -100,17 +178,17 @@ async function onLlenarTablaIA(campoId: string, identificador: string, seccionId
 
 async function iniciarLlenadoIA(payload?: { seccionIds?: string[] }) {
   modoProgresoIA.value = 'secciones';
+  canceladoFaseTablasIA.value = false;
+  faseTablasYaEjecutada.value = false;
+  seccionIdsPendientesFaseTablas.value = payload?.seccionIds ?? null;
+  // No hay un `await` que encadene la fase 2 aquí: useLlenadoIALote.iniciar() envía el lote y arranca
+  // el polling, pero resuelve su promesa apenas agenda el primer poll (no cuando el lote realmente
+  // termina en OpenAI, que puede tardar minutos u horas) — por eso la fase 2 se dispara vía el watch
+  // de faseLlenadoIA de arriba, no secuencialmente aquí.
   await iniciarLlenadoIAJob(ejemploId.value, payload?.seccionIds);
-  // Si cancelaron durante las secciones de texto, no arrancar las tablas.
-  if (canceladoLlenadoIA.value) return;
-  // El llenado de texto (arriba) ya persiste solo; las tablas quedan como borrador (requieren
-  // Confirmar + Guardar, igual que el botón "Llenar con IA" de una tabla suelta) — mismo flujo de
-  // revisión ya existente, solo que ahora se dispara para TODAS las tablas de las secciones que se
-  // acaban de llenar, en vez de tener que entrar tabla por tabla.
-  await llenarTablasFaltantes(payload?.seccionIds ?? null);
 }
 
-async function llenarTablasFaltantes(seccionIds: string[] | null) {
+async function llenarTablasCascadaFaltantes(seccionIds: string[] | null) {
   if (!plantilla.value) return;
   const filtro = seccionIds && seccionIds.length > 0 ? new Set(seccionIds) : null;
   const tablas: { campoId: string; identificador: string; seccionId: string; etiqueta: string }[] = [];
@@ -121,7 +199,7 @@ async function llenarTablasFaltantes(seccionIds: string[] | null) {
         if (
           (campo.tipo === 'tabla' || campo.tipo === 'tabla_jerarquica')
           && campo.editable
-          && !esTablaExcluidaDeIA(plantilla.value.codigo, campo.identificador)
+          && esTablaCascadaFueraDeLote(plantilla.value.codigo, campo.identificador)
         ) {
           tablas.push({ campoId: campo.id, identificador: campo.identificador, seccionId: seccion.id, etiqueta: campo.etiqueta });
         }
@@ -143,7 +221,7 @@ async function llenarTablasFaltantes(seccionIds: string[] | null) {
   let hechas = 0;
   let conError = 0;
   for (const t of tablas) {
-    if (canceladoLlenadoIA.value) break;
+    if (canceladoFaseTablasIA.value) break;
     marcarItemProgresoIA(t.campoId, { estado: 'procesando' });
     // Secuencial (no Promise.all): cada tabla es su propia consulta al modelo — en paralelo
     // saturaríamos el backend/la API y perderíamos el orden en que se ve el progreso por campo.
@@ -165,19 +243,24 @@ async function llenarTablasFaltantes(seccionIds: string[] | null) {
     }
   }
 
-  if (canceladoLlenadoIA.value) {
+  if (canceladoFaseTablasIA.value) {
     // Deja el modal abierto mostrando el aviso, igual que al cancelar durante las secciones de texto.
     mensajeErrorLlenadoIA.value = `Cancelaste el llenado con IA. ${hechas} tabla${hechas === 1 ? '' : 's'} ya completada${hechas === 1 ? '' : 's'} se conserva${hechas === 1 ? '' : 'n'}.`;
     faseLlenadoIA.value = 'error';
     return;
   }
 
+  // Mismo proceso de sistema que la fase 1: confirma las tablas de cascada solas, sin pedirle al
+  // usuario que las apruebe una por una — solo queda persistir con Guardar.
+  confirmarTodosLosBorradores();
+  resaltarGuardar.value = true;
+
   faseLlenadoIA.value = 'completado';
   showProcesamientoIA.value = false;
   ui.toast(
     conError > 0
-      ? `${hechas} de ${tablas.length} tablas llenadas con IA (${conError} con error) — revísalas y confirma antes de Guardar`
-      : `${hechas} tabla${hechas === 1 ? '' : 's'} llenada${hechas === 1 ? '' : 's'} con IA — revísala${hechas === 1 ? '' : 's'} y confirma antes de Guardar`,
+      ? `${hechas} de ${tablas.length} tablas llenadas con IA (${conError} con error) — revísalas y guarda los cambios`
+      : `${hechas} tabla${hechas === 1 ? '' : 's'} llenada${hechas === 1 ? '' : 's'} con IA — guarda los cambios cuando quieras`,
   );
 }
 
@@ -191,15 +274,15 @@ function onConfirmarBorrador(campoId: string, identificador: string) {
   alEditarCampoIA(identificador, editedValores.value[identificador] ?? '');
 }
 
-async function confirmarTerminarRevision() {
-  showTerminarRevisionConfirm.value = false;
-  // Sin esto, las tablas que la IA propuso pero el usuario nunca confirmó una por una quedaban como
-  // borrador solo en memoria — el modal decía "los valores que ya están en la ficha se conservan",
-  // pero al salir sin guardar se perdían en silencio. Confirmar + guardar acá cumple esa promesa de
-  // verdad, sin obligar a revisar campo por campo antes de poder cerrar la sesión de llenado.
-  confirmarTodosLosBorradores();
+// El botón "Guardar" de la topbar ahora hace las veces del antiguo botón "Terminar": los borradores
+// de la IA ya se confirmaron solos (ver los dos puntos de confirmarTodosLosBorradores() más arriba),
+// así que Guardar solo necesita persistir — y, si había una revisión de IA en curso, cerrarla (apaga
+// las marcas Extraído/Inferido/No encontrado y el rótulo "Ver resumen" vuelve a "Contexto IA").
+async function onGuardar() {
+  resaltarGuardar.value = false;
+  const habiaRevisionIA = enRevisionIA.value;
   await handleSave();
-  terminarProcesoLlenadoIA();
+  if (habiaRevisionIA) terminarProcesoLlenadoIA();
 }
 </script>
 
@@ -224,14 +307,14 @@ async function confirmarTerminarRevision() {
       :show-historial="muestraHistorial"
       :en-revision-i-a="enRevisionIA"
       :resaltar-ver-resumen="resaltarVerResumen"
+      :resaltar-guardar="resaltarGuardar"
+      :cargando-accion-archivo="isInserting"
       @change-tab="activeTab = $event"
       @historial="showHistorial = true"
       @fuente-verdad="abrirContextoIA"
-      @terminar-revision-ia="showTerminarRevisionConfirm = true"
-      @save="handleSave"
-      @download="handleDownload"
-      @insert="showInsertConfirm = true"
-      @preview="showPreview = true"
+      @save="onGuardar"
+      @download="iniciarDescarga"
+      @preview="abrirVistaPrevia"
     />
 
     <div v-if="esNivel0" class="shrink-0 border-b px-6 py-2 flex items-center gap-2 text-xs" :class="soloLectura ? 'bg-red-50 border-red-100 text-red-700' : 'bg-blue-50/60 border-gray-100 text-blue-700'">
@@ -321,24 +404,15 @@ async function confirmarTerminarRevision() {
 
     <ConfirmModal
       :is-open="showInsertConfirm"
-      title="Insertar valores en el Excel"
+      title="Insertar antes de descargar"
       :message="erroresCount > 0
-        ? `Todavía tienes ${erroresCount} campo${erroresCount > 1 ? 's' : ''} pendiente${erroresCount > 1 ? 's' : ''} o con errores. Se sobreescribirán todos los datos actuales del Excel de &quot;${ejemplo.nombre}&quot; con lo que llenaste hasta ahora. Esta acción no se puede deshacer.`
-        : `Se sobreescribirán todos los datos actuales del Excel de &quot;${ejemplo.nombre}&quot; con lo que llenaste. Esta acción no se puede deshacer.`"
-      confirm-label="Insertar"
+        ? `Todavía tienes ${erroresCount} campo${erroresCount > 1 ? 's' : ''} pendiente${erroresCount > 1 ? 's' : ''} o con errores. Tienes cambios sin insertar en el Excel de &quot;${ejemplo.nombre}&quot; — se insertarán con lo que llenaste hasta ahora y luego se descargará. Esta acción no se puede deshacer.`
+        : `Tienes cambios sin insertar en el Excel de &quot;${ejemplo.nombre}&quot; — se insertarán y luego se descargará. Esta acción no se puede deshacer.`"
+      confirm-label="Insertar y descargar"
       :progress="isInserting ? insertProgress : null"
       :progress-label="isInserting ? insertProgressLabel : null"
-      @confirm="handleInsert"
+      @confirm="confirmarInsertarYDescargar"
       @close="showInsertConfirm = false"
-    />
-
-    <ConfirmModal
-      :is-open="showTerminarRevisionConfirm"
-      title="Terminar de revisar"
-      message="Se confirmarán y guardarán todos los valores que la IA propuso (incluidas las tablas que aún no habías revisado una por una), se cerrará el resumen del llenado con IA y desaparecerán las marcas Extraído / Inferido / No encontrado."
-      confirm-label="Terminar de revisar"
-      @confirm="confirmarTerminarRevision"
-      @close="showTerminarRevisionConfirm = false"
     />
 
     <ConfirmModal
@@ -370,16 +444,22 @@ async function confirmarTerminarRevision() {
   </div>
 
   <!-- Fuera del v-else del editor: sobreviven un refetch de ejemplo y no cortan la transición al informe. -->
+  <!-- Incluye 'enviando' (no solo 'procesando'/'error'): useLlenadoIALote pone showProgreso=true antes
+       de armar y subir el lote a OpenAI, y para "Llenar toda la ficha" (85 solicitudes) ese envío puede
+       tardar varios segundos — sin 'enviando' aquí, el modal se quedaba sin montar todo ese tramo (con
+       pocas solicitudes el hueco era demasiado corto para notarlo, pero con la ficha completa se veía
+       como si el clic no hiciera nada). -->
   <ProcesamientoIAModal
-    v-if="faseLlenadoIA === 'procesando' || faseLlenadoIA === 'error'"
+    v-if="faseLlenadoIA === 'enviando' || faseLlenadoIA === 'procesando' || faseLlenadoIA === 'error'"
     :is-open="showProcesamientoIA"
     :secciones="seccionesProgresoIA"
     :fase="faseLlenadoIA === 'error' ? 'error' : 'procesando'"
     :mensaje-error="mensajeErrorLlenadoIA"
     :esperando-servidor="esperandoServidorLlenadoIA"
     :modo="modoProgresoIA"
+    :progreso-real="progresoLote"
     @close="cerrarProcesamientoIA()"
-    @ver-resultados="verResultadosLlenadoIA(editedValores)"
+    @ver-resultados="verResultadosLlenadoIA()"
     @cancelar="showCancelarLlenadoConfirm = true"
   />
 

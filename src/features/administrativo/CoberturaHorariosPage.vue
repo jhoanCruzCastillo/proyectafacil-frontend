@@ -52,6 +52,22 @@ function sumar30min(hora: string): string {
   return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
 }
 
+// Etiqueta compacta para dentro de cada casilla — pedido explícito del usuario, para ver a simple
+// vista de qué hora a qué hora es la franja sin depender de la columna "Hora" ni del hover.
+// Quita el ":00" y el cero inicial para que quepa en una casilla angosta (ej. "9-9:30").
+function horaCorta(hora: string): string {
+  const [h, m] = hora.split(':').map(Number);
+  return m === 0 ? String(h) : `${h}:${String(m).padStart(2, '0')}`;
+}
+function franjaLabel(horaInicio: string): string {
+  return `${horaCorta(horaInicio)}-${horaCorta(sumar30min(horaInicio))}`;
+}
+function claseTextoFranja(count: number): string {
+  if (count === 0) return 'text-gray-400';
+  if (count <= 3) return 'text-emerald-900';
+  return 'text-white';
+}
+
 function irAMismoHorario(fecha: string, horaInicio: string) {
   router.push({ name: 'tickets-mismo-horario', query: { fecha, horaInicio, horaFin: sumar30min(horaInicio) } });
 }
@@ -125,10 +141,13 @@ const rangoLegible = computed(() => {
                 <button
                   type="button"
                   @click="celda(d.fecha, hora)!.pendiente && irAMismoHorario(d.fecha, hora)"
-                  class="w-full h-8 rounded flex items-center justify-center transition-colors duration-75"
+                  class="relative w-full h-8 rounded flex items-center justify-center transition-colors duration-75"
                   :class="[claseColor(celda(d.fecha, hora)!.docentes.length), celda(d.fecha, hora)!.pendiente ? 'cursor-pointer ring-2 ring-red-400' : 'cursor-default']"
                 >
-                  <FontAwesomeIcon v-if="celda(d.fecha, hora)!.pendiente" :icon="faTriangleExclamation" class="w-3 h-3 text-red-600" />
+                  <span class="text-[9px] font-medium leading-none whitespace-nowrap" :class="claseTextoFranja(celda(d.fecha, hora)!.docentes.length)">
+                    {{ franjaLabel(hora) }}
+                  </span>
+                  <FontAwesomeIcon v-if="celda(d.fecha, hora)!.pendiente" :icon="faTriangleExclamation" class="w-2.5 h-2.5 text-red-600 absolute -top-1 -right-1 bg-white rounded-full p-0.5 shadow" />
                 </button>
 
                 <div

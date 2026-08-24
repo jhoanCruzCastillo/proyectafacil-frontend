@@ -5,7 +5,7 @@ import { faXmark, faVideo, faComments, faCheck, faUserGear, faTrash, faEnvelope,
 import IntervencionManualModal from './IntervencionManualModal.vue';
 import CancelarTicketModal from './CancelarTicketModal.vue';
 import Avatar from '@/components/Avatar.vue';
-import { useTicketDetalleQuery, useCancelarTicketAdmin } from '@/composables/useTicketsAsesoria';
+import { useTicketDetalleQuery, useCancelarTicketAdmin, useHistorialConexionQuery } from '@/composables/useTicketsAsesoria';
 import { useUiStore } from '@/stores/ui';
 import { ESTADO_ASESORIA_LABEL, ESTADO_ASESORIA_CLASE } from '@/lib/estadoAsesoria';
 import { codigoTicketFalso, nivelFalso, estadoNotificacionFalso } from '@/lib/ticketsDemoFake';
@@ -55,6 +55,34 @@ const pasosTimeline = computed<PasoTimeline[]>(() => {
 
   return pasos;
 });
+
+// Una vez que el ticket ya llegó a un desenlace final, intervenir o cancelar ya no tiene efecto —
+// la asesoría (o su cancelación) ya ocurrió.
+const ESTADOS_TERMINALES = new Set(['completado', 'cancelado', 'observado', 'vencido']);
+const puedeIntervenir = computed(() => !!ticket.value && !ESTADOS_TERMINALES.has(ticket.value.estado));
+
+const mostrarHistorialConexion = computed(() => ticket.value?.estado === 'completado' && ticket.value?.tipo === 'video');
+const { data: historialConexionData } = useHistorialConexionQuery(() => (mostrarHistorialConexion.value ? props.ticketId : null));
+const historialConexion = computed(() => historialConexionData.value?.participantes ?? []);
+const tiempoCoincidenteSegundos = computed(() => historialConexionData.value?.tiempoCoincidenteSegundos ?? 0);
+
+function formatHoraConexion(iso: string | null): string {
+  return iso ? new Date(iso).toLocaleTimeString('es-PE', { hour: 'numeric', minute: '2-digit' }) : '—';
+}
+
+function duracionSesion(entrada: string | null, salida: string | null): string {
+  if (!entrada || !salida) return '—';
+  const minutos = Math.round((new Date(salida).getTime() - new Date(entrada).getTime()) / 60_000);
+  return `${minutos} min`;
+}
+
+function formatDuracionTotal(segundos: number): string {
+  const minutos = Math.round(segundos / 60);
+  if (minutos < 60) return `${minutos} min`;
+  const horas = Math.floor(minutos / 60);
+  const resto = minutos % 60;
+  return resto === 0 ? `${horas} h` : `${horas} h ${resto} min`;
+}
 
 async function confirmarCancelar() {
   if (!ticket.value) return;
@@ -162,13 +190,17 @@ async function confirmarCancelar() {
                   <div class="space-y-4">
                     <div v-for="(paso, i) in pasosTimeline" :key="i" class="flex gap-3 relative">
                       <div
-                        class="w-6 h-6 rounded-full flex items-center justify-center shrink-0 z-10"
-                        :class="paso.completado ? 'bg-emerald-500 text-white' : 'bg-white border-2 border-gray-300'"
+                        class="w-6 h-6 rounded-full flex items-center justify-center shrink-0 z-10 relative"
+                        :class="paso.completado ? 'bg-emerald-500 text-white' : 'bg-white border-2 border-blue-400'"
                       >
                         <FontAwesomeIcon v-if="paso.completado" :icon="faCheck" class="w-3 h-3" />
+                        <template v-else>
+                          <span class="absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75 animate-ping" />
+                          <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-500" />
+                        </template>
                       </div>
                       <div>
-                        <p class="text-sm font-semibold text-heading">{{ paso.titulo }}</p>
+                        <p class="text-sm font-semibold" :class="paso.completado ? 'text-heading' : 'text-blue-600'">{{ paso.titulo }}</p>
                         <p class="text-xs text-muted mt-0.5">{{ paso.detalle }}</p>
                       </div>
                     </div>
@@ -178,7 +210,47 @@ async function confirmarCancelar() {
             </div>
           </div>
 
-          <div class="flex justify-end gap-3 border-t border-gray-200 p-4 bg-gray-50">
+          <div v-if="historialConexion.length > 0" class="border-t border-gray-200 p-5">
+            <div class="flex items-center gap-2.5 mb-3 flex-wrap">
+              <h3 class="text-sm font-bold text-heading">Historial de conexión en la videollamada (Google Meet)</h3>
+              <span class="px-2.5 py-1 rounded-full text-[11px] font-medium bg-emerald-100 text-emerald-700">
+                Tiempo coincidente: {{ formatDuracionTotal(tiempoCoincidenteSegundos) }}
+              </span>
+            </div>
+            <div class="rounded-xl border border-gray-200 overflow-hidden overflow-x-auto">
+              <table class="w-full text-sm border-collapse">
+                <thead>
+                  <tr class="text-left text-[11px] font-semibold text-gray-600 bg-gray-50 border-b border-gray-200">
+                    <th class="py-2.5 px-4">Participante</th>
+                    <th class="py-2.5 px-4">Entrada</th>
+                    <th class="py-2.5 px-4">Salida</th>
+                    <th class="py-2.5 px-4">Duración</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template v-for="participante in historialConexion" :key="participante.nombre">
+                    <tr v-for="(sesion, i) in participante.sesiones" :key="i" class="border-b border-gray-100 last:border-b-0">
+                      <td v-if="i === 0" :rowspan="participante.sesiones.length" class="py-3 px-4 align-top border-r border-gray-100">
+                        <div class="flex items-center gap-2.5">
+                          <Avatar :nombre="participante.nombre" :fotoUrl="participante.fotoUrl" size="w-9 h-9" />
+                          <div>
+                            <p class="font-medium text-heading text-sm">{{ participante.nombre }}</p>
+                            <p v-if="participante.correo" class="text-[11px] text-muted">{{ participante.correo }}</p>
+                            <p v-if="participante.rol" class="text-[11px] font-medium" :class="participante.rol === 'Alumno' ? 'text-emerald-600' : 'text-blue-600'">{{ participante.rol }}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td class="py-3 px-4 text-heading whitespace-nowrap">{{ formatHoraConexion(sesion.entrada) }}</td>
+                      <td class="py-3 px-4 text-heading whitespace-nowrap">{{ formatHoraConexion(sesion.salida) }}</td>
+                      <td class="py-3 px-4 text-muted whitespace-nowrap">{{ duracionSesion(sesion.entrada, sesion.salida) }}</td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div v-if="puedeIntervenir" class="flex justify-end gap-3 border-t border-gray-200 p-4 bg-gray-50">
             <button
               @click="showIntervencion = true"
               type="button"

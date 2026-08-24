@@ -1,42 +1,44 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faListCheck, faClock, faHourglassHalf, faCircleCheck, faTriangleExclamation, faUserCheck, faComments, faVideo, faChevronLeft, faChevronRight, faAnglesLeft, faAnglesRight, faMagnifyingGlass } from '@/lib/icons';
+import { faListCheck, faClock, faCalendarCheck, faCircleCheck, faUserCheck, faComments, faVideo, faChevronLeft, faChevronRight, faAnglesLeft, faAnglesRight, faMagnifyingGlass, faEye } from '@/lib/icons';
 import PageShell from '@/components/PageShell.vue';
 import Avatar from '@/components/Avatar.vue';
 import TicketDetalleModal from './TicketDetalleModal.vue';
 import IntervencionManualModal from './IntervencionManualModal.vue';
 import { useDashboardAsesoriaQuery, useTicketsAsesoriaQuery } from '@/composables/useTicketsAsesoria';
 import { ESTADO_ASESORIA_LABEL, ESTADO_ASESORIA_CLASE } from '@/lib/estadoAsesoria';
-import { etiquetaDocenteFalsa, claseCategoria, codigoTicketFalso, slaFalsoConfig, slaFalsoEstado } from '@/lib/ticketsDemoFake';
+import { etiquetaDocenteFalsa, claseCategoria, codigoTicketFalso } from '@/lib/ticketsDemoFake';
+import { progresoSla } from '@/lib/tiempoRelativo';
 import type { EstadoSolicitudAsesoria, SolicitudAsesoria } from '@/types';
 
-type Tab = 'todos' | 'pendiente' | 'en_espera' | 'completado' | 'cancelado';
-const TABS: { value: Tab; label: string }[] = [
-  { value: 'todos', label: 'Todos' },
-  { value: 'pendiente', label: 'Pendientes' },
-  { value: 'en_espera', label: 'En espera' },
-  { value: 'completado', label: 'Completados' },
-  { value: 'cancelado', label: 'Cancelados' },
+type Tab = 'todos' | 'pendiente' | 'agendado' | 'completado' | 'cancelado' | 'vencido' | 'observado';
+const TABS: { value: Tab; label: string; hint: string; icon?: typeof faEye }[] = [
+  { value: 'todos', label: 'Todos', hint: 'Todas las solicitudes de asesoría, sin filtrar.' },
+  { value: 'pendiente', label: 'Pendientes', hint: 'Todavía nadie las aceptó — están esperando a que algún asesor responda.' },
+  { value: 'agendado', label: 'Agendado', hint: 'Videollamadas con horario confirmado, listas para atenderse.' },
+  { value: 'completado', label: 'Completados', hint: 'El alumno y el asesor coincidieron conectados al mismo tiempo al menos la duración acordada.' },
+  { value: 'cancelado', label: 'Cancelados', hint: 'Solicitudes canceladas por el alumno o por un administrativo.' },
+  { value: 'vencido', label: 'Vencidos', hint: 'Era una videollamada agendada, pero ninguna de las dos partes llegó a conectarse.' },
+  { value: 'observado', label: 'Observados', hint: 'Ambas partes se conectaron, pero el tiempo que coincidieron conectadas fue menor al acordado.', icon: faEye },
 ];
 
 const { data: dashboard } = useDashboardAsesoriaQuery();
 const { data: tickets, isLoading } = useTicketsAsesoriaQuery();
 
 const asignadosADocente = computed(() => (tickets.value ?? []).filter((t) => t.estado === 'asignado').length);
+const agendados = computed(() => (tickets.value ?? []).filter((t) => t.estado === 'agendado').length);
 
 const kpis = computed(() => [
   { key: 'pendientes', icon: faClock, label: 'Pendientes', valor: dashboard.value?.pendientes ?? '—', caption: 'Requieren atención', iconBg: 'bg-amber-100', iconColor: 'text-amber-600' },
   { key: 'asignados', icon: faUserCheck, label: 'Esperando aceptación docente', valor: asignadosADocente.value, caption: 'Asignados a docentes', iconBg: 'bg-blue-100', iconColor: 'text-blue-600' },
-  { key: 'en_espera', icon: faHourglassHalf, label: 'En espera', valor: dashboard.value?.enEspera ?? '—', caption: 'Sin docente disponible', iconBg: 'bg-gray-100', iconColor: 'text-gray-500' },
+  { key: 'agendado', icon: faCalendarCheck, label: 'Agendado', valor: agendados.value, caption: 'Con horario confirmado', iconBg: 'bg-indigo-100', iconColor: 'text-indigo-600' },
   { key: 'completados', icon: faCircleCheck, label: 'Completados hoy', valor: dashboard.value?.completadosHoy ?? '—', caption: 'Consultas finalizadas', iconBg: 'bg-emerald-100', iconColor: 'text-emerald-600' },
-  { key: 'sla', icon: faTriangleExclamation, label: 'SLA por vencer', valor: dashboard.value?.slaPorVencer ?? '—', caption: 'Riesgo de vencimiento', iconBg: 'bg-red-100', iconColor: 'text-red-600', destacado: (dashboard.value?.slaPorVencer ?? 0) > 0 },
 ]);
 
 const tabActiva = ref<Tab>('todos');
 const ticketsFiltrados = computed(() => {
   if (tabActiva.value === 'todos') return tickets.value ?? [];
-  if (tabActiva.value === 'pendiente') return (tickets.value ?? []).filter((t) => t.estado === 'pendiente' || t.estado === 'asignado' || t.estado === 'agendado');
   return (tickets.value ?? []).filter((t) => t.estado === (tabActiva.value as EstadoSolicitudAsesoria));
 });
 
@@ -101,27 +103,25 @@ function cambiarPorPagina(valor: number) {
 const detalleId = ref<string | null>(null);
 const intervencionTicket = ref<SolicitudAsesoria | null>(null);
 
-// Reloj compartido para que las barras de SLA (ficticias, ver ticketsDemoFake.ts) avancen de
-// verdad segundo a segundo en vez de quedar estáticas al cargar la página.
+// Reloj compartido para que las barras de SLA avancen de verdad segundo a segundo en vez de
+// quedar estáticas al cargar la página — no hace falta empujar desde el servidor: con
+// creadoEn + slaVenceEn (ambos ya vienen calculados por el backend) alcanza para recalcular el
+// restante contra la hora local en cada tick.
 const ahora = ref(Date.now());
 let intervalo: ReturnType<typeof setInterval> | undefined;
 onMounted(() => { intervalo = setInterval(() => { ahora.value = Date.now(); }, 1000); });
 onUnmounted(() => clearInterval(intervalo));
 
-const slaConfigPorTicket = new Map<string, ReturnType<typeof slaFalsoConfig>>();
+// El SLA solo cuenta mientras la solicitud espera ser aceptada — mismo criterio que el KPI
+// "SLA por vencer" del dashboard (TicketsAsesoriaController::dashboard(), estado='pendiente').
 function slaDe(t: SolicitudAsesoria) {
-  let cfg = slaConfigPorTicket.get(t.id);
-  if (!cfg) {
-    cfg = slaFalsoConfig(t.id);
-    slaConfigPorTicket.set(t.id, cfg);
-  }
-  return slaFalsoEstado(cfg, ahora.value);
+  return progresoSla(t.creadoEn, t.slaVenceEn, t.estado === 'pendiente', ahora.value);
 }
 </script>
 
 <template>
   <PageShell compact :icon="faListCheck" title="Tickets de asesoría" description="Solicitudes de asesoría 1:1 de todos los alumnos.">
-    <div class="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
       <div
         v-for="kpi in kpis"
         :key="kpi.key"
@@ -146,9 +146,11 @@ function slaDe(t: SolicitudAsesoria) {
           :key="tab.value"
           @click="cambiarTab(tab.value)"
           type="button"
-          class="px-4 py-2 text-sm font-medium rounded-md transition-colors duration-75"
+          :title="tab.hint"
+          class="px-4 py-2 text-sm font-medium rounded-md transition-colors duration-75 flex items-center gap-1.5"
           :class="tabActiva === tab.value ? 'bg-white text-brand-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'"
         >
+          <FontAwesomeIcon v-if="tab.icon" :icon="tab.icon" class="w-3 h-3" />
           {{ tab.label }}
         </button>
       </div>
