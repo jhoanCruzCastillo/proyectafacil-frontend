@@ -1,6 +1,6 @@
 import type { Docente, HorarioDocente, ExcepcionHorarioDocente } from '@/types';
 
-export type BloqueHorario = Pick<HorarioDocente, 'diaSemana' | 'horaInicio' | 'horaFin'>;
+export type BloqueHorario = Pick<HorarioDocente, 'fechaInicio' | 'horaInicio' | 'horaFin' | 'todoElDia' | 'tipoRepeticion'>;
 export type BloqueExcepcion = Pick<ExcepcionHorarioDocente, 'fecha' | 'horaInicio' | 'horaFin'>;
 
 export interface DocentesApi {

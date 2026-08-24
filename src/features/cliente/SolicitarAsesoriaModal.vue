@@ -9,6 +9,7 @@ import { useSectoresQuery } from '@/composables/useSectores';
 import { useUsuariosQuery } from '@/composables/useUsuarios';
 import { useTicketsConsultaQuery } from '@/composables/useTicketsConsulta';
 import { useDisponibilidadHorariosQuery } from '@/composables/useDisponibilidadHorarios';
+import { ocurrenciasEnRango } from '@/lib/horarioRecurrencia';
 import { useCrearSolicitudAsesoria, useAgendadosPorRangoQuery } from '@/composables/useAsesoria';
 import { useSessionStore } from '@/stores/session';
 import { cuentaEfectivaDe } from '@/lib/permisos';
@@ -186,14 +187,47 @@ const { data: agendadosData } = useAgendadosPorRangoQuery(
   () => paso.value === 'horario',
 );
 
+function horaADecimal(hora: string): number {
+  const [h, m] = hora.split(':').map(Number);
+  return h + m / 60;
+}
+
+function horaDeDecimal(h: number): string {
+  return `${String(h).padStart(2, '0')}:00`;
+}
+
+// Cápsulas de 1 hora completamente contenidas en [horaInicio, horaFin) — pedido explícito del
+// usuario: un bloque "todo el día" (00:00-23:59) no debe ofrecerse como un único horario gigante,
+// sino como un catálogo de franjas de 1 hora para elegir (igual que cualquier otro bloque largo).
+// "23:59" es el sentinel de "todo el día" (ver DocentesController::actualizarHorario) — se trata
+// como fin de día para no perder la última cápsula (23:00-23:59).
+function capsulasEnRango(horaInicio: string, horaFin: string): Array<{ horaInicio: string; horaFin: string }> {
+  const inicio = horaADecimal(horaInicio);
+  const fin = horaFin === '23:59' ? 24 : horaADecimal(horaFin);
+  const capsulas: Array<{ horaInicio: string; horaFin: string }> = [];
+  for (let h = Math.ceil(inicio); h + 1 <= fin; h++) {
+    capsulas.push({ horaInicio: horaDeDecimal(h), horaFin: h + 1 === 24 ? '23:59' : horaDeDecimal(h + 1) });
+  }
+  return capsulas;
+}
+
+function horaCapsulaLabel(hora: string): string {
+  const h = Number(hora.split(':')[0]);
+  const ampm = h < 12 ? 'am' : 'pm';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12} ${ampm}`;
+}
+
 const bloquesDelDia = computed(() => {
-  const crudos = (bloquesAgregados.value ?? []).filter((b) => b.diaSemana === diaActivo.value.diaSemana);
-  const porHorario = new Map<string, string[]>();
+  const crudos = ocurrenciasEnRango(bloquesAgregados.value ?? [], diaActivo.value.iso, diaActivo.value.iso);
+  const porHorario = new Map<string, Set<string>>();
   for (const b of crudos) {
-    const clave = `${b.horaInicio}|${b.horaFin}`;
-    const docentes = porHorario.get(clave) ?? [];
-    docentes.push(b.docenteId);
-    porHorario.set(clave, docentes);
+    for (const capsula of capsulasEnRango(b.horaInicio, b.horaFin)) {
+      const clave = `${capsula.horaInicio}|${capsula.horaFin}`;
+      const docentes = porHorario.get(clave) ?? new Set<string>();
+      docentes.add(b.docenteId);
+      porHorario.set(clave, docentes);
+    }
   }
 
   const ocupados = new Set(
@@ -205,8 +239,8 @@ const bloquesDelDia = computed(() => {
   return Array.from(porHorario.entries())
     .map(([clave, docentes]) => {
       const [horaInicio, horaFin] = clave.split('|');
-      const libre = docentes.some((docenteId) => !ocupados.has(`${docenteId}|${horaInicio}|${horaFin}`));
-      return { horaInicio, horaFin, disponible: libre };
+      const libre = Array.from(docentes).some((docenteId) => !ocupados.has(`${docenteId}|${horaInicio}|${horaFin}`));
+      return { horaInicio, horaFin, disponible: libre, label: `${horaCapsulaLabel(horaInicio)} a ${horaCapsulaLabel(horaFin)}` };
     })
     .sort((a, b) => a.horaInicio.localeCompare(b.horaInicio));
 });
@@ -410,20 +444,21 @@ function confirmarHorario() {
               <p class="text-sm font-semibold text-heading">Horarios disponibles para {{ DIAS_LARGO[diaActivo.diaSemana] }} {{ diaActivo.fecha.getDate() }}</p>
 
               <p v-if="bloquesDelDia.length === 0" class="text-sm text-muted py-6 text-center">No hay horarios disponibles este día — prueba otro día.</p>
-              <div v-else class="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto">
+              <div v-else class="grid grid-cols-3 gap-1.5 max-h-64 overflow-y-auto">
                 <button
                   v-for="(b, i) in bloquesDelDia"
                   :key="i"
                   @click="b.disponible && (horarioElegido = { horaInicio: b.horaInicio, horaFin: b.horaFin })"
                   :disabled="!b.disponible"
+                  :title="!b.disponible ? 'Agendado' : b.label"
                   type="button"
-                  class="px-3 py-2.5 rounded-lg border text-sm text-left transition-colors flex items-center justify-between"
+                  class="px-2 py-2 rounded-lg border text-xs text-center transition-colors flex flex-col items-center justify-center gap-0.5"
                   :class="!b.disponible
                     ? 'border-gray-100 bg-gray-50 text-gray-400 cursor-not-allowed'
                     : horarioElegido?.horaInicio === b.horaInicio ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50'"
                 >
-                  <span>{{ b.horaInicio }} - {{ b.horaFin }}</span>
-                  <span v-if="!b.disponible" class="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Agendado</span>
+                  <span class="truncate w-full">{{ b.label }}</span>
+                  <span v-if="!b.disponible" class="text-[9px] font-semibold uppercase tracking-wide text-gray-400">Agendado</span>
                   <FontAwesomeIcon v-else-if="horarioElegido?.horaInicio === b.horaInicio" :icon="faCheck" class="w-3 h-3" />
                 </button>
               </div>

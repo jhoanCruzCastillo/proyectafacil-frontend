@@ -9,14 +9,16 @@ import {
   useExcepcionesHorarioQuery, useActualizarExcepcionesHorario,
 } from '@/composables/useDocentes';
 import { useUiStore } from '@/stores/ui';
-import { horaAmPm } from '@/lib/consultaAsesorUI';
 import type { BloqueHorario, BloqueExcepcion } from '@/api/contracts/docentes';
+import { ocurrenciasEnRango, REPETICION_LABELS, type TipoRepeticion } from '@/lib/horarioRecurrencia';
 
-// Horario semanal de referencia (no es un calendario de citas con fechas puntuales) — el cliente
-// lo ve al elegir a quién solicitarle asesoría, para saber cuándo suele estar disponible este
-// docente. La navegación de semana de abajo es solo para mostrar fechas reales de orientación;
-// el patrón marcado se repite todas las semanas. Las excepciones (ver más abajo) sí son por fecha
-// puntual — permiten marcar "ocupado" un día específico aunque el patrón recurrente diga que sí.
+// Horario recurrente de referencia (no es un calendario de citas con fechas puntuales) — el
+// cliente lo ve al elegir a quién solicitarle asesoría, para saber cuándo suele estar disponible
+// este docente. Pedido explícito del usuario: ya no es una grilla clicleable — la única forma de
+// agregar disponibilidad es el modal "Agregar horario disponible" (fecha ancla + repetición), y
+// lo agregado se dibuja como rectángulos posicionados sobre la grilla, mismo patrón que
+// CronogramaPage.vue. Las excepciones (ver más abajo) siguen siendo por fecha puntual — permiten
+// marcar "ocupado" un día específico aunque una regla recurrente diga que sí.
 const DIAS: { valor: number; corta: string }[] = [
   { valor: 1, corta: 'Lun' },
   { valor: 2, corta: 'Mar' },
@@ -29,6 +31,7 @@ const DIAS: { valor: number; corta: string }[] = [
 
 const FILA_PX = 32;
 const GAP_PX = 4;
+const PADDING_PX = 4;
 // Rango visible sin necesidad de hacer scroll: 6am–9pm (15 franjas de una hora). El resto del día
 // (antes de las 6am, después de las 9pm) sigue disponible haciendo scroll.
 const ALTO_VISIBLE_PX = 15 * (FILA_PX + GAP_PX);
@@ -42,14 +45,30 @@ const actualizarHorario = useActualizarHorarioDocente();
 const { data: excepcionesData } = useExcepcionesHorarioQuery(docenteId);
 const actualizarExcepciones = useActualizarExcepcionesHorario();
 
-const bloques = ref<BloqueHorario[]>([]);
+// `id` acá es un id de cliente (crypto.randomUUID), no el id del servidor — permite identificar
+// cada regla para poder quitarla con un clic incluso antes de guardar. El guardado reemplaza todo
+// el horario del docente (ver actualizarHorario()), así que el backend no necesita este id.
+interface ReglaEditor extends BloqueHorario {
+  id: string;
+}
+
+const bloques = ref<ReglaEditor[]>([]);
 const excepciones = ref<BloqueExcepcion[]>([]);
 const cargado = ref(false);
 
 watch(docentes, (lista) => {
   if (cargado.value || !lista) return;
   const propio = lista.find((d) => d.id === docenteId.value);
-  bloques.value = propio ? propio.horario.map((h) => ({ diaSemana: h.diaSemana, horaInicio: h.horaInicio, horaFin: h.horaFin })) : [];
+  bloques.value = propio
+    ? propio.horario.map((h) => ({
+        id: crypto.randomUUID(),
+        fechaInicio: h.fechaInicio,
+        horaInicio: h.horaInicio,
+        horaFin: h.horaFin,
+        todoElDia: h.todoElDia,
+        tipoRepeticion: h.tipoRepeticion,
+      }))
+    : [];
   cargado.value = true;
 }, { immediate: true });
 
@@ -65,16 +84,6 @@ function horaADecimal(hora: string): number {
   return h + m / 60;
 }
 
-function horaAString(decimal: number): string {
-  const h = Math.floor(decimal);
-  const m = Math.round((decimal - h) * 60);
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-}
-
-// Pedido explícito del usuario: filas de hora en hora (12 am, 1 pm, 2 pm…), no de media hora en
-// media hora, para que quepan más horas en la pantalla sin scroll.
-const PASO = 1;
-
 function horaLabel(slot: number): string {
   const h24 = Math.floor(slot);
   const ampm = h24 < 12 ? 'am' : 'pm';
@@ -82,85 +91,27 @@ function horaLabel(slot: number): string {
   return `${h12} ${ampm}`;
 }
 
-// Pedido explícito del usuario: por defecto arrancar en las 6am (no medianoche), pero mostrar
-// horas antes de esa si hay algo real ahí — un bloque disponible recurrente o una excepción
-// "ocupado" puntual dentro de la semana visible. `horaInicioGrid` se calcula más abajo, una vez
-// que `bloques`/`excepciones`/`fechasSemana` existen.
-const slots = computed(() => {
-  const lista: number[] = [];
-  for (let h = horaInicioGrid.value; h < 24; h += PASO) lista.push(h);
-  return lista;
-});
-
-// Traslape con la franja [slot, slot+PASO) — no "contiene el punto entero" (eso dejaba invisible
-// cualquier bloque que no cruzara una hora en punto, ej. 20:50-21:00).
-function estaDisponible(dia: number, slot: number): boolean {
-  return bloques.value.some((b) => b.diaSemana === dia && horaADecimal(b.horaInicio) < slot + PASO && horaADecimal(b.horaFin) > slot);
+function horaCorta(hora: string): string {
+  const [h, m] = hora.split(':').map(Number);
+  const ampm = h < 12 ? 'am' : 'pm';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return m === 0 ? `${h12} ${ampm}` : `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
 }
 
-// El bloque, si lo hay, que arranca justo en esta casilla — para pintar el rango "8:00am-11:00am"
-// una sola vez, en la primera casilla del bloque (no en cada hora que ocupa).
-function bloqueQueEmpiezaEn(dia: number, slot: number): BloqueHorario | undefined {
-  return bloques.value.find((b) => b.diaSemana === dia && Math.floor(horaADecimal(b.horaInicio)) === slot);
+function quitarBloque(id: string) {
+  bloques.value = bloques.value.filter((b) => b.id !== id);
 }
 
-// Reconstruye el día completo como un set de medias horas marcadas, aplica el toggle, y vuelve a
-// comprimir en intervalos contiguos — más simple y robusto que partir/fusionar un bloque a mano.
-function toggleSlot(dia: number, slot: number) {
-  const yaDisponible = estaDisponible(dia, slot);
-  const otrosDias = bloques.value.filter((b) => b.diaSemana !== dia);
-  const propios = bloques.value.filter((b) => b.diaSemana === dia);
-
-  const marcados = new Set<number>();
-  for (const b of propios) {
-    for (let s = horaADecimal(b.horaInicio); s < horaADecimal(b.horaFin) - 0.001; s += PASO) {
-      marcados.add(Math.round(s / PASO) * PASO);
-    }
-  }
-  if (yaDisponible) marcados.delete(slot);
-  else marcados.add(slot);
-
-  bloques.value = [...otrosDias, ...comprimirEnBloques(dia, marcados)];
-}
-
-function comprimirEnBloques(dia: number, marcados: Set<number>): BloqueHorario[] {
-  const ordenados = Array.from(marcados).sort((a, b) => a - b);
-  const nuevos: BloqueHorario[] = [];
-  let inicio: number | null = null;
-  let anterior: number | null = null;
-  for (const s of ordenados) {
-    if (inicio === null) {
-      inicio = s;
-      anterior = s;
-      continue;
-    }
-    if (s === anterior! + PASO) {
-      anterior = s;
-      continue;
-    }
-    nuevos.push({ diaSemana: dia, horaInicio: horaAString(inicio), horaFin: horaAString(anterior! + PASO) });
-    inicio = s;
-    anterior = s;
-  }
-  if (inicio !== null) nuevos.push({ diaSemana: dia, horaInicio: horaAString(inicio), horaFin: horaAString(anterior! + PASO) });
-  return nuevos;
-}
-
-// Excepciones puntuales — "ocupado" en una fecha real específica, por encima del patrón
-// recurrente. Independientes de `bloques`: no se tocan entre sí.
 function fechaISO(fecha: Date): string {
   return `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}-${String(fecha.getDate()).padStart(2, '0')}`;
-}
-
-function excepcionEn(fechaIso: string, slot: number): BloqueExcepcion | undefined {
-  return excepciones.value.find((e) => e.fecha === fechaIso && horaADecimal(e.horaInicio) < slot + PASO && horaADecimal(e.horaFin) > slot);
 }
 
 function quitarExcepcion(exc: BloqueExcepcion) {
   excepciones.value = excepciones.value.filter((e) => e !== exc);
 }
 
-// Navegación de semana — solo de orientación, no cambia qué se guarda (el horario es recurrente).
+// Navegación de semana — solo de orientación para ver dónde caen las ocurrencias; lo que se
+// guarda son las reglas (fecha ancla + repetición), no una semana puntual.
 const semanaOffset = ref(0);
 
 function inicioSemana(offset: number): Date {
@@ -182,20 +133,38 @@ const fechasSemana = computed(() => {
   });
 });
 
-// Hora en la que arranca la grilla: 6am por defecto, pero se adelanta si hay un bloque disponible
-// recurrente (aplica sin importar la semana) o una excepción "ocupado" puntual dentro de la semana
-// visible que empiecen antes de esa hora.
-const horaInicioGrid = computed(() => {
-  let min = 6;
-  for (const b of bloques.value) {
-    min = Math.min(min, Math.floor(horaADecimal(b.horaInicio)));
-  }
-  const fechasSemanaIso = new Set(fechasSemana.value.map(fechaISO));
-  for (const e of excepciones.value) {
-    if (fechasSemanaIso.has(e.fecha)) min = Math.min(min, Math.floor(horaADecimal(e.horaInicio)));
-  }
-  return Math.max(min, 0);
-});
+// Ocurrencias reales de las reglas dentro de la semana visible — único lugar donde se expande la
+// recurrencia (ver src/lib/horarioRecurrencia.ts).
+const ocurrenciasSemana = computed(() => ocurrenciasEnRango(bloques.value, fechaISO(fechasSemana.value[0]), fechaISO(fechasSemana.value[6])));
+const ocurrenciasTodoElDia = computed(() => ocurrenciasSemana.value.filter((o) => o.todoElDia));
+const ocurrenciasConHorario = computed(() => ocurrenciasSemana.value.filter((o) => !o.todoElDia));
+
+function todoElDiaEnDia(fechaIso: string) {
+  return ocurrenciasTodoElDia.value.filter((o) => o.fecha === fechaIso);
+}
+
+function bloquesDisponibleDia(fechaIso: string) {
+  return ocurrenciasConHorario.value
+    .filter((o) => o.fecha === fechaIso)
+    .map((o) => ({
+      id: o.id,
+      tipoRepeticion: o.tipoRepeticion,
+      rango: `${horaCorta(o.horaInicio)} - ${horaCorta(o.horaFin)}`,
+      top: topPx(horaADecimal(o.horaInicio)),
+      alto: Math.max((horaADecimal(o.horaFin) - horaADecimal(o.horaInicio)) * (FILA_PX + GAP_PX) - GAP_PX, 20),
+    }));
+}
+
+function excepcionesEnDia(fechaIso: string) {
+  return excepciones.value
+    .filter((e) => e.fecha === fechaIso)
+    .map((e) => ({
+      exc: e,
+      rango: `${horaCorta(e.horaInicio)} - ${horaCorta(e.horaFin)}`,
+      top: topPx(horaADecimal(e.horaInicio)),
+      alto: Math.max((horaADecimal(e.horaFin) - horaADecimal(e.horaInicio)) * (FILA_PX + GAP_PX) - GAP_PX, 20),
+    }));
+}
 
 const rangoSemanaTexto = computed(() => {
   const primero = fechasSemana.value[0];
@@ -212,50 +181,83 @@ function mesCorto(fecha: Date): string {
   return fecha.toLocaleDateString('es-PE', { month: 'short' }).replace('.', '');
 }
 
-// Modal "Agregar horario disponible" (recurrente, por día de semana).
+// Hora en la que arranca la grilla: 6am por defecto, pero se adelanta si hay una ocurrencia con
+// horario puntual (no "todo el día", que va en su propia franja) o una excepción "ocupado" que
+// empiecen antes de esa hora dentro de la semana visible.
+const horaInicioGrid = computed(() => {
+  let min = 6;
+  for (const o of ocurrenciasConHorario.value) {
+    min = Math.min(min, Math.floor(horaADecimal(o.horaInicio)));
+  }
+  for (const e of excepciones.value) {
+    if (fechasSemana.value.some((f) => fechaISO(f) === e.fecha)) min = Math.min(min, Math.floor(horaADecimal(e.horaInicio)));
+  }
+  return Math.max(min, 0);
+});
+
+const slots = computed(() => {
+  const lista: number[] = [];
+  for (let h = horaInicioGrid.value; h < 24; h++) lista.push(h);
+  return lista;
+});
+const alturaTotalPx = computed(() => slots.value.length * FILA_PX + (slots.value.length - 1) * GAP_PX + 2 * PADDING_PX);
+
+function topPx(horaDecimal: number): number {
+  return PADDING_PX + (horaDecimal - horaInicioGrid.value) * (FILA_PX + GAP_PX);
+}
+
+// Líneas horizontales de fondo, una por hora — la grilla ya no es clicleable, solo referencia
+// visual detrás de los rectángulos.
+const lineasHoraCss = `repeating-linear-gradient(180deg, #e2e8f0 0px, #e2e8f0 1px, transparent 1px, transparent ${FILA_PX + GAP_PX}px)`;
+
+// Modal "Agregar horario disponible" — única forma de agregar disponibilidad (pedido explícito
+// del usuario). Fecha exacta (con el día de semana mostrado como referencia) + repetición, en vez
+// de un día de semana suelto.
 const showAgregarDisponible = ref(false);
-const nuevoDia = ref(1);
+const nuevoTodoElDia = ref(false);
+const nuevaFecha = ref('');
 const nuevoDesde = ref('09:00');
 const nuevoHasta = ref('13:00');
+const nuevaRepeticion = ref<TipoRepeticion>('semanal');
 
 function abrirAgregarDisponible() {
-  nuevoDia.value = DIAS[0].valor;
+  nuevoTodoElDia.value = false;
+  nuevaFecha.value = fechaISO(fechasSemana.value[0]);
   nuevoDesde.value = '09:00';
   nuevoHasta.value = '13:00';
+  nuevaRepeticion.value = 'semanal';
   showAgregarDisponible.value = true;
 }
 
-// Fusiona intervalos en horas decimales SIN redondear a la cuadrícula de horas enteras (a
-// diferencia de comprimirEnBloques, pensada para el click-toggle) — así el modal respeta minutos
-// exactos, incluyendo bloques de menos de una hora (ej. 20:00-20:10).
-function fusionarIntervalos(dia: number, intervalos: { inicio: number; fin: number }[]): BloqueHorario[] {
-  const ordenados = [...intervalos].sort((a, b) => a.inicio - b.inicio);
-  const fusionados: { inicio: number; fin: number }[] = [];
-  for (const actual of ordenados) {
-    const ultimo = fusionados[fusionados.length - 1];
-    if (ultimo && actual.inicio <= ultimo.fin) {
-      ultimo.fin = Math.max(ultimo.fin, actual.fin);
-    } else {
-      fusionados.push({ ...actual });
-    }
-  }
-  return fusionados.map((f) => ({ diaSemana: dia, horaInicio: horaAString(f.inicio), horaFin: horaAString(f.fin) }));
-}
+const nuevaFechaDiaSemana = computed(() => {
+  if (!nuevaFecha.value) return '';
+  const [anio, mes, dia] = nuevaFecha.value.split('-').map(Number);
+  return new Date(anio, mes - 1, dia).toLocaleDateString('es-PE', { weekday: 'long' });
+});
 
 function confirmarAgregarDisponible() {
-  if (nuevoDesde.value >= nuevoHasta.value) {
+  if (!nuevaFecha.value) {
+    ui.toast('Elige una fecha', 'error');
+    return;
+  }
+  if (!nuevoTodoElDia.value && nuevoDesde.value >= nuevoHasta.value) {
     ui.toast('La hora de inicio debe ser antes que la hora de fin', 'error');
     return;
   }
-  const propios = bloques.value.filter((b) => b.diaSemana === nuevoDia.value);
-  const intervalos = propios.map((b) => ({ inicio: horaADecimal(b.horaInicio), fin: horaADecimal(b.horaFin) }));
-  intervalos.push({ inicio: horaADecimal(nuevoDesde.value), fin: horaADecimal(nuevoHasta.value) });
 
-  bloques.value = [...bloques.value.filter((b) => b.diaSemana !== nuevoDia.value), ...fusionarIntervalos(nuevoDia.value, intervalos)];
+  bloques.value = [...bloques.value, {
+    id: crypto.randomUUID(),
+    fechaInicio: nuevaFecha.value,
+    horaInicio: nuevoTodoElDia.value ? '00:00' : nuevoDesde.value,
+    horaFin: nuevoTodoElDia.value ? '23:59' : nuevoHasta.value,
+    todoElDia: nuevoTodoElDia.value,
+    tipoRepeticion: nuevaRepeticion.value,
+  }];
   showAgregarDisponible.value = false;
 }
 
-// Modal "Marcar como ocupado" (puntual, por fecha real).
+// Modal "Marcar como ocupado" (puntual, por fecha real) — sin cambios respecto al comportamiento
+// anterior, ya era por fecha exacta.
 const showMarcarOcupado = ref(false);
 const ocupadoFecha = ref('');
 const ocupadoDesde = ref('09:00');
@@ -283,23 +285,25 @@ function confirmarMarcarOcupado() {
 
 async function guardar() {
   await Promise.all([
-    actualizarHorario.mutateAsync({ docenteId: docenteId.value, horario: bloques.value }),
+    actualizarHorario.mutateAsync({
+      docenteId: docenteId.value,
+      horario: bloques.value.map(({ fechaInicio, horaInicio, horaFin, todoElDia, tipoRepeticion }) => ({ fechaInicio, horaInicio, horaFin, todoElDia, tipoRepeticion })),
+    }),
     actualizarExcepciones.mutateAsync({ docenteId: docenteId.value, excepciones: excepciones.value }),
   ]);
   ui.toast('Horario actualizado');
 }
 
-// Arranca el scroll de la grilla mostrando desde las 6am, en vez de medianoche. Se calcula desde
-// la posición real del elemento (offsetTop) en vez de estimarla a mano, para que no se desalinee
-// si cambian el padding/gap de la grilla. Ligado a `isLoading` (no a onMounted a secas) porque la
-// grilla recién existe en el DOM cuando termina de cargar — antes de eso `v-if="isLoading"` la
-// oculta por completo.
+// Arranca el scroll de la grilla mostrando desde las 6am, en vez de medianoche.
+// getBoundingClientRect en vez de offsetTop/offsetParent: la columna de horas es
+// `position:relative` (para ubicar los rectángulos encima con `position:absolute`), lo que rompe
+// la cadena de offsetParent.
 const scrollRef = ref<HTMLElement | null>(null);
 function irA6am() {
-  const filaSeisAm = scrollRef.value?.querySelector<HTMLElement>('[data-slot="6"]');
-  // offsetTop no es relativo a scrollRef (no tiene position:relative) sino al offsetParent común
-  // más cercano — se restan ambos offsets para obtener la posición real dentro del contenedor.
-  if (scrollRef.value && filaSeisAm) scrollRef.value.scrollTop = filaSeisAm.offsetTop - scrollRef.value.offsetTop;
+  const cont = scrollRef.value;
+  const filaSeisAm = cont?.querySelector<HTMLElement>('[data-slot="6"]');
+  if (!cont || !filaSeisAm) return;
+  cont.scrollTop += filaSeisAm.getBoundingClientRect().top - cont.getBoundingClientRect().top;
 }
 watch(isLoading, async (cargando) => {
   if (cargando) return;
@@ -340,7 +344,7 @@ watch(isLoading, async (cargando) => {
           <FontAwesomeIcon :icon="faCalendarDays" class="w-3.5 h-3.5 text-muted" />
           {{ rangoSemanaTexto }}
         </p>
-        <p class="text-[11px] text-muted mt-0.5">Este horario se repite todas las semanas</p>
+        <p class="text-[11px] text-muted mt-0.5">Las reglas que agregues se repiten según lo que elijas</p>
       </div>
       <button
         @click="semanaOffset++"
@@ -383,40 +387,70 @@ watch(isLoading, async (cargando) => {
             </div>
           </div>
 
+          <div class="grid gap-1 px-1 pb-1" style="grid-template-columns: 64px repeat(7, 1fr)">
+            <div class="flex items-start justify-end pr-2 pt-1 text-[10px] text-gray-400">Todo el día</div>
+            <div v-for="(dia, i) in DIAS" :key="`tdia-${dia.valor}`" class="flex flex-col gap-1 bg-white rounded-md p-1 min-h-[30px]">
+              <button
+                v-for="o in todoElDiaEnDia(fechaISO(fechasSemana[i]))"
+                :key="`tdia-${o.id}-${o.fecha}`"
+                @click="quitarBloque(o.id)"
+                type="button"
+                :title="`Disponible todo el día · ${REPETICION_LABELS[o.tipoRepeticion]} · clic para quitar esta regla`"
+                class="w-full rounded-md bg-brand-500 hover:bg-brand-600 transition-colors duration-75 text-[10px] font-semibold text-white py-1 px-1.5 truncate text-left"
+              >
+                Todo el día
+              </button>
+            </div>
+          </div>
+
           <div ref="scrollRef" class="overflow-y-auto" :style="{ maxHeight: `${ALTO_VISIBLE_PX}px` }">
-            <div class="grid gap-1 p-1" style="grid-template-columns: 64px repeat(7, 1fr)">
-              <template v-for="slot in slots" :key="slot">
-                <div :data-slot="slot" class="text-[10px] text-gray-400 text-right pr-2 flex items-center justify-end" :style="{ height: `${FILA_PX}px` }">
+            <div class="grid p-1 divide-x divide-gray-200" style="grid-template-columns: 64px repeat(7, 1fr)">
+              <div
+                class="relative"
+                :style="{ height: `${alturaTotalPx}px`, backgroundImage: lineasHoraCss, backgroundPosition: `0 ${PADDING_PX}px` }"
+              >
+                <div
+                  v-for="slot in slots"
+                  :key="slot"
+                  :data-slot="slot"
+                  class="absolute left-0 right-0 text-[10px] text-gray-400 text-right pr-2 flex items-center justify-end"
+                  :style="{ top: `${topPx(slot)}px`, height: `${FILA_PX}px` }"
+                >
                   {{ horaLabel(slot) }}
                 </div>
-                <template v-for="(dia, i) in DIAS" :key="`${dia.valor}-${slot}`">
-                  <button
-                    v-if="excepcionEn(fechaISO(fechasSemana[i]), slot)"
-                    @click="quitarExcepcion(excepcionEn(fechaISO(fechasSemana[i]), slot)!)"
-                    type="button"
-                    title="Ocupado — clic para quitar esta excepción"
-                    class="rounded bg-gray-300 hover:bg-gray-400 transition-colors duration-75 flex items-center justify-center"
-                    :style="{ height: `${FILA_PX}px` }"
-                  >
-                    <FontAwesomeIcon :icon="faLock" class="w-2.5 h-2.5 text-white" />
-                  </button>
-                  <button
-                    v-else
-                    @click="toggleSlot(dia.valor, slot)"
-                    type="button"
-                    class="rounded transition-colors duration-75 flex items-center justify-center overflow-hidden px-0.5"
-                    :class="estaDisponible(dia.valor, slot) ? 'bg-brand-500 hover:bg-brand-600' : 'bg-white hover:bg-brand-50 border border-gray-100'"
-                    :style="{ height: `${FILA_PX}px` }"
-                  >
-                    <span
-                      v-if="bloqueQueEmpiezaEn(dia.valor, slot)"
-                      class="text-[9px] font-semibold text-white leading-none truncate"
-                    >
-                      {{ horaAmPm(bloqueQueEmpiezaEn(dia.valor, slot)!.horaInicio) }}-{{ horaAmPm(bloqueQueEmpiezaEn(dia.valor, slot)!.horaFin) }}
-                    </span>
-                  </button>
-                </template>
-              </template>
+              </div>
+
+              <div
+                v-for="(dia, i) in DIAS"
+                :key="dia.valor"
+                class="relative bg-white"
+                :style="{ height: `${alturaTotalPx}px`, backgroundImage: lineasHoraCss, backgroundPosition: `0 ${PADDING_PX}px` }"
+              >
+                <button
+                  v-for="b in bloquesDisponibleDia(fechaISO(fechasSemana[i]))"
+                  :key="`disp-${b.id}`"
+                  @click="quitarBloque(b.id)"
+                  type="button"
+                  :title="`${b.rango} · ${REPETICION_LABELS[b.tipoRepeticion]} · clic para quitar`"
+                  class="absolute left-0.5 right-0.5 rounded-md bg-brand-500 hover:bg-brand-600 transition-colors duration-75 flex items-center justify-center overflow-hidden px-0.5"
+                  :style="{ top: `${b.top}px`, height: `${b.alto}px` }"
+                >
+                  <span class="text-[9px] font-semibold text-white leading-none truncate">{{ b.rango }}</span>
+                </button>
+
+                <button
+                  v-for="e in excepcionesEnDia(fechaISO(fechasSemana[i]))"
+                  :key="`exc-${e.exc.fecha}-${e.exc.horaInicio}`"
+                  @click="quitarExcepcion(e.exc)"
+                  type="button"
+                  title="Ocupado — clic para quitar esta excepción"
+                  class="absolute left-0.5 right-0.5 rounded-md bg-gray-300 hover:bg-gray-400 transition-colors duration-75 flex items-center justify-center gap-1 overflow-hidden px-0.5"
+                  :style="{ top: `${e.top}px`, height: `${e.alto}px` }"
+                >
+                  <FontAwesomeIcon :icon="faLock" class="w-2.5 h-2.5 text-white shrink-0" />
+                  <span class="text-[9px] font-semibold text-white leading-none truncate">{{ e.rango }}</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -424,9 +458,8 @@ watch(isLoading, async (cargando) => {
 
       <div class="flex flex-wrap items-center gap-4 px-4 py-3 border-t border-gray-100 text-[11px] text-muted">
         <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-brand-500" /> Disponible</span>
-        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded border border-gray-300 bg-white" /> Sin marcar (no disponible)</span>
         <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-gray-300 flex items-center justify-center"><FontAwesomeIcon :icon="faLock" class="w-1.5 h-1.5 text-white" /></span> Ocupado</span>
-        <span class="hidden sm:inline text-gray-300">· Haz clic en una casilla para marcarla o desmarcarla.</span>
+        <span class="hidden sm:inline text-gray-300">· Clic en un bloque para quitarlo.</span>
       </div>
     </div>
   </PageShell>
@@ -441,12 +474,16 @@ watch(isLoading, async (cargando) => {
           </button>
         </div>
 
-        <label class="block text-xs font-medium text-heading mb-1.5">Día de la semana</label>
-        <select v-model.number="nuevoDia" class="w-full mb-4 px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300">
-          <option v-for="dia in DIAS" :key="dia.valor" :value="dia.valor">{{ dia.corta }}</option>
-        </select>
+        <label class="flex items-center gap-2 mb-4 cursor-pointer select-none">
+          <input v-model="nuevoTodoElDia" type="checkbox" class="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-2 focus:ring-brand-300" />
+          <span class="text-sm font-medium text-heading">Todo el día</span>
+        </label>
 
-        <div class="flex items-center gap-3 mb-5">
+        <label class="block text-xs font-medium text-heading mb-1.5">Fecha</label>
+        <input v-model="nuevaFecha" type="date" class="w-full mb-1 px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" />
+        <p v-if="nuevaFechaDiaSemana" class="text-[11px] text-muted mb-4 capitalize">{{ nuevaFechaDiaSemana }}</p>
+
+        <div v-if="!nuevoTodoElDia" class="flex items-center gap-3 mb-4">
           <div class="flex-1">
             <label class="block text-xs font-medium text-heading mb-1.5">Desde</label>
             <input v-model="nuevoDesde" type="time" class="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" />
@@ -456,6 +493,11 @@ watch(isLoading, async (cargando) => {
             <input v-model="nuevoHasta" type="time" class="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" />
           </div>
         </div>
+
+        <label class="block text-xs font-medium text-heading mb-1.5">Repetir</label>
+        <select v-model="nuevaRepeticion" class="w-full mb-5 px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300">
+          <option v-for="(label, valor) in REPETICION_LABELS" :key="valor" :value="valor">{{ label }}</option>
+        </select>
 
         <button @click="confirmarAgregarDisponible" type="button" class="w-full py-2.5 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 transition-colors">
           Agregar
@@ -473,7 +515,7 @@ watch(isLoading, async (cargando) => {
             <FontAwesomeIcon :icon="faXmark" />
           </button>
         </div>
-        <p class="text-xs text-muted mb-4">Marca una fecha puntual en la que no podrás atender, aunque normalmente sí estés disponible ese día de la semana.</p>
+        <p class="text-xs text-muted mb-4">Marca una fecha puntual en la que no podrás atender, aunque normalmente sí estés disponible ese día.</p>
 
         <label class="block text-xs font-medium text-heading mb-1.5">Fecha</label>
         <input v-model="ocupadoFecha" type="date" class="w-full mb-4 px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" />
