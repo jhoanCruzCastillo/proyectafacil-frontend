@@ -30,10 +30,10 @@ const asignadosADocente = computed(() => (tickets.value ?? []).filter((t) => t.e
 const agendados = computed(() => (tickets.value ?? []).filter((t) => t.estado === 'agendado').length);
 
 const kpis = computed(() => [
-  { key: 'pendientes', icon: faClock, label: 'Pendientes', valor: dashboard.value?.pendientes ?? '—', caption: 'Requieren atención', iconBg: 'bg-amber-100', iconColor: 'text-amber-600' },
-  { key: 'asignados', icon: faUserCheck, label: 'Esperando aceptación docente', valor: asignadosADocente.value, caption: 'Asignados a docentes', iconBg: 'bg-blue-100', iconColor: 'text-blue-600' },
-  { key: 'agendado', icon: faCalendarCheck, label: 'Agendado', valor: agendados.value, caption: 'Con horario confirmado', iconBg: 'bg-indigo-100', iconColor: 'text-indigo-600' },
-  { key: 'completados', icon: faCircleCheck, label: 'Completados hoy', valor: dashboard.value?.completadosHoy ?? '—', caption: 'Consultas finalizadas', iconBg: 'bg-emerald-100', iconColor: 'text-emerald-600' },
+  { key: 'pendientes', icon: faClock, label: 'Pendientes', valor: dashboard.value?.pendientes ?? '—', caption: 'Requieren atención', iconBg: 'bg-amber-100', iconColor: 'text-amber-600', destacado: false },
+  { key: 'asignados', icon: faUserCheck, label: 'Esperando aceptación docente', valor: asignadosADocente.value, caption: 'Asignados a docentes', iconBg: 'bg-blue-100', iconColor: 'text-blue-600', destacado: false },
+  { key: 'agendado', icon: faCalendarCheck, label: 'Agendado', valor: agendados.value, caption: 'Con horario confirmado', iconBg: 'bg-indigo-100', iconColor: 'text-indigo-600', destacado: false },
+  { key: 'completados', icon: faCircleCheck, label: 'Completados hoy', valor: dashboard.value?.completadosHoy ?? '—', caption: 'Consultas finalizadas', iconBg: 'bg-emerald-100', iconColor: 'text-emerald-600', destacado: false },
 ]);
 
 const tabActiva = ref<Tab>('todos');
