@@ -1,8 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faCalendarWeek, faCalendarDays, faCalendarXmark, faChevronLeft, faChevronRight, faSave, faPlus, faLock, faXmark } from '@/lib/icons';
+import {
+  faCalendarWeek, faCalendarDays, faCalendarXmark, faChevronLeft, faChevronRight, faSave, faPlus,
+  faLock, faXmark, faVideo, faLightbulb, faEllipsisVertical, faTrash,
+} from '@/lib/icons';
 import PageShell from '@/components/PageShell.vue';
+import ConfirmModal from '@/components/ConfirmModal.vue';
 import { useSessionStore } from '@/stores/session';
 import {
   useDocentesQuery, useActualizarHorarioDocente,
@@ -110,6 +114,33 @@ function quitarExcepcion(exc: BloqueExcepcion) {
   excepciones.value = excepciones.value.filter((e) => e !== exc);
 }
 
+// Pedido explícito del usuario: ya no se elimina con un solo clic sobre el bloque — hace falta
+// abrir el menú de tres puntos, elegir "Eliminar" y confirmar en la ventana de confirmación.
+const menuAbierto = ref<string | null>(null);
+function toggleMenu(clave: string) {
+  menuAbierto.value = menuAbierto.value === clave ? null : clave;
+}
+
+const confirmarEliminar = ref<{ tipo: 'bloque' | 'excepcion'; bloqueId?: string; excepcion?: BloqueExcepcion; mensaje: string } | null>(null);
+
+function pedirEliminarBloque(id: string, mensaje: string) {
+  menuAbierto.value = null;
+  confirmarEliminar.value = { tipo: 'bloque', bloqueId: id, mensaje };
+}
+function pedirEliminarExcepcion(exc: BloqueExcepcion, mensaje: string) {
+  menuAbierto.value = null;
+  confirmarEliminar.value = { tipo: 'excepcion', excepcion: exc, mensaje };
+}
+function confirmarEliminarAhora() {
+  if (!confirmarEliminar.value) return;
+  if (confirmarEliminar.value.tipo === 'bloque' && confirmarEliminar.value.bloqueId) {
+    quitarBloque(confirmarEliminar.value.bloqueId);
+  } else if (confirmarEliminar.value.tipo === 'excepcion' && confirmarEliminar.value.excepcion) {
+    quitarExcepcion(confirmarEliminar.value.excepcion);
+  }
+  confirmarEliminar.value = null;
+}
+
 // Navegación de semana — solo de orientación para ver dónde caen las ocurrencias; lo que se
 // guarda son las reglas (fecha ancla + repetición), no una semana puntual.
 const semanaOffset = ref(0);
@@ -151,7 +182,7 @@ function bloquesDisponibleDia(fechaIso: string) {
       tipoRepeticion: o.tipoRepeticion,
       rango: `${horaCorta(o.horaInicio)} - ${horaCorta(o.horaFin)}`,
       top: topPx(horaADecimal(o.horaInicio)),
-      alto: Math.max((horaADecimal(o.horaFin) - horaADecimal(o.horaInicio)) * (FILA_PX + GAP_PX) - GAP_PX, 20),
+      alto: Math.max((horaADecimal(o.horaFin) - horaADecimal(o.horaInicio)) * (FILA_PX + GAP_PX) - GAP_PX, 36),
     }));
 }
 
@@ -162,7 +193,7 @@ function excepcionesEnDia(fechaIso: string) {
       exc: e,
       rango: `${horaCorta(e.horaInicio)} - ${horaCorta(e.horaFin)}`,
       top: topPx(horaADecimal(e.horaInicio)),
-      alto: Math.max((horaADecimal(e.horaFin) - horaADecimal(e.horaInicio)) * (FILA_PX + GAP_PX) - GAP_PX, 20),
+      alto: Math.max((horaADecimal(e.horaFin) - horaADecimal(e.horaInicio)) * (FILA_PX + GAP_PX) - GAP_PX, 36),
     }));
 }
 
@@ -390,16 +421,35 @@ watch(isLoading, async (cargando) => {
           <div class="grid gap-1 px-1 pb-1" style="grid-template-columns: 64px repeat(7, 1fr)">
             <div class="flex items-start justify-end pr-2 pt-1 text-[10px] text-gray-400">Todo el día</div>
             <div v-for="(dia, i) in DIAS" :key="`tdia-${dia.valor}`" class="flex flex-col gap-1 bg-white rounded-md p-1 min-h-[30px]">
-              <button
+              <div
                 v-for="o in todoElDiaEnDia(fechaISO(fechasSemana[i]))"
                 :key="`tdia-${o.id}-${o.fecha}`"
-                @click="quitarBloque(o.id)"
-                type="button"
-                :title="`Disponible todo el día · ${REPETICION_LABELS[o.tipoRepeticion]} · clic para quitar esta regla`"
-                class="w-full rounded-md bg-brand-500 hover:bg-brand-600 transition-colors duration-75 text-[10px] font-semibold text-white py-1 px-1.5 truncate text-left"
+                :title="`Disponible todo el día · ${REPETICION_LABELS[o.tipoRepeticion]}`"
+                class="relative w-full rounded-md bg-green-500 text-[10px] font-bold text-white py-1.5 pl-2 pr-1 uppercase tracking-wide flex items-center justify-between gap-1"
               >
-                Todo el día
-              </button>
+                <span class="truncate">Todo el día</span>
+                <button
+                  @click.stop="toggleMenu(`tdia-${o.id}`)"
+                  type="button"
+                  class="shrink-0 w-4 h-4 rounded hover:bg-black/15 flex items-center justify-center"
+                >
+                  <FontAwesomeIcon :icon="faEllipsisVertical" class="w-2.5 h-2.5" />
+                </button>
+                <div
+                  v-if="menuAbierto === `tdia-${o.id}`"
+                  class="absolute top-full right-0 mt-1 z-20 bg-white rounded-lg shadow-modal border border-gray-200 py-1 w-32 normal-case tracking-normal font-normal"
+                  @click.stop
+                >
+                  <button
+                    @click="pedirEliminarBloque(o.id, `¿Eliminar la regla “Disponible todo el día” (${REPETICION_LABELS[o.tipoRepeticion]})? Esta acción no se puede deshacer.`)"
+                    type="button"
+                    class="w-full text-left px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 flex items-center gap-1.5"
+                  >
+                    <FontAwesomeIcon :icon="faTrash" class="w-2.5 h-2.5" />
+                    Eliminar
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -426,40 +476,86 @@ watch(isLoading, async (cargando) => {
                 class="relative bg-white"
                 :style="{ height: `${alturaTotalPx}px`, backgroundImage: lineasHoraCss, backgroundPosition: `0 ${PADDING_PX}px` }"
               >
-                <button
+                <div
                   v-for="b in bloquesDisponibleDia(fechaISO(fechasSemana[i]))"
                   :key="`disp-${b.id}`"
-                  @click="quitarBloque(b.id)"
-                  type="button"
-                  :title="`${b.rango} · ${REPETICION_LABELS[b.tipoRepeticion]} · clic para quitar`"
-                  class="absolute left-0.5 right-0.5 rounded-md bg-brand-500 hover:bg-brand-600 transition-colors duration-75 flex items-center justify-center overflow-hidden px-0.5"
+                  :title="`${b.rango} · ${REPETICION_LABELS[b.tipoRepeticion]}`"
+                  class="absolute left-0.5 right-0.5 rounded-md bg-green-50 border-l-[3px] border-green-500 flex flex-col justify-center overflow-visible px-1.5 py-0.5 text-left"
                   :style="{ top: `${b.top}px`, height: `${b.alto}px` }"
                 >
-                  <span class="text-[9px] font-semibold text-white leading-none truncate">{{ b.rango }}</span>
-                </button>
+                  <button
+                    @click.stop="toggleMenu(`disp-${b.id}`)"
+                    type="button"
+                    class="absolute top-0 right-0 w-3.5 h-3.5 rounded hover:bg-black/10 flex items-center justify-center text-gray-500"
+                  >
+                    <FontAwesomeIcon :icon="faEllipsisVertical" class="w-2 h-2" />
+                  </button>
+                  <div
+                    v-if="menuAbierto === `disp-${b.id}`"
+                    class="absolute top-4 right-0 z-20 bg-white rounded-lg shadow-modal border border-gray-200 py-1 w-28"
+                    @click.stop
+                  >
+                    <button
+                      @click="pedirEliminarBloque(b.id, `¿Eliminar el bloque disponible ${b.rango} (${REPETICION_LABELS[b.tipoRepeticion]})? Esta acción no se puede deshacer.`)"
+                      type="button"
+                      class="w-full text-left px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 flex items-center gap-1.5"
+                    >
+                      <FontAwesomeIcon :icon="faTrash" class="w-2.5 h-2.5" />
+                      Eliminar
+                    </button>
+                  </div>
+                  <span class="text-[10px] font-semibold text-heading leading-tight truncate pr-3">{{ b.rango }}</span>
+                  <span class="flex items-center gap-1 text-[9px] font-medium text-green-600 leading-tight truncate">
+                    <FontAwesomeIcon :icon="faVideo" class="w-2 h-2 shrink-0" />
+                    Disponible
+                  </span>
+                </div>
 
-                <button
+                <div
                   v-for="e in excepcionesEnDia(fechaISO(fechasSemana[i]))"
                   :key="`exc-${e.exc.fecha}-${e.exc.horaInicio}`"
-                  @click="quitarExcepcion(e.exc)"
-                  type="button"
-                  title="Ocupado — clic para quitar esta excepción"
-                  class="absolute left-0.5 right-0.5 rounded-md bg-gray-300 hover:bg-gray-400 transition-colors duration-75 flex items-center justify-center gap-1 overflow-hidden px-0.5"
+                  title="Ocupado"
+                  class="absolute left-0.5 right-0.5 rounded-md bg-gray-100 border-l-[3px] border-gray-400 flex flex-col justify-center overflow-visible px-1.5 py-0.5 text-left"
                   :style="{ top: `${e.top}px`, height: `${e.alto}px` }"
                 >
-                  <FontAwesomeIcon :icon="faLock" class="w-2.5 h-2.5 text-white shrink-0" />
-                  <span class="text-[9px] font-semibold text-white leading-none truncate">{{ e.rango }}</span>
-                </button>
+                  <button
+                    @click.stop="toggleMenu(`exc-${e.exc.fecha}-${e.exc.horaInicio}`)"
+                    type="button"
+                    class="absolute top-0 right-0 w-3.5 h-3.5 rounded hover:bg-black/10 flex items-center justify-center text-gray-500"
+                  >
+                    <FontAwesomeIcon :icon="faEllipsisVertical" class="w-2 h-2" />
+                  </button>
+                  <div
+                    v-if="menuAbierto === `exc-${e.exc.fecha}-${e.exc.horaInicio}`"
+                    class="absolute top-4 right-0 z-20 bg-white rounded-lg shadow-modal border border-gray-200 py-1 w-28"
+                    @click.stop
+                  >
+                    <button
+                      @click="pedirEliminarExcepcion(e.exc, `¿Eliminar la excepción “Ocupado” del ${e.exc.fecha} (${e.rango})? Esta acción no se puede deshacer.`)"
+                      type="button"
+                      class="w-full text-left px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 flex items-center gap-1.5"
+                    >
+                      <FontAwesomeIcon :icon="faTrash" class="w-2.5 h-2.5" />
+                      Eliminar
+                    </button>
+                  </div>
+                  <span class="text-[10px] font-semibold text-heading leading-tight truncate pr-3">{{ e.rango }}</span>
+                  <span class="flex items-center gap-1 text-[9px] font-medium text-gray-500 leading-tight truncate">
+                    <FontAwesomeIcon :icon="faLock" class="w-2 h-2 shrink-0" />
+                    Ocupado
+                  </span>
+                </div>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      <div class="flex flex-wrap items-center gap-4 px-4 py-3 border-t border-gray-100 text-[11px] text-muted">
-        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-brand-500" /> Disponible</span>
-        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-gray-300 flex items-center justify-center"><FontAwesomeIcon :icon="faLock" class="w-1.5 h-1.5 text-white" /></span> Ocupado</span>
-        <span class="hidden sm:inline text-gray-300">· Clic en un bloque para quitarlo.</span>
+      <div class="flex items-center gap-2.5 px-4 py-3 border-t border-gray-100 bg-blue-50 text-[11px] text-blue-800">
+        <FontAwesomeIcon :icon="faLightbulb" class="w-3.5 h-3.5 text-blue-500 shrink-0" />
+        <span>
+          <span class="font-semibold">Consejo:</span> usa el menú de tres puntos de cada bloque para eliminarlo — para agregar disponibilidad u ocupado, usa los botones de arriba.
+        </span>
       </div>
     </div>
   </PageShell>
@@ -538,6 +634,15 @@ watch(isLoading, async (cargando) => {
       </div>
     </div>
   </Transition>
+
+  <ConfirmModal
+    :is-open="!!confirmarEliminar"
+    title="¿Eliminar este horario?"
+    :message="confirmarEliminar?.mensaje ?? ''"
+    confirm-label="Sí, eliminar"
+    @confirm="confirmarEliminarAhora"
+    @close="confirmarEliminar = null"
+  />
 </template>
 
 <style scoped>

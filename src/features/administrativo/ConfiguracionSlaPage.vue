@@ -4,11 +4,13 @@ import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faClock, faCheck, faTriangleExclamation } from '@/lib/icons';
 import PageShell from '@/components/PageShell.vue';
 import { useConfiguracionSlaQuery, useActualizarConfiguracionSla } from '@/composables/useConfiguracionSla';
+import { usePushActividad } from '@/composables/useActividad';
 import { useUiStore } from '@/stores/ui';
 
 const ui = useUiStore();
 const { data: config, isLoading } = useConfiguracionSlaQuery();
 const actualizar = useActualizarConfiguracionSla();
+const pushActividad = usePushActividad();
 
 const tiempoEsperaChatHoras = ref(24);
 const tiempoAceptacionVideoMinutos = ref(20);
@@ -43,6 +45,7 @@ async function guardar() {
       vigenciaHorarioDias: vigenciaHorarioDias.value,
       cancelacionLimiteMinutos: cancelacionSinLimite.value ? null : cancelacionLimiteMinutos.value,
     });
+    await pushActividad.mutateAsync({ mensaje: 'Actualizó configuración de SLA', color: 'orange', categoria: 'Configuración' });
     ui.toast('Configuración de SLA guardada');
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'No se pudo guardar la configuración.';

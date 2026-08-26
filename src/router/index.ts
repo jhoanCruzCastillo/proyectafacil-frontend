@@ -15,6 +15,17 @@ const router = createRouter({
       component: () => import('@/features/auth/LoginPage.vue'),
     },
     {
+      path: '/registro',
+      name: 'registro',
+      component: () => import('@/features/auth/RegistroPage.vue'),
+    },
+    {
+      path: '/verificar-correo/:token',
+      name: 'verificar-correo',
+      component: () => import('@/features/auth/VerificarCorreoPage.vue'),
+      props: true,
+    },
+    {
       path: '/',
       component: () => import('@/layouts/MainLayout.vue'),
       meta: { requiresAuth: true },
@@ -126,6 +137,12 @@ const router = createRouter({
           meta: { soloCliente: true },
         },
         {
+          path: 'elegir-plan',
+          name: 'elegir-plan',
+          component: () => import('@/features/cliente/ElegirPlanPage.vue'),
+          meta: { soloCliente: true },
+        },
+        {
           path: 'mis-fichas/:ejemploId',
           name: 'mis-ficha-editar',
           component: () => import('@/features/cliente/ClienteFichaEditPage.vue'),
@@ -220,6 +237,12 @@ router.beforeEach((to) => {
   if (to.meta.requiresAuth && !session.sesion) {
     return { name: 'login' };
   }
+  // Cliente sin ningún plan asignado (recién registrado, todavía sin comprar) — pedido explícito
+  // del usuario: no debe ver nada más que la pantalla de elegir plan, sin importar a dónde intentó
+  // navegar. Va ANTES que cualquier otro redirect (home→formatos incluido) para que nunca se cuele.
+  if (session.sesion?.rol === 'cliente' && session.sesion.tienePlan === false && to.name !== 'elegir-plan') {
+    return { name: 'elegir-plan' };
+  }
   // El home genérico no aplica a cliente — su "inicio" es Formatos (primer ítem del sidebar,
   // ver Sidebar.vue), para que la URL activa coincida con el ítem resaltado en la navegación.
   if (to.name === 'home' && session.sesion?.rol === 'cliente') {
@@ -252,7 +275,7 @@ router.beforeEach((to) => {
   ) {
     return { name: 'home' };
   }
-  if (to.name === 'login' && session.sesion) {
+  if ((to.name === 'login' || to.name === 'registro') && session.sesion) {
     return { name: 'home' };
   }
   return true;

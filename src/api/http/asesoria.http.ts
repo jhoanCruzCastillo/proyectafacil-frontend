@@ -49,10 +49,21 @@ export const asesoriaHttp: AsesoriaApi = {
     return apiFetch<MensajeAsesoria[]>(`asesoria/solicitudes/${solicitudId}/mensajes`);
   },
 
-  enviarMensaje(solicitudId, autorId, texto) {
+  enviarMensaje(solicitudId, autorId, texto, adjunto) {
     return apiFetch<MensajeAsesoria[]>(`asesoria/solicitudes/${solicitudId}/mensajes`, {
       method: 'POST',
-      body: JSON.stringify({ autorId, texto }),
+      body: JSON.stringify({
+        autorId,
+        texto,
+        ...(adjunto ? { adjuntoUrl: adjunto.url, adjuntoNombre: adjunto.nombre, adjuntoTipo: adjunto.tipo } : {}),
+      }),
+    });
+  },
+
+  subirAdjunto(dataUrl, nombre, tipo) {
+    return apiFetch<{ url: string }>('asesoria/adjuntos', {
+      method: 'POST',
+      body: JSON.stringify({ dataUrl, nombre, tipo }),
     });
   },
 };

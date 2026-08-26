@@ -18,3 +18,12 @@ export function useActualizarFacturacion() {
     onSuccess: (_data, { usuarioId }) => queryClient.invalidateQueries({ queryKey: ['facturacion', usuarioId] }),
   });
 }
+
+// KPI de "Usuarios y permisos" — cuántas membresías activas hay por nivel de plan, entre TODOS
+// los clientes (no una cuenta puntual).
+export function useResumenNivelesQuery() {
+  return useQuery({
+    queryKey: ['facturacion', 'resumen-niveles'],
+    queryFn: () => facturacionApi.resumenNiveles(),
+  });
+}

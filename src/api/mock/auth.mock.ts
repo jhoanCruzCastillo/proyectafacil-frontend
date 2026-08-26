@@ -27,6 +27,7 @@ export const authMock: AuthApi = {
       usuario: u.usuario,
       rol: u.rol,
       iniciadaEn: new Date().toISOString(),
+      tienePlan: true,
     };
     writeLocal(SESION_KEY, sesion);
     return sesion;
@@ -38,5 +39,15 @@ export const authMock: AuthApi = {
 
   async logout() {
     localStorage.removeItem(SESION_KEY);
+  },
+
+  // Mock mínimo — este modo (VITE_MOCK_AUTH=true) no se usa en el entorno real de este proyecto,
+  // pero debe cumplir el contrato para que el resto del código compile igual con cualquier switch.
+  async registro() {
+    await delay(200);
+  },
+
+  async verificarCorreo() {
+    await delay(200);
   },
 };

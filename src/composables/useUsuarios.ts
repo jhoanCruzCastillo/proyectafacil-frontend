@@ -32,3 +32,16 @@ export function useEliminarUsuario() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['usuarios'] }),
   });
 }
+
+export function useEnviarAccesos() {
+  return useMutation({
+    mutationFn: (id: string) => usuariosApi.enviarAccesos(id),
+  });
+}
+
+export function useEnviarAccesosDirecto() {
+  return useMutation({
+    mutationFn: ({ id, password }: { id: string; password: string }) =>
+      usuariosApi.enviarAccesosDirecto(id, password),
+  });
+}

@@ -102,8 +102,26 @@ export function useMensajesQuery(solicitudId: MaybeRefOrGetter<string | null>) {
 export function useEnviarMensaje() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ solicitudId, autorId, texto }: { solicitudId: string; autorId: string; texto: string }) =>
-      asesoriaHttp.enviarMensaje(solicitudId, autorId, texto),
+    mutationFn: ({
+      solicitudId,
+      autorId,
+      texto,
+      adjunto,
+    }: {
+      solicitudId: string;
+      autorId: string;
+      texto: string;
+      adjunto?: { url: string; nombre: string; tipo: string };
+    }) => asesoriaHttp.enviarMensaje(solicitudId, autorId, texto, adjunto),
     onSuccess: (_data, vars) => queryClient.invalidateQueries({ queryKey: ['asesoria', 'mensajes', vars.solicitudId] }),
+  });
+}
+
+// Sube el archivo a Cloudinary — un paso previo y separado de useEnviarMensaje() para poder
+// mostrar progreso de subida antes de que el mensaje exista.
+export function useSubirAdjuntoChat() {
+  return useMutation({
+    mutationFn: ({ dataUrl, nombre, tipo }: { dataUrl: string; nombre: string; tipo: string }) =>
+      asesoriaHttp.subirAdjunto(dataUrl, nombre, tipo),
   });
 }

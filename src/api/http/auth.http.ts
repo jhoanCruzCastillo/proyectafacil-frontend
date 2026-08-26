@@ -1,5 +1,5 @@
 import { apiFetch } from './_shared';
-import type { AuthApi } from '../contracts/auth';
+import type { AuthApi, DatosRegistro } from '../contracts/auth';
 import type { LoginResponse, Sesion } from '@/types';
 import { clearAuthToken, getAuthToken, setAuthToken } from '@/lib/authToken';
 
@@ -30,5 +30,16 @@ export const authHttp: AuthApi = {
     } finally {
       clearAuthToken();
     }
+  },
+
+  async registro(datos: DatosRegistro) {
+    await apiFetch<{ registrado: boolean }>('auth/registro', {
+      method: 'POST',
+      body: JSON.stringify(datos),
+    });
+  },
+
+  async verificarCorreo(token: string) {
+    await apiFetch<{ verificado: boolean }>(`auth/verificar/${encodeURIComponent(token)}`);
   },
 };

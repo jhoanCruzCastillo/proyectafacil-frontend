@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { RouterLink, useRouter } from 'vue-router';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faUser, faLock, faEye, faEyeSlash, faRightToBracket, faCircleExclamation, faListCheck } from '@/lib/icons';
 import { useSessionStore } from '@/stores/session';
@@ -165,6 +165,10 @@ async function handleSubmit() {
           <FontAwesomeIcon :icon="faRightToBracket" class="w-3.5 h-3.5" />
           Iniciar sesión
         </button>
+
+        <p class="text-sm text-center text-muted mt-4">
+          ¿No tienes una cuenta? <RouterLink :to="{ name: 'registro' }" class="font-medium text-brand-600 hover:text-brand-700">Regístrate</RouterLink>
+        </p>
 
         <p class="text-[11px] text-muted text-center mt-6">
           Acceso para superusuarios, administradores, asesores y clientes autorizados.
