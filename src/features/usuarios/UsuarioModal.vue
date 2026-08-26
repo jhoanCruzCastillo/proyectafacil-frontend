@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faXmark, faCheck, faUserGear, faUser, faEnvelope } from '@/lib/icons';
+import { faXmark, faCheck, faUserGear, faUser, faEnvelope, rolUsuarioLabels } from '@/lib/icons';
 import { rolesGestionablesPor } from '@/lib/permisos';
-import { useCrearUsuario, useActualizarUsuario } from '@/composables/useUsuarios';
+import { useCrearUsuario, useActualizarUsuario, useEnviarAccesos } from '@/composables/useUsuarios';
 import { usePushActividad } from '@/composables/useActividad';
 import { generateId } from '@/api/mock/_shared';
 import { useUiStore } from '@/stores/ui';
@@ -25,7 +25,9 @@ const emit = defineEmits<{ close: [] }>();
 const ui = useUiStore();
 const crearUsuario = useCrearUsuario();
 const actualizarUsuario = useActualizarUsuario();
+const enviarAccesos = useEnviarAccesos();
 const pushActividad = usePushActividad();
+const accesosEnviados = ref(false);
 
 const rolesDisponibles = computed(() => rolesGestionablesPor(props.actorRol));
 // Superusuario no es asignable desde este formulario — es el rol raíz del sistema, no una simple
@@ -43,13 +45,14 @@ const origen = ref<OrigenCliente>('alumno');
 const origenGuardado = ref<OrigenCliente | null>(null);
 const vigenciaAlumnoHasta = ref('');
 const error = ref('');
-const credencialGenerada = ref<{ usuario: string; password: string } | null>(null);
+const credencialGenerada = ref<{ id: string; usuario: string; password: string; correo?: string } | null>(null);
 
 watch(
   () => props.isOpen,
   (open) => {
     if (!open) return;
     credencialGenerada.value = null;
+    accesosEnviados.value = false;
     nombre.value = props.usuario?.nombre ?? '';
     login.value = props.usuario?.usuario ?? '';
     correo.value = props.usuario?.correo ?? '';
@@ -78,6 +81,7 @@ async function handleSubmit() {
     : { origen: null, vigenciaAlumnoHasta: null };
 
   if (esEdicion.value && props.usuario) {
+    const rolCambio = rol.value !== props.usuario.rol;
     await actualizarUsuario.mutateAsync({
       id: props.usuario.id,
       data: {
@@ -89,7 +93,13 @@ async function handleSubmit() {
         ...(password.value.trim() ? { password: password.value.trim() } : {}),
       },
     });
-    await pushActividad.mutateAsync({ mensaje: `Se actualizó el usuario "${nombre.value.trim()}"`, color: 'blue' });
+    // Mensaje específico cuando cambia el rol — es uno de los eventos que se rastrean en el tab
+    // "Actividad" del panel de detalles (ver UsuariosPage.vue).
+    await pushActividad.mutateAsync(
+      rolCambio
+        ? { mensaje: `Actualizó el rol de "${nombre.value.trim()}" a ${rolUsuarioLabels[rol.value]}`, color: 'blue', categoria: 'Usuarios y permisos' }
+        : { mensaje: `Se actualizó el usuario "${nombre.value.trim()}"`, color: 'blue', categoria: 'Usuarios y permisos' },
+    );
     ui.toast(`Usuario "${nombre.value.trim()}" actualizado`);
     emit('close');
     return;
@@ -104,12 +114,23 @@ async function handleSubmit() {
     rol: rol.value,
     ...datosOrigen,
   });
-  await pushActividad.mutateAsync({ mensaje: `Se creó el usuario "${nombre.value.trim()}"`, color: 'green' });
+  await pushActividad.mutateAsync({ mensaje: `Se creó el usuario "${nombre.value.trim()}"`, color: 'green', categoria: 'Usuarios y permisos' });
   if (creado.password) {
-    credencialGenerada.value = { usuario: creado.usuario, password: creado.password };
+    credencialGenerada.value = { id: creado.id, usuario: creado.usuario, password: creado.password, correo: creado.correo };
   } else {
     ui.toast(`Usuario "${nombre.value.trim()}" creado`);
     emit('close');
+  }
+}
+
+async function handleEnviarAccesos() {
+  if (!props.usuario) return;
+  try {
+    await enviarAccesos.mutateAsync(props.usuario.id);
+    accesosEnviados.value = true;
+    ui.toast(`Se envió una contraseña nueva a ${props.usuario.correo}`);
+  } catch (e) {
+    ui.toast(e instanceof Error ? e.message : 'No se pudo enviar el correo', 'error');
   }
 }
 </script>
@@ -121,8 +142,10 @@ async function handleSubmit() {
         <div class="bg-white rounded-2xl shadow-modal w-full max-w-md max-h-[90vh] overflow-y-auto" @click.stop>
           <UsuarioCreadoPanel
             v-if="credencialGenerada"
+            :id="credencialGenerada.id"
             :usuario="credencialGenerada.usuario"
             :password="credencialGenerada.password"
+            :correo="credencialGenerada.correo"
             @close="emit('close')"
           />
 
@@ -195,6 +218,21 @@ async function handleSubmit() {
                 Contraseña <span class="text-muted font-normal">(dejar en blanco para no cambiarla)</span>
               </label>
               <input v-model="password" type="password" placeholder="••••••••" class="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500" />
+            </div>
+
+            <div v-if="esEdicion">
+              <button
+                @click="handleEnviarAccesos"
+                type="button"
+                :disabled="!usuario?.correo || enviarAccesos.isPending.value"
+                class="w-full px-4 py-2.5 rounded-lg border text-sm font-medium transition-colors duration-75 flex items-center justify-center gap-2 disabled:cursor-not-allowed"
+                :class="accesosEnviados ? 'border-brand-200 bg-brand-50 text-brand-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-60'"
+              >
+                <FontAwesomeIcon :icon="accesosEnviados ? faCheck : faEnvelope" class="w-3.5 h-3.5" />
+                {{ accesosEnviados ? 'Accesos enviados' : enviarAccesos.isPending.value ? 'Enviando…' : 'Enviar accesos por correo' }}
+              </button>
+              <p v-if="!usuario?.correo" class="text-xs text-muted mt-1.5">Este usuario no tiene un correo cargado.</p>
+              <p v-else class="text-xs text-muted mt-1.5">Genera una contraseña nueva y se la envía a {{ usuario?.correo }}.</p>
             </div>
 
             <p v-if="error" class="text-sm text-red-600">{{ error }}</p>

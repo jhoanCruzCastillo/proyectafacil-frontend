@@ -436,6 +436,14 @@ export interface Usuario {
   origenCambiadoEn?: string | null;
   /** Solo tiene sentido cuando rol === 'asesor' — toggle propio de disponibilidad para recibir solicitudes. */
   disponible?: boolean;
+  /** Tamaño recordado del panel de chat de asesoría (asesor o cliente, quien lo haya redimensionado). */
+  chatAnchoPx?: number | null;
+  chatAltoPx?: number | null;
+  telefono?: string | null;
+  /** ISO datetime — de solo lectura, lo pone el backend (created_at). */
+  fechaRegistro?: string | null;
+  /** ISO datetime del último login exitoso — de solo lectura. */
+  ultimoAcceso?: string | null;
 }
 
 // Sesión activa — nunca guarda la contraseña
@@ -445,6 +453,10 @@ export interface Sesion {
   usuario: string;
   rol: RolUsuario;
   iniciadaEn?: string;
+  /** false = cliente sin ningún plan asignado todavía (recién registrado, sin comprar) — el
+   * router lo manda directo a "Elegir plan" y bloquea el resto. Siempre true para roles que no
+   * son cliente (no aplica). */
+  tienePlan: boolean;
 }
 
 /** Respuesta de POST /api/auth/login — Sesion + token Bearer para localStorage. */
@@ -524,8 +536,34 @@ export interface FacturacionMock {
 export interface ActividadReciente {
   id: string;
   mensaje: string;
+  /** Texto relativo ya formateado ("hace 5 min") — se muestra tal cual. */
   fecha: string;
+  /** ISO datetime — para agrupar/ordenar cuando `fecha` (relativa) no alcanza. */
+  creadoEn?: string;
   color: 'blue' | 'green' | 'orange' | 'gray' | 'red';
+  /** Etiqueta libre para agrupar visualmente (ej. "Usuarios y permisos", "Configuración"). */
+  categoria?: string | null;
+  actorId?: string | null;
+}
+
+/** Resultado paginado de la actividad de un usuario puntual (tab "Actividad" del panel de detalles). */
+export interface ActividadPaginada {
+  items: ActividadReciente[];
+  total: number;
+}
+
+/** Una fila de `sesiones` (tab "Sesiones") — siempre las del actor autenticado, nunca las de otro. */
+export interface SesionUsuario {
+  id: string;
+  dispositivo: string;
+  navegador: string;
+  ip: string | null;
+  ubicacion: string | null;
+  esActual: boolean;
+  activa: boolean;
+  iniciadaEn: string;
+  ultimaActividad: string | null;
+  revocadaEn: string | null;
 }
 
 // Catálogo de archivos Excel de referencia asignables a una plantilla (para previsualización)
@@ -845,7 +883,11 @@ export interface DocenteDisponibleAhora {
 export interface DashboardAsesoria {
   pendientes: number;
   completadosHoy: number;
+  completadosTotal: number;
 }
+
+/** Cantidad de membresías activas por nivel de plan (claves "0"/"1"/"2") — KPI de "Usuarios y permisos". */
+export type ResumenNivelesFacturacion = Record<'0' | '1' | '2', number>;
 
 // Sistema de "beneficios": entidades comprables (vía Stripe, modo prueba por ahora) que, en un
 // paso posterior y separado, se asocian a funcionalidades concretas de la plataforma — si la
@@ -958,6 +1000,11 @@ export interface MensajeAsesoria {
   solicitudId: string;
   autorId: string;
   texto: string;
+  /** URL en Cloudinary del archivo adjunto — un mensaje puede llevar texto, adjunto, o ambos. */
+  adjuntoUrl?: string | null;
+  adjuntoNombre?: string | null;
+  /** Mime type (ej. "image/png") — decide si se previsualiza inline o se muestra como archivo genérico. */
+  adjuntoTipo?: string | null;
   /** ISO datetime */
   creadoEn: string;
 }

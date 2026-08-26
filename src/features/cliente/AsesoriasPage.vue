@@ -45,6 +45,15 @@ const duracionVideo = computed(() => fichasVideo.value[0]?.duracionMinutos ?? nu
 const { data: solicitudes, isLoading } = useMisSolicitudesQuery(clienteId, 'cliente');
 const cancelarSolicitud = useCancelarSolicitud();
 
+const filtroModalidad = ref<'todos' | 'chat' | 'video'>('todos');
+const solicitudesFiltradas = computed(() => {
+  const todas = solicitudes.value ?? [];
+  if (filtroModalidad.value === 'todos') return todas;
+  return todas.filter((s) => s.tipo === filtroModalidad.value);
+});
+const conteoChat = computed(() => (solicitudes.value ?? []).filter((s) => s.tipo === 'chat').length);
+const conteoVideo = computed(() => (solicitudes.value ?? []).filter((s) => s.tipo === 'video').length);
+
 const showSolicitar = ref(false);
 const showComprarAddon = ref(false);
 const detalle = ref<SolicitudAsesoria | null>(null);
@@ -61,12 +70,12 @@ function handleCreada(s: SolicitudAsesoria) {
 
 const POR_PAGINA = 5;
 const pagina = ref(1);
-const totalPaginas = computed(() => Math.max(1, Math.ceil((solicitudes.value ?? []).length / POR_PAGINA)));
+const totalPaginas = computed(() => Math.max(1, Math.ceil(solicitudesFiltradas.value.length / POR_PAGINA)));
 const solicitudesPagina = computed(() => {
   const inicio = (pagina.value - 1) * POR_PAGINA;
-  return (solicitudes.value ?? []).slice(inicio, inicio + POR_PAGINA);
+  return solicitudesFiltradas.value.slice(inicio, inicio + POR_PAGINA);
 });
-watch(solicitudes, () => { pagina.value = 1; });
+watch([solicitudes, filtroModalidad], () => { pagina.value = 1; });
 
 function verDetalle(s: SolicitudAsesoria) {
   if (s.estado === 'completado' && s.calificacion == null) {
@@ -180,88 +189,122 @@ function formatFechaHoraAgendada(s: SolicitudAsesoria): string | null {
       </div>
     </div>
 
-    <h2 class="text-lg font-bold text-heading mb-1">Mis consultas</h2>
+    <div class="flex items-center justify-between flex-wrap gap-3 mb-1">
+      <h2 class="text-lg font-bold text-heading">Mis consultas</h2>
+      <div class="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
+        <button
+          @click="filtroModalidad = 'todos'"
+          type="button"
+          class="px-4 py-1.5 text-sm font-medium rounded-md transition-colors duration-75"
+          :class="filtroModalidad === 'todos' ? 'bg-white text-brand-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'"
+        >
+          Todos <span class="text-[11px] text-gray-400">({{ (solicitudes ?? []).length }})</span>
+        </button>
+        <button
+          @click="filtroModalidad = 'chat'"
+          type="button"
+          class="px-4 py-1.5 text-sm font-medium rounded-md transition-colors duration-75 inline-flex items-center gap-1.5"
+          :class="filtroModalidad === 'chat' ? 'bg-white text-brand-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'"
+        >
+          <FontAwesomeIcon :icon="faComments" class="w-3 h-3" />
+          Chat <span class="text-[11px] text-gray-400">({{ conteoChat }})</span>
+        </button>
+        <button
+          @click="filtroModalidad = 'video'"
+          type="button"
+          class="px-4 py-1.5 text-sm font-medium rounded-md transition-colors duration-75 inline-flex items-center gap-1.5"
+          :class="filtroModalidad === 'video' ? 'bg-white text-brand-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'"
+        >
+          <FontAwesomeIcon :icon="faVideo" class="w-3 h-3" />
+          Videollamada <span class="text-[11px] text-gray-400">({{ conteoVideo }})</span>
+        </button>
+      </div>
+    </div>
     <p class="text-sm text-muted mb-4">Historial de todas tus consultas y su estado actual.</p>
 
     <p v-if="isLoading" class="text-sm text-muted">Cargando…</p>
-    <p v-else-if="(solicitudes ?? []).length === 0" class="text-sm text-muted py-8 text-center">Todavía no has solicitado ninguna asesoría.</p>
-    <div v-else class="overflow-x-auto">
-      <table class="w-full text-sm">
-        <thead>
-          <tr class="text-left text-[11px] uppercase tracking-widest text-muted border-b border-gray-100">
-            <th class="pb-2 pr-4 font-semibold">Fecha</th>
-            <th class="pb-2 pr-4 font-semibold">Categoría</th>
-            <th class="pb-2 pr-4 font-semibold">Modalidad</th>
-            <th class="pb-2 pr-4 font-semibold">Docente asignado</th>
-            <th class="pb-2 pr-4 font-semibold">Estado</th>
-            <th class="pb-2"></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="s in solicitudesPagina" :key="s.id" class="border-b border-gray-50">
-            <td class="py-3 pr-4 text-heading whitespace-nowrap">{{ formatFecha(s.creadoEn) }}</td>
-            <td class="py-3 pr-4">
-              <span class="px-2.5 py-1 rounded-full text-[11px] font-medium bg-gray-100 text-gray-600">{{ s.sectorNombre ?? '—' }}</span>
-            </td>
-            <td class="py-3 pr-4">
-              <span class="inline-flex items-center gap-1.5 text-xs text-gray-600">
-                <FontAwesomeIcon :icon="s.tipo === 'video' ? faVideo : faComments" class="w-3 h-3" />
-                {{ s.tipo === 'video' ? 'Videollamada' : 'Chat' }}
-              </span>
-            </td>
-            <td class="py-3 pr-4">
-              <div v-if="s.docenteNombre" class="flex items-center gap-2 whitespace-nowrap">
-                <Avatar :nombre="s.docenteNombre" :fotoUrl="s.docenteFotoUrl" size="w-7 h-7" />
-                <span class="text-heading text-sm">{{ s.docenteNombre }}</span>
-              </div>
-              <span v-else class="text-muted text-xs">Sin asignar</span>
-            </td>
-            <td class="py-3 pr-4">
-              <span class="px-2.5 py-1 rounded-full text-[11px] font-medium" :class="ESTADO_CLASE[s.estado]">{{ ESTADO_LABEL[s.estado] }}</span>
-              <p v-if="s.estado === 'agendado' && formatFechaHoraAgendada(s)" class="text-[11px] text-muted mt-1 flex items-center gap-1">
-                <FontAwesomeIcon :icon="faClock" class="w-2.5 h-2.5" />
-                {{ formatFechaHoraAgendada(s) }}
-              </p>
-            </td>
-            <td class="py-3 text-right whitespace-nowrap">
-              <button
-                v-if="s.estado === 'agendado'"
-                @click="verDetalle(s)"
-                type="button"
-                class="px-3.5 py-1.5 rounded-lg bg-brand-600 text-white text-xs font-medium hover:bg-brand-700 transition-colors duration-75 inline-flex items-center gap-1.5"
-              >
-                <FontAwesomeIcon :icon="faVideo" class="w-3 h-3" />
-                Unirse a la llamada
-              </button>
-              <button
-                v-else-if="s.estado === 'asignado'"
-                @click="verDetalle(s)"
-                type="button"
-                class="px-3.5 py-1.5 rounded-lg bg-brand-600 text-white text-xs font-medium hover:bg-brand-700 transition-colors duration-75 inline-flex items-center gap-1.5"
-              >
-                <FontAwesomeIcon :icon="faComments" class="w-3 h-3" />
-                Unirse a la conversación
-              </button>
-              <button
-                v-else
-                @click="verDetalle(s)"
-                type="button"
-                class="px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors duration-75"
-                :class="s.estado === 'completado' && s.calificacion == null ? 'border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100' : 'border-gray-200 text-gray-600 hover:bg-gray-50'"
-              >
-                <template v-if="s.estado === 'completado' && s.calificacion == null">
-                  <FontAwesomeIcon :icon="faStar" class="w-3 h-3 mr-1" />Calificar
-                </template>
-                <template v-else>Ver detalle</template>
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+    <p v-else-if="solicitudesFiltradas.length === 0" class="text-sm text-muted py-8 text-center">
+      {{ filtroModalidad === 'todos' ? 'Todavía no has solicitado ninguna asesoría.' : 'No tienes consultas en esta modalidad.' }}
+    </p>
+    <div v-else>
+      <div class="rounded-xl border border-gray-200 overflow-hidden overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-left text-[11px] uppercase tracking-widest text-muted bg-gray-50 border-b border-gray-200">
+              <th class="py-2.5 px-4 font-semibold">Fecha</th>
+              <th class="py-2.5 px-4 font-semibold">Categoría</th>
+              <th class="py-2.5 px-4 font-semibold">Modalidad</th>
+              <th class="py-2.5 px-4 font-semibold">Docente asignado</th>
+              <th class="py-2.5 px-4 font-semibold">Estado</th>
+              <th class="py-2.5 px-4"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="s in solicitudesPagina" :key="s.id" class="border-b border-gray-100 last:border-0 hover:bg-gray-50/60 transition-colors duration-75">
+              <td class="py-3 px-4 text-heading whitespace-nowrap">{{ formatFecha(s.creadoEn) }}</td>
+              <td class="py-3 px-4">
+                <span class="px-2.5 py-1 rounded-full text-[11px] font-medium bg-gray-100 text-gray-600">{{ s.sectorNombre ?? '—' }}</span>
+              </td>
+              <td class="py-3 px-4">
+                <span class="inline-flex items-center gap-1.5 text-xs text-gray-600">
+                  <FontAwesomeIcon :icon="s.tipo === 'video' ? faVideo : faComments" class="w-3 h-3" />
+                  {{ s.tipo === 'video' ? 'Videollamada' : 'Chat' }}
+                </span>
+              </td>
+              <td class="py-3 px-4">
+                <div v-if="s.docenteNombre" class="flex items-center gap-2 whitespace-nowrap">
+                  <Avatar :nombre="s.docenteNombre" :fotoUrl="s.docenteFotoUrl" size="w-7 h-7" />
+                  <span class="text-heading text-sm">{{ s.docenteNombre }}</span>
+                </div>
+                <span v-else class="text-muted text-xs">Sin asignar</span>
+              </td>
+              <td class="py-3 px-4">
+                <span class="px-2.5 py-1 rounded-full text-[11px] font-medium" :class="ESTADO_CLASE[s.estado]">{{ ESTADO_LABEL[s.estado] }}</span>
+                <p v-if="s.estado === 'agendado' && formatFechaHoraAgendada(s)" class="text-[11px] text-muted mt-1 flex items-center gap-1">
+                  <FontAwesomeIcon :icon="faClock" class="w-2.5 h-2.5" />
+                  {{ formatFechaHoraAgendada(s) }}
+                </p>
+              </td>
+              <td class="py-3 px-4 text-right whitespace-nowrap">
+                <button
+                  v-if="s.estado === 'agendado'"
+                  @click="verDetalle(s)"
+                  type="button"
+                  class="px-3.5 py-1.5 rounded-lg bg-brand-600 text-white text-xs font-medium hover:bg-brand-700 transition-colors duration-75 inline-flex items-center gap-1.5"
+                >
+                  <FontAwesomeIcon :icon="faVideo" class="w-3 h-3" />
+                  Unirse a la llamada
+                </button>
+                <button
+                  v-else-if="s.estado === 'asignado'"
+                  @click="verDetalle(s)"
+                  type="button"
+                  class="px-3.5 py-1.5 rounded-lg bg-brand-600 text-white text-xs font-medium hover:bg-brand-700 transition-colors duration-75 inline-flex items-center gap-1.5"
+                >
+                  <FontAwesomeIcon :icon="faComments" class="w-3 h-3" />
+                  Unirse a la conversación
+                </button>
+                <button
+                  v-else
+                  @click="verDetalle(s)"
+                  type="button"
+                  class="px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors duration-75"
+                  :class="s.estado === 'completado' && s.calificacion == null ? 'border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100' : 'border-gray-200 text-gray-600 hover:bg-gray-50'"
+                >
+                  <template v-if="s.estado === 'completado' && s.calificacion == null">
+                    <FontAwesomeIcon :icon="faStar" class="w-3 h-3 mr-1" />Calificar
+                  </template>
+                  <template v-else>Ver detalle</template>
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
 
       <div v-if="totalPaginas > 1" class="flex items-center justify-between pt-5">
         <p class="text-xs text-muted">
-          {{ (pagina - 1) * POR_PAGINA + 1 }}–{{ Math.min(pagina * POR_PAGINA, (solicitudes ?? []).length) }} de {{ (solicitudes ?? []).length }}
+          {{ (pagina - 1) * POR_PAGINA + 1 }}–{{ Math.min(pagina * POR_PAGINA, solicitudesFiltradas.length) }} de {{ solicitudesFiltradas.length }}
         </p>
         <div class="flex items-center gap-2">
           <button

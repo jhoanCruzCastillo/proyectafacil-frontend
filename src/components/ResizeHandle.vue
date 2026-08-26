@@ -1,15 +1,19 @@
 <script setup lang="ts">
+// `axis="x"` (default): barra vertical, arrastre horizontal — separador de paneles lado a lado.
+// `axis="y"`: barra horizontal, arrastre vertical — para redimensionar alto en vez de ancho.
+const props = withDefaults(defineProps<{ axis?: 'x' | 'y' }>(), { axis: 'x' });
 const emit = defineEmits<{ resize: [delta: number] }>();
 
 function handleMouseDown(e: MouseEvent) {
   e.preventDefault();
-  let lastX = e.clientX;
-  document.body.style.cursor = 'col-resize';
+  const eje = props.axis === 'y' ? 'clientY' : 'clientX';
+  let last = e[eje];
+  document.body.style.cursor = props.axis === 'y' ? 'row-resize' : 'col-resize';
   document.body.style.userSelect = 'none';
 
   function handleMouseMove(ev: MouseEvent) {
-    const delta = ev.clientX - lastX;
-    lastX = ev.clientX;
+    const delta = ev[eje] - last;
+    last = ev[eje];
     emit('resize', delta);
   }
 
@@ -28,8 +32,9 @@ function handleMouseDown(e: MouseEvent) {
 <template>
   <div
     @mousedown="handleMouseDown"
-    class="w-1 shrink-0 cursor-col-resize hover:bg-brand-300 active:bg-brand-400 bg-gray-200 transition-colors duration-75 relative"
+    class="shrink-0 hover:bg-brand-300 active:bg-brand-400 bg-gray-200 transition-colors duration-75 relative"
+    :class="axis === 'y' ? 'h-1 w-full cursor-row-resize' : 'w-1 cursor-col-resize'"
   >
-    <div class="absolute inset-y-0 -left-1 -right-1" />
+    <div class="absolute" :class="axis === 'y' ? 'inset-x-0 -top-1 -bottom-1' : 'inset-y-0 -left-1 -right-1'" />
   </div>
 </template>

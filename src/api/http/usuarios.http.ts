@@ -18,4 +18,15 @@ export const usuariosHttp: UsuariosApi = {
   async remove(id) {
     await apiFetch<unknown>(`usuarios/${id}`, { method: 'DELETE' });
   },
+
+  async enviarAccesos(id) {
+    await apiFetch<{ enviado: boolean }>(`usuarios/${id}/enviar-accesos`, { method: 'POST' });
+  },
+
+  async enviarAccesosDirecto(id, password) {
+    await apiFetch<{ enviado: boolean }>(`usuarios/${id}/enviar-accesos-directo`, {
+      method: 'POST',
+      body: JSON.stringify({ password }),
+    });
+  },
 };

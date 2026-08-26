@@ -8,10 +8,10 @@ import {
 } from '@/lib/icons';
 import PageShell from '@/components/PageShell.vue';
 import Avatar from '@/components/Avatar.vue';
-import AsesoriaChatPanel from '@/features/asesoria/AsesoriaChatPanel.vue';
 import ResumenConsultaModal from './ResumenConsultaModal.vue';
 import { useSessionStore } from '@/stores/session';
 import { useUiStore } from '@/stores/ui';
+import { useChatAsesoriaStore } from '@/stores/chatAsesoria';
 import { useMisSolicitudesQuery, useAceptarSolicitud, useCompletarVideo } from '@/composables/useAsesoria';
 import { useUsuariosQuery, useActualizarUsuario } from '@/composables/useUsuarios';
 import { tiempoHastaVencer, tiempoRelativo } from '@/lib/tiempoRelativo';
@@ -78,8 +78,7 @@ async function completar(s: SolicitudAsesoria) {
   }
 }
 
-const chatAbiertoId = ref<string | null>(null);
-const chatAbierto = computed(() => (solicitudes.value ?? []).find((s) => s.id === chatAbiertoId.value) ?? null);
+const chatAsesoria = useChatAsesoriaStore();
 const resumenAbierto = ref<SolicitudAsesoria | null>(null);
 
 // "Reprogramadas" pedido explícito del cliente — todavía no existe ese estado/bandera en el
@@ -323,7 +322,7 @@ function cambiarPorPagina(valor: number) {
 
                   <button
                     v-else-if="s.estado === 'asignado'"
-                    @click="chatAbiertoId = s.id"
+                    @click="chatAsesoria.abrir(s.id)"
                     type="button"
                     class="px-4 py-2 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-colors duration-75 inline-flex items-center gap-1.5"
                   >
@@ -426,16 +425,6 @@ function cambiarPorPagina(valor: number) {
         </p>
       </div>
     </template>
-
-    <AsesoriaChatPanel
-      v-if="chatAbierto"
-      :solicitud="chatAbierto"
-      :usuario-actual-id="docenteId"
-      :otra-parte-nombre="chatAbierto.clienteNombre ?? 'Cliente'"
-      :otra-parte-foto-url="chatAbierto.clienteFotoUrl"
-      @close="chatAbiertoId = null"
-      @finalizada="chatAbiertoId = null"
-    />
   </PageShell>
 
   <ResumenConsultaModal :is-open="!!resumenAbierto" :solicitud="resumenAbierto" @close="resumenAbierto = null" />

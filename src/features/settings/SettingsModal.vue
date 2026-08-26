@@ -19,11 +19,17 @@ const usuario = computed(() => usuariosData.value?.find((u) => u.id === session.
 
 type Tab = 'general' | 'cuenta' | 'facturacion';
 
-const tabs: { id: Tab; label: string; icon: IconDefinition }[] = [
+// Un cliente sin plan todavía (recién registrado, ver ElegirPlanPage.vue) no tiene nada que
+// gestionar en Facturación — esa pestaña asume una suscripción existente (cancelar, add-ons,
+// colaboradores) y consultarla auto-asignaría un plan de muestra
+// (FacturacionController::crearDefault()). Se oculta hasta que elija un plan de verdad.
+const mostrarFacturacion = computed(() => session.sesion?.tienePlan !== false);
+
+const tabs = computed<{ id: Tab; label: string; icon: IconDefinition }[]>(() => [
   { id: 'general', label: 'General', icon: faUser },
   { id: 'cuenta', label: 'Cuenta', icon: faCircleUser },
-  { id: 'facturacion', label: 'Facturación', icon: faCreditCard },
-];
+  ...(mostrarFacturacion.value ? [{ id: 'facturacion' as const, label: 'Facturación', icon: faCreditCard }] : []),
+]);
 
 const tab = ref<Tab>('general');
 </script>

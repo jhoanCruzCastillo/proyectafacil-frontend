@@ -43,4 +43,13 @@ export const usuariosMock: UsuariosApi = {
     await delay();
     save(load().filter((u) => u.id !== id));
   },
+
+  // Mock mínimo — este modo no manda correo real, solo cumple el contrato.
+  async enviarAccesos() {
+    await delay();
+  },
+
+  async enviarAccesosDirecto() {
+    await delay();
+  },
 };

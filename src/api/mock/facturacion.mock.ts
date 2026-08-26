@@ -62,4 +62,14 @@ export const facturacionMock: FacturacionApi = {
     save(data);
     return data[usuarioId];
   },
+
+  async resumenNiveles() {
+    await delay();
+    const conteo: Record<'0' | '1' | '2', number> = { '0': 0, '1': 0, '2': 0 };
+    for (const f of Object.values(load())) {
+      const nivel = f.planId?.replace('nivel-', '') as '0' | '1' | '2' | undefined;
+      if (nivel && nivel in conteo) conteo[nivel]++;
+    }
+    return conteo;
+  },
 };

@@ -19,11 +19,22 @@ export const actividadMock: ActividadApi = {
     return load();
   },
 
-  async push(mensaje, color) {
+  async push(mensaje, color, categoria) {
     await delay();
-    const entry: ActividadReciente = { id: generateId(), mensaje, fecha: 'Ahora', color };
+    const entry: ActividadReciente = { id: generateId(), mensaje, fecha: 'Ahora', creadoEn: new Date().toISOString(), color, categoria };
     const next = [entry, ...load()].slice(0, 20);
     save(next);
     return entry;
+  },
+
+  // Mock mínimo — este modo no distingue por actor, solo cumple el contrato.
+  async porActor() {
+    await delay();
+    return { items: load(), total: load().length };
+  },
+
+  async ultimaModificacionPerfil() {
+    await delay();
+    return null;
   },
 };

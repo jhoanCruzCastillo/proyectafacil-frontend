@@ -4,9 +4,16 @@
 
 import { clearAuthToken, getAuthToken } from '@/lib/authToken';
 
-/** Rutas que no exigen Bearer (entrada/salida de sesión). Todo lo demás requiere token. */
+/** Rutas que no exigen Bearer (entrada/salida de sesión, y registro público — nadie que llega ahí
+ * tiene token todavía). Todo lo demás requiere token. */
 function esRutaPublicaAuth(path: string): boolean {
-  return path === 'auth/login' || path.startsWith('auth/login?') || path === 'auth/logout' || path.startsWith('auth/logout?');
+  return (
+    path === 'auth/login' || path.startsWith('auth/login?') ||
+    path === 'auth/logout' || path.startsWith('auth/logout?') ||
+    path === 'auth/registro' ||
+    path.startsWith('auth/verificar/') ||
+    path === 'sectores/publico'
+  );
 }
 
 export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
