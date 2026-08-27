@@ -166,9 +166,10 @@ const emit = defineEmits<{ toggle: [] }>();
                     :href="href"
                     @click="navigate"
                     class="relative flex items-center gap-2.5 pl-4 pr-3 py-2 rounded-lg text-sm transition-colors"
-                    :class="isExactActive ? 'bg-sidebar-active text-white shadow-card font-medium' : 'text-white/60 hover:bg-sidebar-hover hover:text-white'"
+                    :class="isExactActive ? 'bg-gradient-to-r from-brand-600/15 to-brand-600 text-white shadow-card font-semibold' : 'text-white/60 hover:bg-sidebar-hover hover:text-white'"
                   >
-                    <span class="absolute left-0 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-brand-500 shrink-0" />
+                    <span v-if="isExactActive" class="absolute left-0 top-1 bottom-1 w-1 rounded-full bg-brand-300" />
+                    <span v-else class="absolute left-0 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-brand-500 shrink-0" />
                     <FontAwesomeIcon :icon="child.icon" class="w-3.5 text-center shrink-0" />
                     <span class="flex-1">{{ child.label }}</span>
                   </a>
@@ -184,12 +185,13 @@ const emit = defineEmits<{ toggle: [] }>();
                 :href="href"
                 @click="navigate"
                 :title="collapsed ? item.label : undefined"
-                class="flex items-center px-3 py-2.5 rounded-lg text-sm font-medium transition-colors"
+                class="relative flex items-center px-3 py-2.5 rounded-lg text-sm font-medium transition-colors"
                 :class="[
-                  isExactActive ? 'bg-sidebar-active text-white shadow-card' : 'text-white/65 hover:bg-sidebar-hover hover:text-white',
+                  isExactActive ? 'bg-gradient-to-r from-brand-600/15 to-brand-600 text-white shadow-card font-semibold' : 'text-white/65 hover:bg-sidebar-hover hover:text-white',
                   collapsed ? 'justify-center px-0' : 'gap-3',
                 ]"
               >
+                <span v-if="isExactActive && !collapsed" class="absolute left-0 top-1 bottom-1 w-1 rounded-full bg-brand-300" />
                 <FontAwesomeIcon :icon="item.icon" class="w-4 text-center shrink-0" />
                 <span v-if="!collapsed" class="flex-1">{{ item.label }}</span>
               </a>
