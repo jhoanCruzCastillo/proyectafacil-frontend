@@ -101,6 +101,7 @@ const asignadas = computed(() => (solicitudes.value ?? []).filter((s) => s.estad
 const chatAbiertoId = ref<string | null>(null);
 const chatAbierto = computed(() => (solicitudes.value ?? []).find((s) => s.id === chatAbiertoId.value) ?? null);
 const resumenAbierto = ref<SolicitudAsesoria | null>(null);
+const resumenClienteCorreo = computed(() => usuarios.value?.find((u) => u.id === resumenAbierto.value?.clienteId)?.correo ?? null);
 </script>
 
 <template>
@@ -259,7 +260,7 @@ const resumenAbierto = ref<SolicitudAsesoria | null>(null);
             class="px-4 py-2 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-colors duration-75 inline-flex items-center gap-1.5"
           >
             <FontAwesomeIcon :icon="faFileLines" class="w-3 h-3" />
-            Ver resumen
+            Detalles
           </button>
           <span v-else class="text-xs text-muted">{{ s.estado === 'cancelado' ? 'Cancelada' : 'En espera' }}</span>
         </div>
@@ -281,7 +282,13 @@ const resumenAbierto = ref<SolicitudAsesoria | null>(null);
       @finalizada="chatAbiertoId = null"
     />
 
-    <ResumenConsultaModal :is-open="!!resumenAbierto" :solicitud="resumenAbierto" @close="resumenAbierto = null" />
+    <ResumenConsultaModal
+      :is-open="!!resumenAbierto"
+      :solicitud="resumenAbierto"
+      :usuario-actual-id="docenteId"
+      :cliente-correo="resumenClienteCorreo"
+      @close="resumenAbierto = null"
+    />
   </div>
 </template>
 

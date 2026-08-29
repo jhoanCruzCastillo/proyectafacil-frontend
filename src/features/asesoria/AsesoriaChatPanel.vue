@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import {
   faXmark, faPaperPlane, faVideo, faArrowUpRightFromSquare, faCircleCheck,
-  faPaperclip, faFileLines, faDownload, faSpinner,
+  faPaperclip, faFileLines, faDownload, faSpinner, faCheck, faCheckDouble,
 } from '@/lib/icons';
+import { formatHora } from '@/lib/tiempoRelativo';
 import { useMensajesQuery, useEnviarMensaje, useFinalizarSolicitud, useSubirAdjuntoChat } from '@/composables/useAsesoria';
 import { useUsuariosQuery, useActualizarUsuario } from '@/composables/useUsuarios';
 import { useUiStore } from '@/stores/ui';
@@ -28,7 +29,7 @@ const emit = defineEmits<{ close: []; finalizada: [] }>();
 
 const ui = useUiStore();
 const solicitudId = computed(() => props.solicitud.id);
-const { data: mensajes } = useMensajesQuery(solicitudId);
+const { data: mensajes } = useMensajesQuery(solicitudId, () => props.usuarioActualId);
 const enviarMensaje = useEnviarMensaje();
 const finalizarSolicitud = useFinalizarSolicitud();
 const subirAdjunto = useSubirAdjuntoChat();
@@ -92,6 +93,67 @@ function onResizeAlto(delta: number) {
   panelHeight.value = Math.min(ALTO_MAX, Math.max(ALTO_MIN, panelHeight.value - delta));
   guardarTamanoDebounced();
 }
+
+// --- Ventana arrastrable a cualquier parte de la pantalla (pedido explícito: "como una ventana
+// de Windows", fluida y sin retardo). `dragPos` reemplaza el anclaje por defecto (bottom-6/
+// left-64) una vez que se arrastra por primera vez — se calcula desde la posición real del panel
+// en pantalla (getBoundingClientRect) para no tener que traducir esas clases a píxeles a mano.
+// El movimiento se aplica directo por frame (rAF) en vez de en cada evento mousemove — con
+// decenas de eventos por segundo, aplicar todos sin throttle es lo que causa el retardo/tirones
+// que se pidió evitar.
+const panelRef = ref<HTMLElement | null>(null);
+const dragPos = ref<{ left: number; top: number } | null>(null);
+const arrastrandoVentana = ref(false);
+let dragStartMouse = { x: 0, y: 0 };
+let dragStartPos = { left: 0, top: 0 };
+let dragLatestEvent: MouseEvent | null = null;
+let dragRafId: number | null = null;
+
+function onHeaderMouseDown(e: MouseEvent) {
+  if ((e.target as HTMLElement).closest('button')) return; // no arrastrar al clickear un botón del header
+  const el = panelRef.value;
+  if (!el) return;
+
+  if (!dragPos.value) {
+    const rect = el.getBoundingClientRect();
+    dragPos.value = { left: rect.left, top: rect.top };
+  }
+  dragStartMouse = { x: e.clientX, y: e.clientY };
+  dragStartPos = { ...dragPos.value };
+  arrastrandoVentana.value = true;
+  window.addEventListener('mousemove', onDragMove);
+  window.addEventListener('mouseup', onDragEnd);
+}
+
+function onDragMove(e: MouseEvent) {
+  dragLatestEvent = e;
+  if (dragRafId !== null) return;
+  dragRafId = requestAnimationFrame(() => {
+    dragRafId = null;
+    if (!dragLatestEvent) return;
+    const dx = dragLatestEvent.clientX - dragStartMouse.x;
+    const dy = dragLatestEvent.clientY - dragStartMouse.y;
+    // Margen mínimo visible (100px) para no poder soltar la ventana completamente fuera de vista.
+    const maxLeft = window.innerWidth - 100;
+    const maxTop = window.innerHeight - 60;
+    dragPos.value = {
+      left: Math.min(maxLeft, Math.max(-(panelWidth.value - 100), dragStartPos.left + dx)),
+      top: Math.min(maxTop, Math.max(0, dragStartPos.top + dy)),
+    };
+  });
+}
+
+function onDragEnd() {
+  arrastrandoVentana.value = false;
+  window.removeEventListener('mousemove', onDragMove);
+  window.removeEventListener('mouseup', onDragEnd);
+}
+
+onUnmounted(() => {
+  window.removeEventListener('mousemove', onDragMove);
+  window.removeEventListener('mouseup', onDragEnd);
+  if (dragRafId !== null) cancelAnimationFrame(dragRafId);
+});
 
 watch(mensajes, () => {
   nextTick(() => scrollRef.value?.scrollTo({ top: scrollRef.value.scrollHeight, behavior: 'smooth' }));
@@ -211,14 +273,44 @@ function onDrop(e: DragEvent) {
 function esImagen(tipo?: string | null): boolean {
   return !!tipo && tipo.startsWith('image/');
 }
+
+// Divisor de fecha ("Hoy" / "Ayer" / fecha) antes del primer mensaje de cada día — mismo criterio
+// de agrupación que cualquier chat real (WhatsApp, etc.).
+function etiquetaFecha(fechaISO: string): string {
+  const fecha = new Date(fechaISO);
+  const hoy = new Date();
+  const ayer = new Date();
+  ayer.setDate(hoy.getDate() - 1);
+  const mismodia = (a: Date, b: Date) => a.toDateString() === b.toDateString();
+  if (mismodia(fecha, hoy)) return 'Hoy';
+  if (mismodia(fecha, ayer)) return 'Ayer';
+  return fecha.toLocaleDateString('es-PE', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
+const mensajesConDivisor = computed(() => {
+  const lista = mensajes.value ?? [];
+  let fechaAnterior: string | null = null;
+  return lista.map((m) => {
+    const etiqueta = etiquetaFecha(m.creadoEn);
+    const mostrarDivisor = etiqueta !== fechaAnterior;
+    fechaAnterior = etiqueta;
+    return { mensaje: m, mostrarDivisor, etiquetaFecha: etiqueta };
+  });
+});
 </script>
 
 <template>
   <div
-    class="fixed bottom-6 left-64 z-40 flex flex-col"
-    :style="{ width: `${panelWidth}px`, height: `${panelHeight}px` }"
+    ref="panelRef"
+    class="fixed z-40 flex flex-col"
+    :class="[dragPos ? '' : 'bottom-6 left-64', arrastrandoVentana ? 'select-none' : '']"
+    :style="{
+      width: `${panelWidth}px`,
+      height: `${panelHeight}px`,
+      ...(dragPos ? { left: `${dragPos.left}px`, top: `${dragPos.top}px` } : {}),
+    }"
   >
-    <ResizeHandle axis="y" @resize="onResizeAlto" title="Arrastra para agrandar" />
+    <ResizeHandle axis="y" subtle @resize="onResizeAlto" title="Arrastra para agrandar" />
 
     <div
       class="relative flex-1 min-h-0 flex bg-white rounded-2xl shadow-modal border border-gray-200 overflow-hidden"
@@ -233,12 +325,15 @@ function esImagen(tipo?: string | null): boolean {
       </div>
 
       <div class="flex-1 min-w-0 flex flex-col">
-        <div class="shrink-0 px-4 py-3 bg-brand-600 text-white flex items-center justify-between gap-2">
-          <div class="flex items-center gap-2 min-w-0">
-            <Avatar :nombre="otraParteNombre" :fotoUrl="otraParteFotoUrl" size="w-7 h-7" />
+        <div
+          @mousedown="onHeaderMouseDown"
+          class="shrink-0 px-4 py-3.5 bg-gradient-to-r from-cyan-600 to-brand-600 text-white flex items-center justify-between gap-2 cursor-grab active:cursor-grabbing"
+        >
+          <div class="flex items-center gap-2.5 min-w-0">
+            <Avatar :nombre="otraParteNombre" :fotoUrl="otraParteFotoUrl" size="w-9 h-9" />
             <div class="min-w-0">
-              <p class="text-sm font-bold leading-tight truncate">{{ otraParteNombre }}</p>
-              <p class="text-[10px] text-brand-100 leading-tight">{{ solicitud.tipo === 'video' ? 'Asesoría por videollamada' : 'Asesoría por chat' }}</p>
+              <p class="text-[15px] font-bold leading-tight truncate">{{ otraParteNombre }}</p>
+              <p class="text-[11px] text-white/60 leading-tight mt-0.5">{{ solicitud.tipo === 'video' ? 'Asesoría por videollamada' : 'Asesoría por chat' }}</p>
             </div>
           </div>
           <div class="flex items-center gap-1 shrink-0">
@@ -246,7 +341,7 @@ function esImagen(tipo?: string | null): boolean {
               @click="mostrarConfirmarFinalizar = true"
               :disabled="finalizando"
               type="button"
-              class="px-2.5 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 border border-orange-700 flex items-center gap-1.5 transition-colors duration-75 disabled:opacity-50 text-xs font-medium"
+              class="px-3.5 py-1.5 rounded-full bg-gradient-to-r from-cyan-600 to-brand-600 hover:from-cyan-700 hover:to-brand-700 shadow-sm flex items-center gap-1.5 transition-colors duration-100 disabled:opacity-50 text-xs font-semibold"
             >
               <FontAwesomeIcon :icon="faCircleCheck" class="w-3.5 h-3.5" />
               Finalizar asesoría
@@ -270,42 +365,52 @@ function esImagen(tipo?: string | null): boolean {
           <FontAwesomeIcon v-if="solicitud.linkReunion" :icon="faArrowUpRightFromSquare" class="w-2.5 h-2.5" />
         </a>
 
-        <div ref="scrollRef" class="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-3 bg-gray-50">
+        <div ref="scrollRef" class="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-4 bg-gray-50">
           <p v-if="solicitud.mensajeInicial" class="text-[11px] text-gray-400 italic text-center px-4">"{{ solicitud.mensajeInicial }}"</p>
-          <div
-            v-for="m in mensajes ?? []"
-            :key="m.id"
-            class="flex"
-            :class="m.autorId === usuarioActualId ? 'justify-end' : 'justify-start'"
-          >
-            <div
-              class="max-w-[85%] rounded-xl px-3 py-2 text-xs space-y-1.5"
-              :class="m.autorId === usuarioActualId ? 'bg-brand-600 text-white' : 'bg-white border border-gray-200 text-gray-700'"
-            >
-              <template v-if="m.adjuntoUrl">
-                <img
-                  v-if="esImagen(m.adjuntoTipo)"
-                  :src="m.adjuntoUrl"
-                  :alt="m.adjuntoNombre ?? 'Imagen adjunta'"
-                  @click="imagenAmpliada = m.adjuntoUrl!"
-                  class="max-w-full max-h-48 rounded-lg cursor-zoom-in block object-cover"
-                />
-                <a
-                  v-else
-                  :href="m.adjuntoUrl"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="flex items-center gap-2 rounded-lg px-2.5 py-2 transition-colors"
-                  :class="m.autorId === usuarioActualId ? 'bg-white/10 hover:bg-white/20' : 'bg-gray-50 hover:bg-gray-100'"
-                >
-                  <FontAwesomeIcon :icon="faFileLines" class="w-3.5 h-3.5 shrink-0" />
-                  <span class="truncate flex-1">{{ m.adjuntoNombre ?? 'Archivo' }}</span>
-                  <FontAwesomeIcon :icon="faDownload" class="w-3 h-3 shrink-0" />
-                </a>
-              </template>
-              <p v-if="m.texto">{{ m.texto }}</p>
+          <template v-for="{ mensaje: m, mostrarDivisor, etiquetaFecha: etiqueta } in mensajesConDivisor" :key="m.id">
+            <div v-if="mostrarDivisor" class="flex justify-center py-1">
+              <span class="text-[10px] font-medium text-gray-400 bg-gray-100 rounded-full px-3 py-1">{{ etiqueta }}</span>
             </div>
-          </div>
+            <div class="flex" :class="m.autorId === usuarioActualId ? 'justify-end' : 'justify-start'">
+              <div
+                class="max-w-[85%] rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed space-y-1.5 shadow-sm"
+                :class="m.autorId === usuarioActualId ? 'bg-brand-100 text-heading rounded-br-md' : 'bg-white border border-gray-100 text-gray-700 rounded-bl-md'"
+              >
+                <template v-if="m.adjuntoUrl">
+                  <img
+                    v-if="esImagen(m.adjuntoTipo)"
+                    :src="m.adjuntoUrl"
+                    :alt="m.adjuntoNombre ?? 'Imagen adjunta'"
+                    @click="imagenAmpliada = m.adjuntoUrl!"
+                    class="max-w-full max-h-48 rounded-lg cursor-zoom-in block object-cover"
+                  />
+                  <a
+                    v-else
+                    :href="m.adjuntoUrl"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="flex items-center gap-2.5 rounded-lg px-2.5 py-2 bg-white border border-gray-100 hover:bg-gray-50 transition-colors"
+                  >
+                    <span class="w-7 h-7 rounded-md bg-red-50 text-red-500 flex items-center justify-center shrink-0">
+                      <FontAwesomeIcon :icon="faFileLines" class="w-3.5 h-3.5" />
+                    </span>
+                    <span class="truncate flex-1 text-gray-700">{{ m.adjuntoNombre ?? 'Archivo' }}</span>
+                    <FontAwesomeIcon :icon="faDownload" class="w-3 h-3 shrink-0 text-gray-400" />
+                  </a>
+                </template>
+                <p v-if="m.texto">{{ m.texto }}</p>
+                <div class="flex items-center justify-end gap-1 text-gray-400">
+                  <span class="text-[10px]">{{ formatHora(m.creadoEn) }}</span>
+                  <FontAwesomeIcon
+                    v-if="m.autorId === usuarioActualId"
+                    :icon="m.leidoEn ? faCheckDouble : faCheck"
+                    class="w-3 h-3"
+                    :class="m.leidoEn ? 'text-brand-600' : 'text-gray-400'"
+                  />
+                </div>
+              </div>
+            </div>
+          </template>
           <p v-if="(mensajes ?? []).length === 0" class="text-xs text-gray-400 text-center pt-4">Todavía no hay mensajes — escribe el primero.</p>
         </div>
 
@@ -347,13 +452,13 @@ function esImagen(tipo?: string | null): boolean {
               type="text"
               placeholder="Escribe un mensaje..."
               :disabled="subiendoArchivo"
-              class="flex-1 min-w-0 px-3 py-2 rounded-lg border border-gray-200 text-xs focus:outline-none focus:ring-2 focus:ring-brand-300 disabled:opacity-50"
+              class="flex-1 min-w-0 px-3.5 py-2 rounded-full border border-gray-200 text-xs focus:outline-none focus:ring-2 focus:ring-brand-300 disabled:opacity-50"
             />
             <button
               @click="enviar"
               :disabled="subiendoArchivo || (!input.trim() && !archivoPendiente)"
               type="button"
-              class="w-8 h-8 rounded-lg bg-brand-600 text-white flex items-center justify-center hover:bg-brand-700 transition-colors duration-75 shrink-0 disabled:opacity-50"
+              class="w-8 h-8 rounded-full bg-brand-600 text-white flex items-center justify-center hover:bg-brand-700 transition-colors duration-75 shrink-0 disabled:opacity-50"
             >
               <FontAwesomeIcon :icon="subiendoArchivo ? faSpinner : faPaperPlane" class="w-3 h-3" :class="{ 'animate-spin': subiendoArchivo }" />
             </button>
@@ -361,7 +466,7 @@ function esImagen(tipo?: string | null): boolean {
         </div>
       </div>
 
-      <ResizeHandle axis="x" @resize="onResizeAncho" title="Arrastra para agrandar" />
+      <ResizeHandle axis="x" subtle @resize="onResizeAncho" title="Arrastra para agrandar" />
     </div>
   </div>
 

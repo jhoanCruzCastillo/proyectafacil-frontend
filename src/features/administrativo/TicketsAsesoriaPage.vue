@@ -5,11 +5,13 @@ import { faListCheck, faClock, faCalendarCheck, faCircleCheck, faUserCheck, faCo
 import PageShell from '@/components/PageShell.vue';
 import Avatar from '@/components/Avatar.vue';
 import TicketDetalleModal from './TicketDetalleModal.vue';
+import TicketDetalleCompletadoModal from './TicketDetalleCompletadoModal.vue';
 import IntervencionManualModal from './IntervencionManualModal.vue';
 import { useDashboardAsesoriaQuery, useTicketsAsesoriaQuery } from '@/composables/useTicketsAsesoria';
 import { ESTADO_ASESORIA_LABEL, ESTADO_ASESORIA_CLASE } from '@/lib/estadoAsesoria';
 import { etiquetaDocenteFalsa, claseCategoria, codigoTicketFalso } from '@/lib/ticketsDemoFake';
 import { progresoSla } from '@/lib/tiempoRelativo';
+import { formatFechaHoraVideo } from '@/lib/consultaAsesorUI';
 import type { EstadoSolicitudAsesoria, SolicitudAsesoria } from '@/types';
 
 type Tab = 'todos' | 'pendiente' | 'agendado' | 'completado' | 'cancelado' | 'vencido' | 'observado';
@@ -101,7 +103,18 @@ function cambiarPorPagina(valor: number) {
 }
 
 const detalleId = ref<string | null>(null);
+const detalleCompletadoId = ref<string | null>(null);
 const intervencionTicket = ref<SolicitudAsesoria | null>(null);
+
+// Los tickets completados tienen su propio modal (con video/resumen/historial de la sesión) — el
+// resto de estados usa el genérico, que no tiene ese contenido porque nunca aplica.
+function verDetalle(t: SolicitudAsesoria) {
+  if (t.estado === 'completado') {
+    detalleCompletadoId.value = t.id;
+  } else {
+    detalleId.value = t.id;
+  }
+}
 
 // Reloj compartido para que las barras de SLA avancen de verdad segundo a segundo en vez de
 // quedar estáticas al cargar la página — no hace falta empujar desde el servidor: con
@@ -204,6 +217,7 @@ function slaDe(t: SolicitudAsesoria) {
               >
                 <FontAwesomeIcon :icon="t.tipo === 'video' ? faVideo : faComments" class="w-3.5 h-3.5" />
               </span>
+              <p v-if="t.tipo === 'video' && formatFechaHoraVideo(t)" class="text-[11px] text-muted mt-1 whitespace-nowrap">{{ formatFechaHoraVideo(t) }}</p>
             </td>
             <td class="py-4 px-4">
               <span class="px-2.5 py-1 rounded-full text-[11px] font-medium" :class="ESTADO_ASESORIA_CLASE[t.estado]">{{ ESTADO_ASESORIA_LABEL[t.estado] }}</span>
@@ -237,7 +251,7 @@ function slaDe(t: SolicitudAsesoria) {
                 Intervenir
               </button>
               <button
-                @click="detalleId = t.id"
+                @click="verDetalle(t)"
                 type="button"
                 class="px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors duration-75"
               >
@@ -295,5 +309,6 @@ function slaDe(t: SolicitudAsesoria) {
   </PageShell>
 
   <TicketDetalleModal :is-open="!!detalleId" :ticket-id="detalleId" @close="detalleId = null" />
+  <TicketDetalleCompletadoModal :is-open="!!detalleCompletadoId" :ticket-id="detalleCompletadoId" @close="detalleCompletadoId = null" />
   <IntervencionManualModal :is-open="!!intervencionTicket" :ticket="intervencionTicket" @close="intervencionTicket = null" />
 </template>

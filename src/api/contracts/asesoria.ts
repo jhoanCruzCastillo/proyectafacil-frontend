@@ -36,7 +36,8 @@ export interface AsesoriaApi {
   completarVideo(solicitudId: string): Promise<SolicitudAsesoria>;
   cancelar(solicitudId: string): Promise<SolicitudAsesoria>;
   calificar(solicitudId: string, estrellas: number, comentario?: string): Promise<SolicitudAsesoria>;
-  mensajes(solicitudId: string): Promise<MensajeAsesoria[]>;
+  /** `visorId` (opcional) marca como leídos, para el remitente, los mensajes ajenos sin leer. */
+  mensajes(solicitudId: string, visorId?: string): Promise<MensajeAsesoria[]>;
   enviarMensaje(solicitudId: string, autorId: string, texto: string, adjunto?: { url: string; nombre: string; tipo: string }): Promise<MensajeAsesoria[]>;
   /** Sube un adjunto de chat (cualquier tipo de archivo) a Cloudinary y devuelve su URL — se usa
    * después como `adjunto` en enviarMensaje(). */

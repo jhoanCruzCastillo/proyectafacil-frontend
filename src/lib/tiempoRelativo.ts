@@ -63,6 +63,12 @@ export function progresoSla(creadoEn: string, slaVenceEn: string | null | undefi
   };
 }
 
+// Hora corta de un mensaje de chat, ej. "10:24 a. m." — a diferencia de tiempoRelativo(), siempre
+// la hora exacta (no "hace X min"), como en cualquier chat real.
+export function formatHora(fechaISO: string): string {
+  return new Date(fechaISO).toLocaleTimeString('es-PE', { hour: 'numeric', minute: '2-digit' });
+}
+
 export function tiempoRelativo(fechaISO: string): string {
   const diffMs = Date.now() - new Date(fechaISO).getTime();
   const diffMin = Math.floor(diffMs / 60_000);

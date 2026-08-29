@@ -80,6 +80,7 @@ async function completar(s: SolicitudAsesoria) {
 
 const chatAsesoria = useChatAsesoriaStore();
 const resumenAbierto = ref<SolicitudAsesoria | null>(null);
+const resumenClienteCorreo = computed(() => usuarios.value?.find((u) => u.id === resumenAbierto.value?.clienteId)?.correo ?? null);
 
 // "Reprogramadas" pedido explícito del cliente — todavía no existe ese estado/bandera en el
 // modelo de datos (ver docs), así que por ahora ese tab no filtra nada real (lista vacía) hasta
@@ -92,6 +93,11 @@ const TABS: { value: Tab; label: string }[] = [
   { value: 'atendidas', label: 'Atendidas' },
 ];
 const tabActiva = ref<Tab>('por_agendar');
+
+// Cuántas consultas tiene agendadas ahora mismo — para que el asesor sepa de un vistazo si tiene
+// pendientes sin entrar al tab. Mismo criterio de filtro que usa la pestaña (asignado/agendado),
+// sin aplicar el filtro de modalidad (el conteo es del total, no de lo que se esté viendo ahora).
+const conteoAgendadas = computed(() => (solicitudes.value ?? []).filter((s) => s.estado === 'asignado' || s.estado === 'agendado').length);
 
 const mostrarFiltros = ref(false);
 const filtroModalidad = ref<'todas' | 'chat' | 'video'>('todas');
@@ -188,10 +194,17 @@ function cambiarPorPagina(valor: number) {
           :key="tab.value"
           @click="cambiarTab(tab.value)"
           type="button"
-          class="px-4 py-2.5 text-sm font-medium border-b-2 transition-colors duration-75"
+          class="px-4 py-2.5 text-sm font-medium border-b-2 transition-colors duration-75 flex items-center gap-2"
           :class="tabActiva === tab.value ? 'border-brand-600 text-brand-700' : 'border-transparent text-gray-500 hover:text-gray-700'"
         >
           {{ tab.label }}
+          <span
+            v-if="tab.value === 'agendadas' && conteoAgendadas > 0"
+            class="px-1.5 py-0.5 rounded-full text-[10px] font-semibold"
+            :class="tabActiva === tab.value ? 'bg-brand-50 text-brand-700' : 'bg-gray-100 text-gray-500'"
+          >
+            {{ conteoAgendadas }}
+          </span>
         </button>
       </div>
 
@@ -364,7 +377,7 @@ function cambiarPorPagina(valor: number) {
                     class="px-4 py-2 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-colors duration-75 inline-flex items-center gap-1.5"
                   >
                     <FontAwesomeIcon :icon="faFileLines" class="w-3 h-3" />
-                    Ver resumen
+                    Detalles
                     <FontAwesomeIcon :icon="faChevronRight" class="w-2.5 h-2.5" />
                   </button>
 
@@ -427,5 +440,11 @@ function cambiarPorPagina(valor: number) {
     </template>
   </PageShell>
 
-  <ResumenConsultaModal :is-open="!!resumenAbierto" :solicitud="resumenAbierto" @close="resumenAbierto = null" />
+  <ResumenConsultaModal
+    :is-open="!!resumenAbierto"
+    :solicitud="resumenAbierto"
+    :usuario-actual-id="docenteId"
+    :cliente-correo="resumenClienteCorreo"
+    @close="resumenAbierto = null"
+  />
 </template>
