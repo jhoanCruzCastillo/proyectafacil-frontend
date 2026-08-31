@@ -42,6 +42,10 @@ const mostrarConfirmarFinalizar = ref(false);
 const fileInputRef = ref<HTMLInputElement | null>(null);
 const subiendoArchivo = ref(false);
 const imagenAmpliada = ref<string | null>(null);
+// Las imágenes de Cloudinary a veces tardan en cargar (sin CDN local) y hasta que no cargan no se
+// sabe el alto real — sin esto la imagen aparecía recién cuando terminaba, sin ningún indicio de
+// que algo se estaba cargando.
+const imagenesCargadas = ref<Record<string, boolean>>({});
 // Archivo elegido/soltado pero todavía no enviado — se muestra como miniatura junto al input
 // (como en ChatGPT) y recién se sube a Cloudinary cuando se confirma el envío.
 const archivoPendiente = ref<File | null>(null);
@@ -177,9 +181,8 @@ async function enviar() {
 
   subiendoArchivo.value = true;
   try {
-    const dataUrl = await leerComoDataUrl(archivo);
     const tipo = archivo.type || 'application/octet-stream';
-    const { url } = await subirAdjunto.mutateAsync({ dataUrl, nombre: archivo.name, tipo });
+    const { url } = await subirAdjunto.mutateAsync({ file: archivo });
     await enviarMensaje.mutateAsync({
       solicitudId: solicitudId.value,
       autorId: props.usuarioActualId,
@@ -207,15 +210,6 @@ async function handleFinalizar() {
 async function confirmarFinalizar() {
   mostrarConfirmarFinalizar.value = false;
   await handleFinalizar();
-}
-
-function leerComoDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = () => reject(new Error('No se pudo leer el archivo'));
-    reader.readAsDataURL(file);
-  });
 }
 
 function adjuntarPendiente(file: File) {
@@ -389,13 +383,23 @@ const mensajesConDivisor = computed(() => {
                 :class="m.autorId === usuarioActualId ? 'bg-brand-100 text-heading rounded-br-md' : 'bg-white border border-gray-100 text-gray-700 rounded-bl-md'"
               >
                 <template v-if="m.adjuntoUrl">
-                  <img
-                    v-if="esImagen(m.adjuntoTipo)"
-                    :src="m.adjuntoUrl"
-                    :alt="m.adjuntoNombre ?? 'Imagen adjunta'"
-                    @click="imagenAmpliada = m.adjuntoUrl!"
-                    class="max-w-full max-h-48 rounded-lg cursor-zoom-in block object-cover"
-                  />
+                  <div v-if="esImagen(m.adjuntoTipo)" class="relative">
+                    <div
+                      v-if="!imagenesCargadas[m.id]"
+                      class="w-32 h-32 rounded-lg bg-gray-100 flex items-center justify-center"
+                    >
+                      <FontAwesomeIcon :icon="faSpinner" class="w-4 h-4 text-gray-300 animate-spin" />
+                    </div>
+                    <img
+                      :src="m.adjuntoUrl"
+                      :alt="m.adjuntoNombre ?? 'Imagen adjunta'"
+                      @click="imagenAmpliada = m.adjuntoUrl!"
+                      @load="imagenesCargadas[m.id] = true"
+                      @error="imagenesCargadas[m.id] = true"
+                      class="max-w-full max-h-48 rounded-lg cursor-zoom-in block object-cover"
+                      :class="{ hidden: !imagenesCargadas[m.id] }"
+                    />
+                  </div>
                   <button
                     v-else
                     type="button"

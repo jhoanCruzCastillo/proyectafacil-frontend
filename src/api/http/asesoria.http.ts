@@ -1,4 +1,4 @@
-import { apiFetch } from './_shared';
+import { apiFetch, apiUploadFormData } from './_shared';
 import type { AsesoriaApi, BloqueAgendado } from '../contracts/asesoria';
 import type { SolicitudAsesoria, MensajeAsesoria, NoAtendidasAsesor } from '@/types';
 
@@ -61,10 +61,9 @@ export const asesoriaHttp: AsesoriaApi = {
     });
   },
 
-  subirAdjunto(dataUrl, nombre, tipo) {
-    return apiFetch<{ url: string }>('asesoria/adjuntos', {
-      method: 'POST',
-      body: JSON.stringify({ dataUrl, nombre, tipo }),
-    });
+  subirAdjunto(file, onProgress) {
+    const form = new FormData();
+    form.append('archivo', file, file.name);
+    return apiUploadFormData<{ url: string }>('asesoria/adjuntos', form, onProgress);
   },
 };
