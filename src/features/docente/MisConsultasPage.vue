@@ -17,23 +17,13 @@ import { useUsuariosQuery, useActualizarUsuario } from '@/composables/useUsuario
 import { tiempoHastaVencer, tiempoRelativo } from '@/lib/tiempoRelativo';
 import { ESTADO_ASESORIA_LABEL as ESTADO_LABEL, ESTADO_ASESORIA_CLASE as ESTADO_CLASE } from '@/lib/estadoAsesoria';
 import { colorCategoria, formatFechaHoraVideo, ventanaDeLlamada, unirseALlamada, puedeCompletarAsesoria } from '@/lib/consultaAsesorUI';
-import { solicitudesFalsasPedroRios } from '@/lib/misConsultasDemoFake';
 import type { SolicitudAsesoria } from '@/types';
 
 const session = useSessionStore();
 const ui = useUiStore();
 const docenteId = computed(() => session.sesion?.usuarioId ?? '');
 
-const { data: solicitudesReales, isLoading } = useMisSolicitudesQuery(docenteId, 'asesor');
-// DEMO (frontend, no backend): Pedro Ríos (docente_id=6) ya tiene datos reales de sobra en
-// "Atendidas", pero cero en "Por Agendar"/"Agendadas" — se agregan unas cuantas solicitudes
-// ficticias solo para ÉL, para poder revisar el diseño de esas dos pestañas. Ver
-// lib/misConsultasDemoFake.ts — pedido explícito del usuario, quitar cuando ya no haga falta.
-const solicitudes = computed(() => (
-  docenteId.value === '6'
-    ? [...solicitudesFalsasPedroRios(docenteId.value), ...(solicitudesReales.value ?? [])]
-    : solicitudesReales.value
-));
+const { data: solicitudes, isLoading } = useMisSolicitudesQuery(docenteId, 'asesor');
 const aceptarSolicitud = useAceptarSolicitud();
 
 const { data: usuarios } = useUsuariosQuery();
