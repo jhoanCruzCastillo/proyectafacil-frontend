@@ -4,6 +4,12 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
+    # Default de nginx es 1 MB — de sobra para JSON normal, pero corta en seco cualquier subida
+    # multipart más pesada (Excel, adjuntos de chat) antes de que llegue al backend. Encontrado en
+    # vivo (2026-08-31): un PDF de un chat de asesoría fallaba con net::ERR_HTTP2_PROTOCOL_ERROR acá,
+    # no en el backend — el body ni siquiera llegaba a pasar por PHP.
+    client_max_body_size 50m;
+
     # Sin esto, nginx resuelve BACKEND_INTERNAL_HOST UNA sola vez al arrancar y cachea esa IP para
     # siempre. Cuando el backend se reinicia (deploy, redeploy, o incluso un `php spark db:seed`
     # que reinicia el contenedor), Railway le asigna una IP interna nueva y nginx se queda apuntando
