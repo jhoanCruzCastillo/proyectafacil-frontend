@@ -328,10 +328,26 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
     if (!archivoEjemplo.value) { ui.toast('Esta ficha no tiene una copia de Excel asociada', 'error'); return; }
     try {
       const { descargarArchivoUrl } = await import('@/lib/fetchBinario');
-      await descargarArchivoUrl(archivoEjemplo.value.dataUrl, archivoEjemplo.value.nombre);
+      await descargarArchivoUrl(archivoEjemplo.value.dataUrl, nombreArchivoDescarga());
     } catch {
       ui.toast('No se pudo descargar el Excel', 'error');
     }
+  }
+
+  // `archivoEjemplo.value.nombre` es el nombre del Excel de la PLANTILLA (ej.
+  // "1_plantilla_electronica.xlsx") heredado al copiarlo para este ejemplo — al descargar, quien
+  // descarga espera ver el nombre de SU proyecto, no el de la plantilla base. Mismo criterio de
+  // sanitización que JsonPreviewModal.vue::nombreArchivo() (sin acentos ni caracteres que Windows
+  // rechaza en rutas).
+  function nombreArchivoDescarga(): string {
+    const extension = archivoEjemplo.value?.nombre.match(/\.[a-z0-9]+$/i)?.[0] ?? '.xlsx';
+    const base = (ejemplo.value?.nombre ?? '')
+      .normalize('NFD').replace(/\p{Diacritic}/gu, '')
+      .replace(/[^a-zA-Z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .toLowerCase();
+
+    return `${base || 'ficha'}${extension}`;
   }
 
   async function handleInsert() {
@@ -425,6 +441,7 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
     secciones, safeIdx, seccionActiva, isFirst, isLast,
     handleLeftResize, handleExamplesResize, handleSectionSelect, goToPrevSection, goToNextSection, handleValueChange,
     handleSave, handleDownload, handleInsert, iniciarDescarga, confirmarInsertarYDescargar, abrirVistaPrevia,
+    nombreArchivoDescarga,
     excelVivo,
   };
 }

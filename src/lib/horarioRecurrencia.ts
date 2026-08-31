@@ -37,6 +37,8 @@ export function ocurreEnFecha(regla: ReglaHorario, fechaIso: string): boolean {
   const objetivo = fechaLocalDesdeIso(fechaIso);
 
   switch (regla.tipoRepeticion) {
+    case 'unica':
+      return fechaIso === regla.fechaInicio;
     case 'diaria':
       return true;
     case 'lunes_a_viernes': {
@@ -74,6 +76,7 @@ export function ocurrenciasEnRango<T extends ReglaHorario>(reglas: T[], desdeIso
 }
 
 export const REPETICION_LABELS: Record<TipoRepeticion, string> = {
+  unica: 'Una vez',
   diaria: 'Diariamente',
   lunes_a_viernes: 'Lunes a viernes',
   semanal: 'Semanalmente',

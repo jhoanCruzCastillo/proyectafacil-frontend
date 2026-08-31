@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faHouse, faLayerGroup, faAnglesLeft, faAnglesRight, faUserGear, faCalendarWeek, faCalendarCheck, faCircleInfo, faCircleExclamation, faListCheck, faHeadset, faPeopleGroup, faMoneyBillTransfer, faClock, faFolderOpen, faChevronUp, faChevronDown, instrumentoIcons } from '@/lib/icons';
+import { faHouse, faLayerGroup, faAnglesLeft, faAnglesRight, faUserGear, faCalendarWeek, faCalendarCheck, faCircleInfo, faCircleExclamation, faListCheck, faHeadset, faPeopleGroup, faMoneyBillTransfer, faClock, faFolderOpen, faChevronUp, faChevronDown, faLock, instrumentoIcons } from '@/lib/icons';
 import UserMenu from '@/features/settings/UserMenu.vue';
 import MejorarPlanCard from '@/features/settings/MejorarPlanCard.vue';
 import NotificacionesBell from '@/features/asesoria/NotificacionesBell.vue';
@@ -13,11 +13,13 @@ const session = useSessionStore();
 const esCliente = computed(() => session.sesion?.rol === 'cliente');
 const esAsesor = computed(() => session.sesion?.rol === 'asesor');
 
-interface NavLink { to: string; label: string; icon: typeof faHouse }
+interface NavLink { to: string; label: string; icon: typeof faHouse; locked?: boolean }
 // Un ítem del menú es un link directo (trae `to`) o un grupo desplegable (trae `children`,
 // sin ruta propia) — nunca ambos. `to` queda opcional solo para que un mismo array admita las
-// dos formas sin dos interfaces separadas.
-interface NavItem { to?: string; label: string; icon: typeof faHouse; children?: NavLink[] }
+// dos formas sin dos interfaces separadas. `locked`: cliente sin plan — se muestra apagado y sin
+// navegación (el guard de router/index.ts ya lo rebota a "elegir-plan" de todas formas, esto solo
+// lo hace visible de entrada en vez de un rebote silencioso).
+interface NavItem { to?: string; label: string; icon: typeof faHouse; children?: NavLink[]; locked?: boolean }
 
 // "Gestión de fichas": agrupa Formatos/Fichas técnicas/IOARR/Perfiles bajo un solo desplegable —
 // mismos 4 instrumentos, dos ubicaciones distintas (cliente en la raíz, catálogo del superusuario
@@ -38,9 +40,10 @@ function grupoGestionFichas(prefijo: string): NavItem {
 const navItems = computed(() => {
   let items: NavItem[];
   if (esCliente.value) {
+    const sinPlan = session.sesion?.tienePlan === false;
     items = [
-      grupoGestionFichas(''),
-      { to: '/asesorias', label: 'Asesorías en vivo', icon: faHeadset },
+      { ...grupoGestionFichas(''), locked: sinPlan },
+      { to: '/asesorias', label: 'Asesorías en vivo', icon: faHeadset, locked: sinPlan },
     ];
   } else if (esAsesor.value) {
     items = [
@@ -134,7 +137,18 @@ const emit = defineEmits<{ toggle: [] }>();
                sin texto, así que se aplana a sus hijos como links sueltos, igual que cualquier
                otro ítem en modo ícono. -->
           <template v-if="item.children">
-            <template v-if="collapsed">
+            <li v-if="item.locked">
+              <div
+                :title="collapsed ? `${item.label} — elige un plan para desbloquear` : 'Elige un plan para desbloquear'"
+                class="flex items-center px-3 py-2.5 rounded-lg text-sm font-medium text-white/30 cursor-not-allowed"
+                :class="collapsed ? 'justify-center px-0' : 'gap-3'"
+              >
+                <FontAwesomeIcon :icon="item.icon" class="w-4 text-center shrink-0" />
+                <span v-if="!collapsed" class="flex-1">{{ item.label }}</span>
+                <FontAwesomeIcon v-if="!collapsed" :icon="faLock" class="w-3 h-3 text-white/25 shrink-0" />
+              </div>
+            </li>
+            <template v-else-if="collapsed">
               <li v-for="child in item.children" :key="child.to">
                 <RouterLink :to="child.to" custom v-slot="{ href, navigate, isExactActive }">
                   <a
@@ -166,9 +180,10 @@ const emit = defineEmits<{ toggle: [] }>();
                     :href="href"
                     @click="navigate"
                     class="relative flex items-center gap-2.5 pl-4 pr-3 py-2 rounded-lg text-sm transition-colors"
-                    :class="isExactActive ? 'bg-sidebar-active text-white shadow-card font-medium' : 'text-white/60 hover:bg-sidebar-hover hover:text-white'"
+                    :class="isExactActive ? 'bg-gradient-to-r from-brand-600/15 to-brand-600 text-white shadow-card font-semibold' : 'text-white/60 hover:bg-sidebar-hover hover:text-white'"
                   >
-                    <span class="absolute left-0 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-brand-500 shrink-0" />
+                    <span v-if="isExactActive" class="absolute left-0 top-1 bottom-1 w-1 rounded-full bg-brand-300" />
+                    <span v-else class="absolute left-0 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-brand-500 shrink-0" />
                     <FontAwesomeIcon :icon="child.icon" class="w-3.5 text-center shrink-0" />
                     <span class="flex-1">{{ child.label }}</span>
                   </a>
@@ -177,6 +192,19 @@ const emit = defineEmits<{ toggle: [] }>();
             </li>
           </template>
 
+          <!-- Link simple, bloqueado (cliente sin plan) -->
+          <li v-else-if="item.locked">
+            <div
+              :title="collapsed ? `${item.label} — elige un plan para desbloquear` : 'Elige un plan para desbloquear'"
+              class="flex items-center px-3 py-2.5 rounded-lg text-sm font-medium text-white/30 cursor-not-allowed"
+              :class="collapsed ? 'justify-center px-0' : 'gap-3'"
+            >
+              <FontAwesomeIcon :icon="item.icon" class="w-4 text-center shrink-0" />
+              <span v-if="!collapsed" class="flex-1">{{ item.label }}</span>
+              <FontAwesomeIcon v-if="!collapsed" :icon="faLock" class="w-3 h-3 text-white/25 shrink-0" />
+            </div>
+          </li>
+
           <!-- Link simple -->
           <li v-else>
             <RouterLink :to="item.to!" custom v-slot="{ href, navigate, isExactActive }">
@@ -184,12 +212,13 @@ const emit = defineEmits<{ toggle: [] }>();
                 :href="href"
                 @click="navigate"
                 :title="collapsed ? item.label : undefined"
-                class="flex items-center px-3 py-2.5 rounded-lg text-sm font-medium transition-colors"
+                class="relative flex items-center px-3 py-2.5 rounded-lg text-sm font-medium transition-colors"
                 :class="[
-                  isExactActive ? 'bg-sidebar-active text-white shadow-card' : 'text-white/65 hover:bg-sidebar-hover hover:text-white',
+                  isExactActive ? 'bg-gradient-to-r from-brand-600/15 to-brand-600 text-white shadow-card font-semibold' : 'text-white/65 hover:bg-sidebar-hover hover:text-white',
                   collapsed ? 'justify-center px-0' : 'gap-3',
                 ]"
               >
+                <span v-if="isExactActive && !collapsed" class="absolute left-0 top-1 bottom-1 w-1 rounded-full bg-brand-300" />
                 <FontAwesomeIcon :icon="item.icon" class="w-4 text-center shrink-0" />
                 <span v-if="!collapsed" class="flex-1">{{ item.label }}</span>
               </a>
@@ -199,7 +228,10 @@ const emit = defineEmits<{ toggle: [] }>();
       </ul>
     </nav>
 
-    <MejorarPlanCard v-if="esCliente && !collapsed" />
+    <!-- Oculto sin plan: PlanesModal (que abre esta tarjeta) usa useFacturacionQuery sin el mismo
+         guard que ElegirPlanPage, así que igual dispararía el auto-asignado de Nivel 1
+         (FacturacionController::crearDefault()) — y ya tiene su propia pantalla de elegir plan. -->
+    <MejorarPlanCard v-if="esCliente && !collapsed && session.sesion?.tienePlan !== false" />
     <NotificacionesBell v-if="session.sesion" :collapsed="props.collapsed" />
     <UserMenu :collapsed="props.collapsed" />
   </aside>

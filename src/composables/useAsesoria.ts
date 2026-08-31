@@ -90,10 +90,12 @@ export function useCalificarSolicitud() {
   });
 }
 
-export function useMensajesQuery(solicitudId: MaybeRefOrGetter<string | null>) {
+// `visorId` = quién tiene el chat abierto ahora — cada poll marca como leídos (para el OTRO
+// participante) los mensajes ajenos que seguían sin ver, ver AsesoriaController::mensajes().
+export function useMensajesQuery(solicitudId: MaybeRefOrGetter<string | null>, visorId: MaybeRefOrGetter<string>) {
   return useQuery({
     queryKey: ['asesoria', 'mensajes', solicitudId],
-    queryFn: () => asesoriaHttp.mensajes(toValue(solicitudId) as string),
+    queryFn: () => asesoriaHttp.mensajes(toValue(solicitudId) as string, toValue(visorId)),
     enabled: () => !!toValue(solicitudId),
     refetchInterval: INTERVALO_MENSAJES_MS,
   });

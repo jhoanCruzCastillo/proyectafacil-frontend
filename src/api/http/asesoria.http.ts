@@ -45,8 +45,9 @@ export const asesoriaHttp: AsesoriaApi = {
     });
   },
 
-  mensajes(solicitudId) {
-    return apiFetch<MensajeAsesoria[]>(`asesoria/solicitudes/${solicitudId}/mensajes`);
+  mensajes(solicitudId, visorId) {
+    const query = visorId ? `?visorId=${visorId}` : '';
+    return apiFetch<MensajeAsesoria[]>(`asesoria/solicitudes/${solicitudId}/mensajes${query}`);
   },
 
   enviarMensaje(solicitudId, autorId, texto, adjunto) {

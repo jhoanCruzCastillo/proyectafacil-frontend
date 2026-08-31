@@ -64,3 +64,22 @@ export function useEliminarContextoGlobal() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['contextos-ia'] }),
   });
 }
+
+// Tab "Estructura": qué insumo va en cada paso (1/2/4/5) del armado del prompt de sistema.
+export function useGuardarContextoPaso() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ plantillaId, paso, tipo, insumoId }: { plantillaId: string; paso: number; tipo: 'general' | 'global'; insumoId: string }) =>
+      contextosIAHttp.guardarPaso(plantillaId, paso, tipo, insumoId),
+    onSuccess: (_d, { plantillaId }) => queryClient.invalidateQueries({ queryKey: ['contextos-ia', plantillaId] }),
+  });
+}
+
+export function useEliminarContextoPaso() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ plantillaId, asignacionId }: { plantillaId: string; asignacionId: string }) =>
+      contextosIAHttp.eliminarPaso(plantillaId, asignacionId),
+    onSuccess: (_d, { plantillaId }) => queryClient.invalidateQueries({ queryKey: ['contextos-ia', plantillaId] }),
+  });
+}

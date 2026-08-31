@@ -258,9 +258,16 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
   const previewFileUrl = computed(
     () => (showExamples.value && activeEjemplo.value ? excelEjemploActivo.value?.dataUrl : undefined) ?? archivoExcelAsignado.value?.dataUrl ?? null,
   );
-  const previewFileName = computed(
-    () => (showExamples.value && activeEjemplo.value ? excelEjemploActivo.value?.nombre : undefined) ?? archivoExcelAsignado.value?.nombre,
-  );
+  const previewFileName = computed(() => {
+    // Viendo el Excel de UN ejemplo puntual: nombrarlo con el proyecto, no con la plantilla base
+    // (ver nombreArchivoDescarga() más abajo). Sin ejemplo activo (viendo la plantilla en sí), el
+    // nombre de la plantilla SÍ es el correcto — no hay ningún proyecto que nombrarlo.
+    if (showExamples.value && activeEjemplo.value && excelEjemploActivo.value) {
+      return nombreArchivoDescarga(activeEjemplo.value.nombre, excelEjemploActivo.value.nombre);
+    }
+
+    return archivoExcelAsignado.value?.nombre;
+  });
 
   function getDefaultValores(): Record<string, string> {
     if (!editData.value) return {};
@@ -414,10 +421,25 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     if (!archivo) { ui.toast('Este ejemplo no tiene una copia de Excel asociada', 'error'); return; }
     try {
       const { descargarArchivoUrl } = await import('@/lib/fetchBinario');
-      await descargarArchivoUrl(archivo.dataUrl, archivo.nombre);
+      await descargarArchivoUrl(archivo.dataUrl, nombreArchivoDescarga(ejemplo.nombre, archivo.nombre));
     } catch {
       ui.toast('No se pudo descargar el Excel', 'error');
     }
+  }
+
+  // `archivo.nombre` es el nombre del Excel de la PLANTILLA (ej. "1_plantilla_electronica.xlsx")
+  // heredado al copiarlo para este ejemplo — al descargar, el admin espera ver el nombre del
+  // proyecto, no el de la plantilla base. Mismo criterio de sanitización que
+  // JsonPreviewModal.vue::nombreArchivo() (sin acentos ni caracteres que Windows rechaza en rutas).
+  function nombreArchivoDescarga(nombreEjemplo: string, nombreArchivoOriginal: string): string {
+    const extension = nombreArchivoOriginal.match(/\.[a-z0-9]+$/i)?.[0] ?? '.xlsx';
+    const base = nombreEjemplo
+      .normalize('NFD').replace(/\p{Diacritic}/gu, '')
+      .replace(/[^a-zA-Z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .toLowerCase();
+
+    return `${base || 'ficha'}${extension}`;
   }
 
   function handlePreviewExample(ejemplo: Ejemplo) {

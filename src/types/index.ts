@@ -604,7 +604,7 @@ export interface CambioFicha {
 // Asesoría 1:1 cliente↔docente (chat o videollamada por link externo). Cada bloque es una regla
 // de disponibilidad recurrente: fecha ancla (fechaInicio) + tipo de repetición, expandida a
 // ocurrencias concretas por src/lib/horarioRecurrencia.ts.
-export type TipoRepeticionHorario = 'diaria' | 'lunes_a_viernes' | 'semanal' | 'mensual' | 'anual';
+export type TipoRepeticionHorario = 'unica' | 'diaria' | 'lunes_a_viernes' | 'semanal' | 'mensual' | 'anual';
 
 export interface HorarioDocente {
   id: string;
@@ -660,10 +660,34 @@ export interface ContextoSeccionIA {
   actualizadoEn?: string | null;
 }
 
+/** Un insumo (general o global) asignado a un paso del armado del prompt de sistema — tab
+ * "Estructura" del panel Contextos IA. Solo existen para los pasos 1/2/4/5 (los demás son fijos en
+ * código, vienen del cliente, o se editan desde otro pilar — ver ContextosIAEstructuraPanel.vue). */
+export interface ContextoIAPasoAsignacion {
+  id: string;
+  paso: number;
+  tipo: 'general' | 'global';
+  insumoId: string;
+  nombre: string;
+}
+
+/** Qué insumo está usando REALMENTE el sistema en un paso 1/2/4/5 cuando no hay ninguna asignación
+ * explícita — mismo criterio que el fallback de LlenadoIAController (busca por nombre reservado). No
+ * tiene `id` de asignación porque no es una fila de `contextos_ia_pasos`: no se puede "quitar" desde
+ * acá, solo se reemplaza asignando otro insumo cualquiera al paso. */
+export interface ContextoIAPasoFallback {
+  paso: number;
+  tipo: 'general' | 'global';
+  insumoId: string;
+  nombre: string;
+}
+
 export interface ContextosIAPlantilla {
   secciones: ContextoSeccionIA[];
   generales: ContextoGeneralIA[];
   globales: ContextoGlobalIA[];
+  pasos: ContextoIAPasoAsignacion[];
+  pasosFallback: ContextoIAPasoFallback[];
 }
 
 // --- Mi Liquidación (asesor) ---
@@ -817,6 +841,10 @@ export interface SolicitudAsesoria {
   horarioHoraFin?: string | null;
   /** Link externo (Zoom/Meet) que el docente pega al aceptar una solicitud de tipo 'video' */
   linkReunion?: string | null;
+  /** Link de la grabación (Google Drive) — null hasta que Google termina de procesarla, ver el job programado */
+  linkGrabacion?: string | null;
+  /** Resumen de la sesión generado por Gemini (solo el texto de "Summary"), null hasta que esté listo */
+  resumenIaTexto?: string | null;
   /** ISO datetime — plazo para que algún asesor acepte antes de requerir intervención manual (Módulo 4) */
   slaVenceEn?: string | null;
   /** 1-5, solo presente cuando estado='completado' y el alumno ya calificó (Módulo 6) */
@@ -826,6 +854,8 @@ export interface SolicitudAsesoria {
   creadoEn: string;
   /** ISO datetime */
   actualizadoEn?: string | null;
+  /** ISO datetime — se escribe una sola vez, al completarse; no se mueve con ediciones posteriores */
+  completadoEn?: string | null;
 }
 
 // Módulo 4 — vista del Administrativo de Asesorías.
@@ -1007,6 +1037,8 @@ export interface MensajeAsesoria {
   adjuntoTipo?: string | null;
   /** ISO datetime */
   creadoEn: string;
+  /** ISO datetime — null hasta que la otra parte abre/consulta el chat (segunda palomita). */
+  leidoEn?: string | null;
 }
 
 // Inbox simple por usuario, leído vía polling — hoy solo lo llena el flujo de asesoría.
