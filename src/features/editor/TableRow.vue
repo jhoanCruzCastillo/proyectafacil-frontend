@@ -222,8 +222,15 @@ function valorMostrado(col: ColumnaTabla, opciones: string[] | null): string {
       </td>
       <td v-else :style="estiloDe(col)" class="px-1 py-0.5 align-top min-w-0 border-r border-brand-100">
         <!-- textarea con field-sizing: crece con el contenido hasta 15 líneas y luego scrollea -->
+        <!-- Valor CRUDO, sin la máscara de valorMostrado(): esta celda se edita tecleando, y
+             valorMostrado() reformatea (separador de miles, relleno de alineación) apenas cambia
+             row[col.id] — con ese `:value` la caja se reescribía en cada letra, peleando con el
+             cursor real del usuario a mitad de tecleo (encontrado en vivo: escribir "25000" en una
+             columna decimal con formato de miles en el Excel terminaba en un valor irreconocible).
+             La máscara sigue aplicándose donde no hay tecleo de por medio: celdas bloqueadas
+             (calculoExcel) y el desplegable de Excel (CampoListaInput), más abajo. -->
         <textarea
-          :value="valorMostrado(col, null)"
+          :value="(row[col.id] as string) ?? ''"
           @input="emit('cell-change', col.id, ($event.target as HTMLTextAreaElement).value)"
           @click.stop
           rows="1"

@@ -7,6 +7,10 @@ export const contextosIAHttp: ContextosIAApi = {
     return apiFetch<ContextosIAPlantilla>(`plantillas/${plantillaId}/contextos-ia`);
   },
 
+  promptSistemaPredeterminado(plantillaId) {
+    return apiFetch<{ markdown: string }>(`plantillas/${plantillaId}/contextos-ia/prompt-sistema-predeterminado`);
+  },
+
   guardarSeccion(plantillaId, seccionId, markdown, globales) {
     return apiFetch<ContextosIAPlantilla>(`plantillas/${plantillaId}/contextos-ia/${seccionId}`, {
       method: 'PUT',
@@ -42,5 +46,16 @@ export const contextosIAHttp: ContextosIAApi = {
 
   eliminarGlobal(id) {
     return apiFetch<ContextoGlobalIA[]>(`contextos-ia/globales/${id}`, { method: 'DELETE' });
+  },
+
+  guardarPaso(plantillaId, paso, tipo, insumoId) {
+    return apiFetch<ContextosIAPlantilla>(`plantillas/${plantillaId}/contextos-ia/pasos/${paso}`, {
+      method: 'POST',
+      body: JSON.stringify({ tipo, insumoId }),
+    });
+  },
+
+  eliminarPaso(plantillaId, asignacionId) {
+    return apiFetch<ContextosIAPlantilla>(`plantillas/${plantillaId}/contextos-ia/pasos-asignaciones/${asignacionId}`, { method: 'DELETE' });
   },
 };

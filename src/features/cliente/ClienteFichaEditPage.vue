@@ -18,11 +18,11 @@ import AsesorIAChat from './AsesorIAChat.vue';
 import AsesoriaHumanaFAB from './AsesoriaHumanaFAB.vue';
 import HistorialFichaModal from './HistorialFichaModal.vue';
 import { useClienteFichaEditor } from '@/composables/useClienteFichaEditor';
-import { useLlenadoIALote } from '@/composables/useLlenadoIALote';
+import { useLlenadoIAProgreso } from '@/composables/useLlenadoIAProgreso';
 import { useLlenadoTablaIA } from '@/composables/useLlenadoTablaIA';
 import { opcionesLlenadoCascada } from '@/lib/cascadaProblemaObjetivo';
 import { opcionesEstaticasPorColumna } from '@/lib/opcionesEstaticasTabla';
-import { esTablaCascadaFueraDeLote } from '@/lib/tablasCascadaFueraDeLote';
+import { esTablaExcluidaDeIA } from '@/lib/camposTablaExcluidosIA';
 import { useUiStore } from '@/stores/ui';
 
 const route = useRoute();
@@ -38,6 +38,7 @@ const {
   secciones, safeIdx, seccionActiva, isFirst, isLast,
   handleLeftResize, handleExamplesResize, handleSectionSelect, goToPrevSection, goToNextSection, handleValueChange,
   handleSave, iniciarDescarga, confirmarInsertarYDescargar, abrirVistaPrevia,
+  nombreArchivoDescarga,
   excelVivo,
 } = useClienteFichaEditor(ejemploId);
 
@@ -49,8 +50,6 @@ const {
   mensajeError: mensajeErrorLlenadoIA,
   resumenResultado,
   estadosCamposIA,
-  tablasPropuestas,
-  progresoLote,
   esperandoServidor: esperandoServidorLlenadoIA,
   enRevisionIA,
   resaltarVerResumen,
@@ -63,7 +62,16 @@ const {
   confirmarCampoIA,
   alEditarCampoIA,
   cancelar: cancelarLlenadoIAJob,
-} = useLlenadoIALote(plantilla);
+  // Temporal (2026-08-30): la Batch API de OpenAI está caída para cualquier organización desde el
+  // 19/08 ("Cannot find file... organization does not have access to it", confirmado reproduciendo
+  // el error con una llamada cruda a la API, sin nada de nuestro código de por medio — ver
+  // https://community.openai.com/t/batch-api-batches-create-intermittently-fails-with-cannot-find-file-for-hours-after-upload-despite-files-retrieve-showing-status-processed/1393234).
+  // Mientras dure, se usa este composable síncrono (llama /llenar-ia una vez por sección, en vez de
+  // useLlenadoIALote que arma un batch) — ya probado en vivo, 20/20 secciones + 1 tabla exitosas. NO
+  // llena tablas automáticamente al terminar por sí solo — por eso el watch de faseLlenadoIA de más
+  // abajo encadena la fase 2 (llenarTablasFaltantes), que recorre TODAS las tablas elegibles con su
+  // propia llamada, usando el mismo useLlenadoTablaIA de abajo que nunca usó Batch API.
+} = useLlenadoIAProgreso(plantilla, ejemploId);
 
 const { cargandoPorCampo: cargandoTablaIAPorCampo, erroresPorCampo: erroresTablaIAPorCampo, llenarTabla } = useLlenadoTablaIA(ejemploId);
 const ui = useUiStore();
@@ -71,21 +79,20 @@ const ui = useUiStore();
 const showCancelarLlenadoConfirm = ref(false);
 /** Parpadeo de "Guardar" en la topbar tras un llenado con IA — se prende cuando el sistema termina
  * de auto-confirmar los borradores de una fase (ver el watch de faseLlenadoIA y el final de
- * llenarTablasCascadaFaltantes) y se apaga al hacer clic en Guardar (ver onGuardar). Reemplaza al
+ * llenarTablasFaltantes) y se apaga al hacer clic en Guardar (ver onGuardar). Reemplaza al
  * botón "Terminar" que existía antes: ya no hace falta un paso explícito de "terminar de revisar",
  * el propio Guardar cumple ese rol. */
 const resaltarGuardar = ref(false);
-/** Qué lista muestra el modal de progreso: secciones de texto (fase 1, vía lote) o tablas en
- * cascada (fase 2) — ver llenarTablasCascadaFaltantes(). Sin esto, el modal reutilizado mostraba
- * "Progreso por sección" con nombres de tablas adentro, y alguien que eligió 2 secciones veía "4"
- * ítems sin entender por qué. */
+/** Qué lista muestra el modal de progreso: secciones de texto (fase 1, vía lote) o tablas (fase 2)
+ * — ver llenarTablasFaltantes(). Sin esto, el modal reutilizado mostraba "Progreso por sección" con
+ * nombres de tablas adentro, y alguien que eligió 2 secciones veía "4" ítems sin entender por qué. */
 const modoProgresoIA = ref<'secciones' | 'tablas'>('secciones');
 
 /** useLlenadoIALote no expone un `cancelado` propio (su cancelar() solo deja de pollear en esta
- * pestaña — el lote sigue en OpenAI) — la fase 2 síncrona de tablas en cascada, que corre en esta
- * misma página después de que el lote termina, necesita su propia bandera de cancelación. */
+ * pestaña — el lote sigue en OpenAI) — la fase 2 síncrona de tablas, que corre en esta misma página
+ * después de que el lote termina, necesita su propia bandera de cancelación. */
 const canceladoFaseTablasIA = ref(false);
-/** Evita reentradas: llenarTablasCascadaFaltantes() vuelve a poner faseLlenadoIA en 'completado' al
+/** Evita reentradas: llenarTablasFaltantes() vuelve a poner faseLlenadoIA en 'completado' al
  * terminar, lo que re-dispara el watch de abajo si no se protege. */
 const faseTablasYaEjecutada = ref(false);
 const seccionIdsPendientesFaseTablas = ref<string[] | null>(null);
@@ -94,48 +101,20 @@ function marcarItemProgresoIA(id: string, patch: Partial<SeccionProgresoIA>) {
   seccionesProgresoIA.value = seccionesProgresoIA.value.map((s) => (s.id === id ? { ...s, ...patch } : s));
 }
 
-function campoIdPorIdentificador(identificador: string): string | null {
-  if (!plantilla.value) return null;
-  for (const seccion of plantilla.value.secciones) {
-    for (const sub of seccion.subsecciones) {
-      for (const campo of sub.campos) {
-        if (campo.identificador === identificador) return campo.id;
-      }
-    }
-  }
-  return null;
-}
-
-// El lote propone tablas (salvo las de cascada) sin persistirlas — igual que onLlenarTablaIA(), entran
-// como borrador (ámbar) por el mismo circuito de useClienteFichaEditor, para revisar y confirmar antes
-// de Guardar. tablasPropuestas trae `valor` ya como estructura nativa (misma forma que valorEjemplo),
-// por eso se serializa aquí — onValueChange/handleValueChange esperan el mismo string JSON que produce
-// llenarTabla() en el flujo síncrono de una tabla suelta.
-function aplicarTablasPropuestasDelLote() {
-  for (const t of tablasPropuestas.value) {
-    if (t.error) continue;
-    const campoId = campoIdPorIdentificador(t.identificador);
-    if (!campoId) continue;
-    onValueChange(campoId, t.identificador, JSON.stringify(t.valor));
-    if (t.fuente) setFuenteCampo(t.identificador, t.fuente);
-    if (t.advertencias) setAdvertenciasCampo(t.identificador, t.advertencias);
-  }
-}
-
-// El lote llena secciones de texto y tablas (salvo las de cascada, ver tablasCascadaFueraDeLote.ts)
-// de forma asíncrona en el servidor — cuando termina (fase pasa a 'completado'), esta página aplica
-// las tablas propuestas y encadena la fase 2: las 3 tablas de cascada de Sección 5, que dependen del
-// Excel vivo del cliente y no se pueden resolver dentro de un lote server-side (ver useLlenadoIALote.ts).
+// Mientras Batch API esté caída (ver el comentario junto a useLlenadoIAProgreso arriba), el llenado
+// de secciones de texto es síncrono y NO propone tablas por su cuenta — por eso encadena la fase 2
+// acá: recorre TODAS las tablas elegibles de la ficha (mismo criterio de exclusión que el backend,
+// ver camposTablaExcluidosIA.ts) y las llena una por una, igual que hacía el lote antes de que se
+// quitara aplicarTablasPropuestasDelLote de este archivo.
 watch(faseLlenadoIA, (fase) => {
   if (fase !== 'completado' || faseTablasYaEjecutada.value) return;
   faseTablasYaEjecutada.value = true;
-  aplicarTablasPropuestasDelLote();
-  // Proceso de sistema, no de IA (no cuesta nada): confirma solo las tablas que el lote propuso,
-  // sin esperar a que el usuario haga clic en "Confirmar" campo por campo. Lo único pendiente
-  // después de esto es persistir con Guardar, por eso se prende su parpadeo.
+  // Proceso de sistema, no de IA (no cuesta nada): confirma los campos de texto que la IA propuso,
+  // sin esperar a que el usuario haga clic en "Confirmar" uno por uno. Lo único pendiente después de
+  // esto es persistir con Guardar, por eso se prende su parpadeo.
   confirmarTodosLosBorradores();
   resaltarGuardar.value = true;
-  void llenarTablasCascadaFaltantes(seccionIdsPendientesFaseTablas.value);
+  void llenarTablasFaltantes(seccionIdsPendientesFaseTablas.value);
 });
 
 function confirmarCancelarLlenadoIA() {
@@ -181,14 +160,14 @@ async function iniciarLlenadoIA(payload?: { seccionIds?: string[] }) {
   canceladoFaseTablasIA.value = false;
   faseTablasYaEjecutada.value = false;
   seccionIdsPendientesFaseTablas.value = payload?.seccionIds ?? null;
-  // No hay un `await` que encadene la fase 2 aquí: useLlenadoIALote.iniciar() envía el lote y arranca
-  // el polling, pero resuelve su promesa apenas agenda el primer poll (no cuando el lote realmente
-  // termina en OpenAI, que puede tardar minutos u horas) — por eso la fase 2 se dispara vía el watch
-  // de faseLlenadoIA de arriba, no secuencialmente aquí.
+  // useLlenadoIAProgreso.iniciar() SÍ espera a que termine la última sección antes de resolver (a
+  // diferencia del lote, que resolvía apenas se agendaba el primer poll) — el `await` de acá ya
+  // podría encadenar la fase 2 directamente, pero se deja el watch de faseLlenadoIA de arriba para no
+  // tocar esa mecánica (funciona igual sin importar cuándo resuelva esta promesa).
   await iniciarLlenadoIAJob(ejemploId.value, payload?.seccionIds);
 }
 
-async function llenarTablasCascadaFaltantes(seccionIds: string[] | null) {
+async function llenarTablasFaltantes(seccionIds: string[] | null) {
   if (!plantilla.value) return;
   const filtro = seccionIds && seccionIds.length > 0 ? new Set(seccionIds) : null;
   const tablas: { campoId: string; identificador: string; seccionId: string; etiqueta: string }[] = [];
@@ -199,7 +178,8 @@ async function llenarTablasCascadaFaltantes(seccionIds: string[] | null) {
         if (
           (campo.tipo === 'tabla' || campo.tipo === 'tabla_jerarquica')
           && campo.editable
-          && esTablaCascadaFueraDeLote(plantilla.value.codigo, campo.identificador)
+          && campo.configTabla
+          && !esTablaExcluidaDeIA(plantilla.value.codigo, campo.identificador)
         ) {
           tablas.push({ campoId: campo.id, identificador: campo.identificador, seccionId: seccion.id, etiqueta: campo.etiqueta });
         }
@@ -250,8 +230,8 @@ async function llenarTablasCascadaFaltantes(seccionIds: string[] | null) {
     return;
   }
 
-  // Mismo proceso de sistema que la fase 1: confirma las tablas de cascada solas, sin pedirle al
-  // usuario que las apruebe una por una — solo queda persistir con Guardar.
+  // Mismo proceso de sistema que la fase 1: confirma las tablas solas, sin pedirle al usuario que
+  // las apruebe una por una — solo queda persistir con Guardar.
   confirmarTodosLosBorradores();
   resaltarGuardar.value = true;
 
@@ -427,7 +407,7 @@ async function onGuardar() {
     <ExcelPreviewModal
       :is-open="showPreview"
       :file-url="archivoEjemplo?.dataUrl ?? null"
-      :file-name="archivoEjemplo?.nombre"
+      :file-name="nombreArchivoDescarga()"
       :title="`${plantilla.codigo} — ${ejemplo.nombre}`"
       @close="showPreview = false"
     />
@@ -444,20 +424,14 @@ async function onGuardar() {
   </div>
 
   <!-- Fuera del v-else del editor: sobreviven un refetch de ejemplo y no cortan la transición al informe. -->
-  <!-- Incluye 'enviando' (no solo 'procesando'/'error'): useLlenadoIALote pone showProgreso=true antes
-       de armar y subir el lote a OpenAI, y para "Llenar toda la ficha" (85 solicitudes) ese envío puede
-       tardar varios segundos — sin 'enviando' aquí, el modal se quedaba sin montar todo ese tramo (con
-       pocas solicitudes el hueco era demasiado corto para notarlo, pero con la ficha completa se veía
-       como si el clic no hiciera nada). -->
   <ProcesamientoIAModal
-    v-if="faseLlenadoIA === 'enviando' || faseLlenadoIA === 'procesando' || faseLlenadoIA === 'error'"
+    v-if="faseLlenadoIA === 'procesando' || faseLlenadoIA === 'error'"
     :is-open="showProcesamientoIA"
     :secciones="seccionesProgresoIA"
     :fase="faseLlenadoIA === 'error' ? 'error' : 'procesando'"
     :mensaje-error="mensajeErrorLlenadoIA"
     :esperando-servidor="esperandoServidorLlenadoIA"
     :modo="modoProgresoIA"
-    :progreso-real="progresoLote"
     @close="cerrarProcesamientoIA()"
     @ver-resultados="verResultadosLlenadoIA()"
     @cancelar="showCancelarLlenadoConfirm = true"

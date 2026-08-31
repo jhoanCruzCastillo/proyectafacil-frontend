@@ -445,11 +445,19 @@ function comparar(op: string, a: Escalar | typeof NO_SOPORTADO, b: Escalar | typ
   if (a instanceof ErrorExcel) return a;
   if (b instanceof ErrorExcel) return b;
 
+  // Una celda nunca tocada (sin fórmula, sin caché) resuelve a "" (ver valorDeCelda) — Excel trata
+  // esa celda en blanco como 0 cuando se compara contra un NÚMERO (`ALGO=0` con ALGO vacío da
+  // VERDADERO), y como "" cuando se compara contra texto. Antes esto solo cubría `null`, nunca la
+  // cadena vacía real que devuelve una celda en blanco — así que `celdaVacia=0` comparaba '' === 0
+  // (siempre falso) en vez de 0 === 0. Encontrado en vivo: una guarda `IF(celda=0,"",...)` no
+  // atrapaba la celda vacía, la división de al lado se ejecutaba igual y salía #DIV/0! en vez de "".
+  const esVacio = (v: Escalar): v is null | '' => v === null || v === '';
+  let va: Exclude<Escalar, null> = esVacio(a) ? (typeof b === 'number' ? 0 : '') : a;
+  let vb: Exclude<Escalar, null> = esVacio(b) ? (typeof a === 'number' ? 0 : '') : b;
+
   // Excel compara texto sin distinguir mayúsculas
-  const ta = typeof a === 'string' ? a.toLowerCase() : a;
-  const tb = typeof b === 'string' ? b.toLowerCase() : b;
-  const va = ta === null ? '' : ta;
-  const vb = tb === null ? '' : tb;
+  if (typeof va === 'string') va = va.toLowerCase();
+  if (typeof vb === 'string') vb = vb.toLowerCase();
 
   switch (op) {
     case '=': return va === vb;

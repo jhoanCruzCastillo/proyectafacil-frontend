@@ -660,10 +660,34 @@ export interface ContextoSeccionIA {
   actualizadoEn?: string | null;
 }
 
+/** Un insumo (general o global) asignado a un paso del armado del prompt de sistema — tab
+ * "Estructura" del panel Contextos IA. Solo existen para los pasos 1/2/4/5 (los demás son fijos en
+ * código, vienen del cliente, o se editan desde otro pilar — ver ContextosIAEstructuraPanel.vue). */
+export interface ContextoIAPasoAsignacion {
+  id: string;
+  paso: number;
+  tipo: 'general' | 'global';
+  insumoId: string;
+  nombre: string;
+}
+
+/** Qué insumo está usando REALMENTE el sistema en un paso 1/2/4/5 cuando no hay ninguna asignación
+ * explícita — mismo criterio que el fallback de LlenadoIAController (busca por nombre reservado). No
+ * tiene `id` de asignación porque no es una fila de `contextos_ia_pasos`: no se puede "quitar" desde
+ * acá, solo se reemplaza asignando otro insumo cualquiera al paso. */
+export interface ContextoIAPasoFallback {
+  paso: number;
+  tipo: 'general' | 'global';
+  insumoId: string;
+  nombre: string;
+}
+
 export interface ContextosIAPlantilla {
   secciones: ContextoSeccionIA[];
   generales: ContextoGeneralIA[];
   globales: ContextoGlobalIA[];
+  pasos: ContextoIAPasoAsignacion[];
+  pasosFallback: ContextoIAPasoFallback[];
 }
 
 // --- Mi Liquidación (asesor) ---
