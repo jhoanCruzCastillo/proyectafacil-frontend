@@ -6,6 +6,7 @@ import {
   faPaperclip, faFileLines, faDownload, faSpinner, faCheck, faCheckDouble,
 } from '@/lib/icons';
 import { formatHora } from '@/lib/tiempoRelativo';
+import { abrirArchivoUrl } from '@/lib/fetchBinario';
 import { useMensajesQuery, useEnviarMensaje, useFinalizarSolicitud, useSubirAdjuntoChat } from '@/composables/useAsesoria';
 import { useUsuariosQuery, useActualizarUsuario } from '@/composables/useUsuarios';
 import { useUiStore } from '@/stores/ui';
@@ -274,6 +275,17 @@ function esImagen(tipo?: string | null): boolean {
   return !!tipo && tipo.startsWith('image/');
 }
 
+// Los adjuntos que no son imagen (PDF, Word…) pueden venir del proxy S3 con Bearer — un <a href>
+// normal no manda el header. abrirArchivoUrl() hace fetch con auth cuando hace falta y abre el
+// resultado en una pestaña nueva (ver fetchBinario.ts).
+async function abrirAdjunto(url: string, nombre: string | null | undefined) {
+  try {
+    await abrirArchivoUrl(url, nombre ?? 'archivo');
+  } catch (e) {
+    ui.toast(e instanceof Error ? e.message : 'No se pudo abrir el archivo', 'error');
+  }
+}
+
 // Divisor de fecha ("Hoy" / "Ayer" / fecha) antes del primer mensaje de cada día — mismo criterio
 // de agrupación que cualquier chat real (WhatsApp, etc.).
 function etiquetaFecha(fechaISO: string): string {
@@ -384,19 +396,18 @@ const mensajesConDivisor = computed(() => {
                     @click="imagenAmpliada = m.adjuntoUrl!"
                     class="max-w-full max-h-48 rounded-lg cursor-zoom-in block object-cover"
                   />
-                  <a
+                  <button
                     v-else
-                    :href="m.adjuntoUrl"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="flex items-center gap-2.5 rounded-lg px-2.5 py-2 bg-white border border-gray-100 hover:bg-gray-50 transition-colors"
+                    type="button"
+                    @click="abrirAdjunto(m.adjuntoUrl!, m.adjuntoNombre)"
+                    class="flex items-center gap-2.5 rounded-lg px-2.5 py-2 bg-white border border-gray-100 hover:bg-gray-50 transition-colors w-full text-left"
                   >
                     <span class="w-7 h-7 rounded-md bg-red-50 text-red-500 flex items-center justify-center shrink-0">
                       <FontAwesomeIcon :icon="faFileLines" class="w-3.5 h-3.5" />
                     </span>
                     <span class="truncate flex-1 text-gray-700">{{ m.adjuntoNombre ?? 'Archivo' }}</span>
                     <FontAwesomeIcon :icon="faDownload" class="w-3 h-3 shrink-0 text-gray-400" />
-                  </a>
+                  </button>
                 </template>
                 <p v-if="m.texto">{{ m.texto }}</p>
                 <div class="flex items-center justify-end gap-1 text-gray-400">

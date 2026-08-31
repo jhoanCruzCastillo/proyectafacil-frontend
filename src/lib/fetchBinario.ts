@@ -129,6 +129,47 @@ async function leerConProgreso(res: Response, onProgress?: DescargaProgresoCb): 
 }
 
 /**
+ * Abrir en una pestaña nueva (adjuntos de chat: PDF, Word, etc. — no forzar descarga).
+ * - URL API/proxy: fetch con Bearer, blob URL, window.open (el visor nativo del navegador lo abre).
+ * - URL externa (Cloudinary): window.open directo — no necesita Bearer y evita el viaje redundante.
+ */
+export async function abrirArchivoUrl(url: string, nombre: string): Promise<void> {
+  if (!esUrlApiBinaria(url)) {
+    window.open(url, '_blank', 'noopener,noreferrer');
+    return;
+  }
+
+  // Se abre YA, sincrónico con el click — si se abre recién después del await, la "activación de
+  // usuario" del click ya expiró y la mayoría de navegadores lo bloquea como popup en silencio (sin
+  // avisar, así que ni un catch lo detecta). Se navega a about:blank y se le cambia el location
+  // cuando el blob esté listo.
+  const ventana = window.open('', '_blank');
+
+  try {
+    const res = await fetchBinario(url);
+    if (!res.ok) throw new Error(`No se pudo abrir el archivo (${res.status})`);
+    const blob = await res.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    if (ventana && ! ventana.closed) {
+      ventana.location.href = objectUrl;
+    } else {
+      // El usuario (o un bloqueador extra) cerró/bloqueó la pestaña igual — última opción: descargar.
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = nombre;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+    // El blob URL debe sobrevivir mientras la pestaña nueva lo está cargando — se libera después.
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+  } catch (e) {
+    ventana?.close();
+    throw e instanceof Error ? e : new Error('No se pudo abrir el archivo');
+  }
+}
+
+/**
  * Descarga forzada (botón Descargar).
  * - URL API/proxy: stream con progreso + Bearer.
  * - URL externa (Cloudinary): intenta stream con progreso; si CORS falla, cae a `<a download>`.
