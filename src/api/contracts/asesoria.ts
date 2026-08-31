@@ -39,7 +39,7 @@ export interface AsesoriaApi {
   /** `visorId` (opcional) marca como leídos, para el remitente, los mensajes ajenos sin leer. */
   mensajes(solicitudId: string, visorId?: string): Promise<MensajeAsesoria[]>;
   enviarMensaje(solicitudId: string, autorId: string, texto: string, adjunto?: { url: string; nombre: string; tipo: string }): Promise<MensajeAsesoria[]>;
-  /** Sube un adjunto de chat (cualquier tipo de archivo) a Cloudinary y devuelve su URL — se usa
+  /** Sube un adjunto de chat (cualquier tipo de archivo, multipart) y devuelve su URL — se usa
    * después como `adjunto` en enviarMensaje(). */
-  subirAdjunto(dataUrl: string, nombre: string, tipo: string): Promise<{ url: string }>;
+  subirAdjunto(file: File, onProgress?: (fraction: number) => void): Promise<{ url: string }>;
 }

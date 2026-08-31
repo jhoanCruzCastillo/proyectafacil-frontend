@@ -119,11 +119,11 @@ export function useEnviarMensaje() {
   });
 }
 
-// Sube el archivo a Cloudinary — un paso previo y separado de useEnviarMensaje() para poder
-// mostrar progreso de subida antes de que el mensaje exista.
+// Sube el archivo (Cloudinary si es imagen, S3/Cloudinary raw si no) — un paso previo y separado
+// de useEnviarMensaje() para poder mostrar progreso de subida antes de que el mensaje exista.
 export function useSubirAdjuntoChat() {
   return useMutation({
-    mutationFn: ({ dataUrl, nombre, tipo }: { dataUrl: string; nombre: string; tipo: string }) =>
-      asesoriaHttp.subirAdjunto(dataUrl, nombre, tipo),
+    mutationFn: ({ file, onProgress }: { file: File; onProgress?: (fraction: number) => void }) =>
+      asesoriaHttp.subirAdjunto(file, onProgress),
   });
 }

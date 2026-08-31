@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import {
-  faXmark, faStar, faComments, faVideo, faCheck, faCheckDouble, faFileLines, faDownload,
+  faXmark, faStar, faComments, faVideo, faCheck, faCheckDouble, faFileLines, faDownload, faSpinner,
 } from '@/lib/icons';
 import Avatar from '@/components/Avatar.vue';
 import { colorCategoria, formatFechaHoraVideo } from '@/lib/consultaAsesorUI';
@@ -62,6 +62,10 @@ async function abrirAdjunto(url: string, nombre: string | null | undefined) {
     ui.toast(e instanceof Error ? e.message : 'No se pudo abrir el archivo', 'error');
   }
 }
+
+// Las imágenes de Cloudinary a veces tardan en cargar — sin esto aparecían recién cuando
+// terminaban, sin ningún indicio de que algo se estaba cargando.
+const imagenesCargadas = ref<Record<string, boolean>>({});
 
 // Chat no tiene horarioFecha/horarioHoraInicio (eso es solo de videollamada agendada) — el rango
 // mostrado sale de cuándo se creó la solicitud (primer mensaje) hasta que se finalizó.
@@ -129,12 +133,22 @@ function formatFechaHoraChat(s: SolicitudAsesoria): string {
                   :class="m.autorId === usuarioActualId ? 'bg-brand-100 text-heading rounded-br-md' : 'bg-white border border-gray-100 text-gray-700 rounded-bl-md'"
                 >
                   <template v-if="m.adjuntoUrl">
-                    <img
-                      v-if="esImagen(m.adjuntoTipo)"
-                      :src="m.adjuntoUrl"
-                      :alt="m.adjuntoNombre ?? 'Imagen adjunta'"
-                      class="max-w-full max-h-48 rounded-lg block object-cover"
-                    />
+                    <div v-if="esImagen(m.adjuntoTipo)" class="relative">
+                      <div
+                        v-if="!imagenesCargadas[m.id]"
+                        class="w-32 h-32 rounded-lg bg-gray-100 flex items-center justify-center"
+                      >
+                        <FontAwesomeIcon :icon="faSpinner" class="w-4 h-4 text-gray-300 animate-spin" />
+                      </div>
+                      <img
+                        :src="m.adjuntoUrl"
+                        :alt="m.adjuntoNombre ?? 'Imagen adjunta'"
+                        @load="imagenesCargadas[m.id] = true"
+                        @error="imagenesCargadas[m.id] = true"
+                        class="max-w-full max-h-48 rounded-lg block object-cover"
+                        :class="{ hidden: !imagenesCargadas[m.id] }"
+                      />
+                    </div>
                     <button
                       v-else
                       type="button"
