@@ -106,10 +106,12 @@ const detalleId = ref<string | null>(null);
 const detalleCompletadoId = ref<string | null>(null);
 const intervencionTicket = ref<SolicitudAsesoria | null>(null);
 
-// Los tickets completados tienen su propio modal (con video/resumen/historial de la sesión) — el
-// resto de estados usa el genérico, que no tiene ese contenido porque nunca aplica.
+// Los tickets completados u observados tienen su propio modal (con video/resumen/historial de la
+// sesión) — "observado" también tuvo una sesión real (solo que no alcanzó la duración pactada), así
+// que igual hay video/resumen que mostrar. El resto de estados usa el genérico, que no tiene ese
+// contenido porque nunca aplica.
 function verDetalle(t: SolicitudAsesoria) {
-  if (t.estado === 'completado') {
+  if (t.estado === 'completado' || t.estado === 'observado') {
     detalleCompletadoId.value = t.id;
   } else {
     detalleId.value = t.id;

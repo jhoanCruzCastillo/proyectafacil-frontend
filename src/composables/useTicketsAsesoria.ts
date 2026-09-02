@@ -38,6 +38,14 @@ export function useHistorialConexionQuery(id: MaybeRefOrGetter<string | null>) {
   });
 }
 
+export function useGrabacionesQuery(id: MaybeRefOrGetter<string | null>) {
+  return useQuery({
+    queryKey: ['asesoria', 'tickets', 'grabaciones', id],
+    queryFn: () => ticketsAsesoriaHttp.grabaciones(toValue(id) as string),
+    enabled: () => !!toValue(id),
+  });
+}
+
 export function useDocentesDisponiblesQuery(id: MaybeRefOrGetter<string | null>) {
   return useQuery({
     queryKey: ['asesoria', 'tickets', 'docentes-disponibles', id],
@@ -83,6 +91,14 @@ export function useCancelarTicketAdmin() {
   const invalidar = useInvalidarTickets();
   return useMutation({
     mutationFn: (id: string) => ticketsAsesoriaHttp.cancelar(id),
+    onSuccess: invalidar,
+  });
+}
+
+export function useCompletarVideoAdmin() {
+  const invalidar = useInvalidarTickets();
+  return useMutation({
+    mutationFn: (id: string) => ticketsAsesoriaHttp.completarVideo(id),
     onSuccess: invalidar,
   });
 }

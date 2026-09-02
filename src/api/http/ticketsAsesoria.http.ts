@@ -1,6 +1,6 @@
 import { apiFetch } from './_shared';
 import type { TicketsAsesoriaApi } from '../contracts/ticketsAsesoria';
-import type { DashboardAsesoria, DocenteDisponibleAhora, HistorialConexion, SolicitudAsesoria, TicketAsesoriaDetalle } from '@/types';
+import type { DashboardAsesoria, DocenteDisponibleAhora, GrabacionSesion, HistorialConexion, SolicitudAsesoria, TicketAsesoriaDetalle } from '@/types';
 
 export const ticketsAsesoriaHttp: TicketsAsesoriaApi = {
   dashboard() {
@@ -17,6 +17,10 @@ export const ticketsAsesoriaHttp: TicketsAsesoriaApi = {
 
   historialConexion(id) {
     return apiFetch<HistorialConexion>(`asesoria/tickets/${id}/historial-conexion`);
+  },
+
+  grabaciones(id) {
+    return apiFetch<GrabacionSesion[]>(`asesoria/tickets/${id}/grabaciones`);
   },
 
   docentesDisponibles(id) {
@@ -40,6 +44,10 @@ export const ticketsAsesoriaHttp: TicketsAsesoriaApi = {
 
   cancelar(id) {
     return apiFetch<SolicitudAsesoria>(`asesoria/tickets/${id}/cancelar`, { method: 'POST' });
+  },
+
+  completarVideo(id) {
+    return apiFetch<SolicitudAsesoria>(`asesoria/tickets/${id}/completar-video`, { method: 'POST' });
   },
 
   mismoHorario(fecha, horaInicio, horaFin) {

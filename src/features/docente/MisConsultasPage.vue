@@ -111,7 +111,9 @@ const listaFiltrada = computed(() => {
   // un chat YA aceptado, por eso va en Agendadas, no en Por Agendar.
   if (tabActiva.value === 'por_agendar') lista = lista.filter((s) => s.estado === 'pendiente' || s.estado === 'en_espera');
   else if (tabActiva.value === 'agendadas') lista = lista.filter((s) => s.estado === 'asignado' || s.estado === 'agendado');
-  else if (tabActiva.value === 'atendidas') lista = lista.filter((s) => s.estado === 'completado');
+  // "Observado" también ya tuvo su sesión real (solo que no alcanzó la duración pactada) — pedido
+  // explícito del usuario para que el asesor pueda revisarla igual, no solo las "completado".
+  else if (tabActiva.value === 'atendidas') lista = lista.filter((s) => s.estado === 'completado' || s.estado === 'observado');
   else if (tabActiva.value === 'reprogramadas') lista = [];
 
   if (filtroModalidad.value !== 'todas') lista = lista.filter((s) => s.tipo === filtroModalidad.value);
@@ -361,7 +363,7 @@ function cambiarPorPagina(valor: number) {
                   </template>
 
                   <button
-                    v-else-if="s.estado === 'completado'"
+                    v-else-if="s.estado === 'completado' || s.estado === 'observado'"
                     @click="resumenAbierto = s"
                     type="button"
                     class="px-4 py-2 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-colors duration-75 inline-flex items-center gap-1.5"

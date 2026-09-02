@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faHouse, faLayerGroup, faAnglesLeft, faAnglesRight, faUserGear, faCalendarWeek, faCalendarCheck, faCircleInfo, faCircleExclamation, faListCheck, faHeadset, faPeopleGroup, faMoneyBillTransfer, faClock, faFolderOpen, faChevronUp, faChevronDown, faLock, instrumentoIcons } from '@/lib/icons';
+import { faHouse, faLayerGroup, faAnglesLeft, faAnglesRight, faUserGear, faCalendarWeek, faCalendarCheck, faCircleInfo, faCircleExclamation, faListCheck, faHeadset, faPeopleGroup, faMoneyBillTransfer, faClock, faFolderOpen, faChevronUp, faChevronDown, faLock, faVideo, faCrown, faComments, instrumentoIcons } from '@/lib/icons';
 import UserMenu from '@/features/settings/UserMenu.vue';
 import MejorarPlanCard from '@/features/settings/MejorarPlanCard.vue';
 import NotificacionesBell from '@/features/asesoria/NotificacionesBell.vue';
@@ -26,7 +26,7 @@ interface NavItem { to?: string; label: string; icon: typeof faHouse; children?:
 // bajo /catalogo), por eso el prefijo de ruta es el único parámetro.
 function grupoGestionFichas(prefijo: string): NavItem {
   return {
-    label: 'Gestión de fichas',
+    label: 'Proyectos de Inversión con IA',
     icon: faFolderOpen,
     children: [
       { to: `${prefijo}/formatos`, label: 'Formatos', icon: instrumentoIcons.formato },
@@ -40,10 +40,19 @@ function grupoGestionFichas(prefijo: string): NavItem {
 const navItems = computed(() => {
   let items: NavItem[];
   if (esCliente.value) {
-    const sinPlan = session.sesion?.tienePlan === false;
+    // Pedido explícito del usuario: un cliente sin plan todavía puede entrar acá — cada pantalla
+    // ya trae su propio límite de uso gratuito. Ver RUTAS_SIN_PLAN en router/index.ts.
     items = [
-      { ...grupoGestionFichas(''), locked: sinPlan },
-      { to: '/asesorias', label: 'Asesorías en vivo', icon: faHeadset, locked: sinPlan },
+      grupoGestionFichas(''),
+      {
+        label: 'Asesorías en vivo',
+        icon: faHeadset,
+        children: [
+          { to: '/asesorias/chat', label: 'Por chat', icon: faComments },
+          { to: '/asesorias/videollamada', label: 'Por videollamada', icon: faVideo },
+        ],
+      },
+      { to: '/elegir-plan', label: 'Planes y servicios', icon: faCrown },
     ];
   } else if (esAsesor.value) {
     items = [
@@ -69,6 +78,7 @@ const navItems = computed(() => {
       items.push({ to: '/asesoria/docentes', label: 'Docentes', icon: faPeopleGroup });
       items.push({ to: '/asesoria/liquidaciones', label: 'Liquidaciones', icon: faMoneyBillTransfer });
       items.push({ to: '/asesoria/configuracion-sla', label: 'Configuración de SLA', icon: faClock });
+      items.push({ to: '/asesoria/configuracion-videollamadas', label: 'Configuración de videollamadas', icon: faVideo });
     }
   }
   if (session.sesion && puedeAccederGestionUsuarios(session.sesion.rol)) {
@@ -80,8 +90,14 @@ const navItems = computed(() => {
   return items;
 });
 
-// Un solo grupo desplegable existe hoy en todo el sidebar — no hace falta un estado por grupo.
-const gestionFichasAbierto = ref(true);
+// Ahora hay más de un grupo desplegable ("Proyectos de Inversión con IA", "Asesorías en vivo") —
+// cada uno con su propio estado abierto/cerrado, identificado por label (ambos abiertos por
+// defecto, como antes).
+const gruposAbiertos = ref(new Set<string>(['Proyectos de Inversión con IA', 'Asesorías en vivo']));
+function toggleGrupo(label: string) {
+  if (gruposAbiertos.value.has(label)) gruposAbiertos.value.delete(label);
+  else gruposAbiertos.value.add(label);
+}
 
 const props = defineProps<{ collapsed?: boolean }>();
 const emit = defineEmits<{ toggle: [] }>();
@@ -165,15 +181,15 @@ const emit = defineEmits<{ toggle: [] }>();
             </template>
             <li v-else>
               <button
-                @click="gestionFichasAbierto = !gestionFichasAbierto"
+                @click="toggleGrupo(item.label)"
                 type="button"
                 class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-white/90 hover:bg-sidebar-hover hover:text-white transition-colors"
               >
                 <FontAwesomeIcon :icon="item.icon" class="w-4 text-center shrink-0 text-brand-400" />
                 <span class="flex-1 text-left">{{ item.label }}</span>
-                <FontAwesomeIcon :icon="gestionFichasAbierto ? faChevronUp : faChevronDown" class="w-2.5 h-2.5 text-white/40 shrink-0" />
+                <FontAwesomeIcon :icon="gruposAbiertos.has(item.label) ? faChevronUp : faChevronDown" class="w-2.5 h-2.5 text-white/40 shrink-0" />
               </button>
-              <div v-if="gestionFichasAbierto" class="relative ml-5 mt-1 space-y-1">
+              <div v-if="gruposAbiertos.has(item.label)" class="relative ml-5 mt-1 space-y-1">
                 <div class="absolute left-0 top-1 bottom-1 w-px bg-white/10" />
                 <RouterLink v-for="child in item.children" :key="child.to" :to="child.to" custom v-slot="{ href, navigate, isExactActive }">
                   <a

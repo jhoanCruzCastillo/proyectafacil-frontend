@@ -5,10 +5,11 @@ import { faXmark, faVideo, faComments, faCheck, faUserGear, faTrash, faEnvelope,
 import IntervencionManualModal from './IntervencionManualModal.vue';
 import CancelarTicketModal from './CancelarTicketModal.vue';
 import Avatar from '@/components/Avatar.vue';
-import { useTicketDetalleQuery, useCancelarTicketAdmin } from '@/composables/useTicketsAsesoria';
+import { useTicketDetalleQuery, useCancelarTicketAdmin, useCompletarVideoAdmin } from '@/composables/useTicketsAsesoria';
 import { useUiStore } from '@/stores/ui';
 import { ESTADO_ASESORIA_LABEL, ESTADO_ASESORIA_CLASE } from '@/lib/estadoAsesoria';
 import { codigoTicketFalso, nivelFalso, estadoNotificacionFalso } from '@/lib/ticketsDemoFake';
+import { puedeCompletarAsesoria } from '@/lib/consultaAsesorUI';
 
 const props = defineProps<{ isOpen: boolean; ticketId: string | null }>();
 const emit = defineEmits<{ close: [] }>();
@@ -16,9 +17,30 @@ const emit = defineEmits<{ close: [] }>();
 const ui = useUiStore();
 const { data: ticket, isLoading } = useTicketDetalleQuery(() => (props.isOpen ? props.ticketId : null));
 const cancelarTicket = useCancelarTicketAdmin();
+const completarVideo = useCompletarVideoAdmin();
+const completando = ref(false);
 
 const showIntervencion = ref(false);
 const showCancelar = ref(false);
+
+// Mismo criterio que el botón del asesor (puedeCompletarAsesoria: el horario acordado ya terminó)
+// — el Administrativo puede cerrar la videollamada sin depender de que el propio asesor lo haga,
+// pero sigue validando asistencia real vía Meet API del lado del backend, nunca a ciegas.
+const puedeCompletar = computed(() => !!ticket.value && ticket.value.tipo === 'video' && ticket.value.estado === 'agendado' && puedeCompletarAsesoria(ticket.value));
+
+async function completar() {
+  if (!ticket.value) return;
+  completando.value = true;
+  try {
+    await completarVideo.mutateAsync(ticket.value.id);
+    ui.toast('Asesoría completada');
+    emit('close');
+  } catch (e) {
+    ui.toast(e instanceof Error ? e.message : 'No se pudo completar la asesoría', 'error');
+  } finally {
+    completando.value = false;
+  }
+}
 
 function formatFechaHora(iso: string): string {
   return new Date(iso).toLocaleString('es-PE', { day: '2-digit', month: 'short', hour: 'numeric', minute: '2-digit' });
@@ -189,6 +211,16 @@ async function confirmarCancelar() {
           </div>
 
           <div v-if="puedeIntervenir" class="flex justify-end gap-3 border-t border-gray-200 p-4 bg-gray-50">
+            <button
+              v-if="puedeCompletar"
+              @click="completar"
+              :disabled="completando"
+              type="button"
+              class="px-4 py-2.5 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 disabled:opacity-60 transition-colors duration-75 flex items-center gap-2"
+            >
+              <FontAwesomeIcon :icon="faCheck" class="w-3.5 h-3.5" />
+              {{ completando ? 'Completando…' : 'Completar asesoría' }}
+            </button>
             <button
               @click="showIntervencion = true"
               type="button"
