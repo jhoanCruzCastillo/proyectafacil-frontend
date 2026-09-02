@@ -16,7 +16,11 @@ const props = defineProps<{
 const emit = defineEmits<{ close: [] }>();
 
 const ui = useUiStore();
-const { data: facturacionData } = useFacturacionQuery(() => props.usuarioId);
+// El modal queda montado siempre en la página que lo usa (isOpen solo lo muestra/oculta) — sin
+// este guard, la consulta de facturación se dispara apenas se monta la página, aunque el modal
+// nunca se haya abierto. Eso auto-asigna un plan de muestra la primera vez que se consulta
+// (FacturacionController::crearDefault()) — ver el mismo guard en UserMenu.vue.
+const { data: facturacionData } = useFacturacionQuery(() => (props.isOpen ? props.usuarioId : ''));
 const checkoutAddon = useCheckoutAddon();
 const cantidad = ref(1);
 

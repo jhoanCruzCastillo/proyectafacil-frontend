@@ -880,13 +880,16 @@ export interface SesionConexion {
   salida: string | null;
 }
 
-/** Historial real de conexión de un participante a la videollamada, vía Meet API — siempre con la
- * identidad conocida en la plataforma (nombre + correo configurado), nunca el nombre de la cuenta
- * real de Google que entró (puede ser cualquier cosa: apodo, cuenta personal distinta). */
+/** Historial real de conexión de un participante a la videollamada, vía Meet API — para Alumno/
+ * Docente, siempre con la identidad conocida en la plataforma (nombre + correo configurado), nunca
+ * el nombre de la cuenta real de Google que entró (puede ser cualquier cosa: apodo, cuenta personal
+ * distinta). 'Desconocido' = alguien más entró con el link (la reunión puede ser de acceso abierto)
+ * y no calzó como el alumno ni el asesor de este ticket — Meet no expone su correo ni foto para
+ * alguien no registrado en la plataforma, solo el nombre de su cuenta de Google. */
 export interface HistorialConexionParticipante {
   nombre: string;
   correo: string | null;
-  rol: 'Alumno' | 'Docente' | null;
+  rol: 'Alumno' | 'Docente' | 'Desconocido';
   fotoUrl?: string | null;
   sesiones: SesionConexion[];
 }
@@ -896,6 +899,17 @@ export interface HistorialConexionParticipante {
 export interface HistorialConexion {
   participantes: HistorialConexionParticipante[];
   tiempoCoincidenteSegundos: number;
+}
+
+/** Una grabación real asociada al link de Meet — un mismo link puede tener más de una (llamada
+ * cortada y reanudada, etc.). `url`/`fileId` quedan null mientras Google todavía la procesa
+ * (`estado` distinto de 'FILE_GENERATED'). */
+export interface GrabacionSesion {
+  url: string | null;
+  fileId: string | null;
+  estado: 'STARTED' | 'ENDED' | 'FILE_GENERATED' | string;
+  inicio: string | null;
+  fin: string | null;
 }
 
 export interface DocenteDisponibleAhora {
@@ -965,6 +979,15 @@ export interface ConfiguracionSla {
   /** Minutos desde que el alumno envía una solicitud dentro de los que puede cancelarla él mismo.
    * null = puede cancelar en cualquier momento ("permanentemente" habilitado). */
   cancelacionLimiteMinutos: number | null;
+}
+
+// Registro único (igual que ConfiguracionSla) para el tipo de acceso de las videollamadas de
+// asesoría — ver GoogleMeetService::crearLinkReunion() en el backend. Solo afecta a las
+// asesorías en video que se agenden de acá en adelante.
+export interface ConfiguracionVideoconferencia {
+  /** 'abierta' = cualquiera con el link entra directo, sin tocar la puerta. 'invitados' = solo
+   * el cliente y el asesor invitados entran directo, el resto queda en la sala de espera. */
+  tipoAcceso: 'abierta' | 'invitados';
 }
 
 // Módulo 5 — mapa de calor de cobertura de horarios y gestión de docentes.

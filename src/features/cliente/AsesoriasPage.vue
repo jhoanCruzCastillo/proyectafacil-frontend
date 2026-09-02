@@ -2,8 +2,8 @@
 import { computed, ref, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import {
-  faUserTie, faCalendarCheck, faComments, faVideo, faXmark,
-  faTriangleExclamation, faCartShopping, faClock, faStar, faHeadset,
+  faCalendarCheck, faComments, faVideo, faXmark,
+  faTriangleExclamation, faCartShopping, faClock, faStar,
   faChevronLeft, faChevronRight,
 } from '@/lib/icons';
 import PageShell from '@/components/PageShell.vue';
@@ -16,6 +16,8 @@ import ConsultaEnviadaModal from './ConsultaEnviadaModal.vue';
 import ResumenSolicitudCard from './ResumenSolicitudCard.vue';
 import ComprarAddOnModal from '@/features/settings/ComprarAddOnModal.vue';
 import AsesoriaChatPanel from '@/features/asesoria/AsesoriaChatPanel.vue';
+import VideoSesionCard from '@/features/asesoria/VideoSesionCard.vue';
+import ResumenIaCard from '@/features/asesoria/ResumenIaCard.vue';
 import { useSessionStore } from '@/stores/session';
 import { useUsuariosQuery } from '@/composables/useUsuarios';
 import { useTicketsConsultaQuery } from '@/composables/useTicketsConsulta';
@@ -23,9 +25,22 @@ import { useMisSolicitudesQuery, useCancelarSolicitud } from '@/composables/useA
 import { cuentaEfectivaDe } from '@/lib/permisos';
 import { ESTADO_ASESORIA_LABEL as ESTADO_LABEL, ESTADO_ASESORIA_CLASE as ESTADO_CLASE } from '@/lib/estadoAsesoria';
 import { addOns } from '@/data/planes';
-import type { SolicitudAsesoria } from '@/types';
+import type { SolicitudAsesoria, TipoAsesoria } from '@/types';
+
+// "Asesorías en vivo" del sidebar ahora se desglosa en dos páginas — Por chat / Por videollamada
+// (mismo patrón que InstrumentoPage.vue con `tipo`) — pedido explícito del usuario para que cada
+// sección solo muestre lo suyo, sin el selector "Todos" de antes.
+const props = defineProps<{ modalidad: TipoAsesoria }>();
 
 const ADDON_CONSULTA = addOns.find((a) => a.id === 'consultoria-1a1') ?? null;
+
+const TITULO_MODALIDAD: Record<TipoAsesoria, string> = { chat: 'Asesorías por chat', video: 'Asesorías por videollamada' };
+const DESCRIPCION_MODALIDAD: Record<TipoAsesoria, string> = {
+  chat: 'Solicita orientación por chat con un docente especializado.',
+  video: 'Solicita una videollamada 1:1 con un docente especializado.',
+};
+const ICONO_MODALIDAD: Record<TipoAsesoria, typeof faComments> = { chat: faComments, video: faVideo };
+const NOMBRE_FICHA_MODALIDAD: Record<TipoAsesoria, string> = { chat: 'chat', video: 'videoconferencia' };
 
 const session = useSessionStore();
 const { data: usuariosData } = useUsuariosQuery();
@@ -33,26 +48,15 @@ const cuentaId = computed(() => (session.sesion ? cuentaEfectivaDe(usuariosData.
 const clienteId = computed(() => session.sesion?.usuarioId ?? '');
 
 const { data: tickets } = useTicketsConsultaQuery(cuentaId);
-const disponibles = computed(() => (tickets.value ?? []).filter((t) => t.estado === 'disponible'));
-const ticketsDisponibles = computed(() => disponibles.value.length);
-const fichasChat = computed(() => disponibles.value.filter((t) => t.modalidad === 'chat'));
-const fichasVideo = computed(() => disponibles.value.filter((t) => t.modalidad === 'video'));
+const fichasDisponibles = computed(() => (tickets.value ?? []).filter((t) => t.estado === 'disponible' && t.modalidad === props.modalidad));
 // Duración fija por modalidad al emitirse — todas las fichas de un mismo tipo comparten valor,
 // así que basta con la primera disponible para mostrarla.
-const duracionChat = computed(() => fichasChat.value[0]?.duracionMinutos ?? null);
-const duracionVideo = computed(() => fichasVideo.value[0]?.duracionMinutos ?? null);
+const duracionFicha = computed(() => fichasDisponibles.value[0]?.duracionMinutos ?? null);
 
 const { data: solicitudes, isLoading } = useMisSolicitudesQuery(clienteId, 'cliente');
 const cancelarSolicitud = useCancelarSolicitud();
 
-const filtroModalidad = ref<'todos' | 'chat' | 'video'>('todos');
-const solicitudesFiltradas = computed(() => {
-  const todas = solicitudes.value ?? [];
-  if (filtroModalidad.value === 'todos') return todas;
-  return todas.filter((s) => s.tipo === filtroModalidad.value);
-});
-const conteoChat = computed(() => (solicitudes.value ?? []).filter((s) => s.tipo === 'chat').length);
-const conteoVideo = computed(() => (solicitudes.value ?? []).filter((s) => s.tipo === 'video').length);
+const solicitudesFiltradas = computed(() => (solicitudes.value ?? []).filter((s) => s.tipo === props.modalidad));
 
 const showSolicitar = ref(false);
 const showComprarAddon = ref(false);
@@ -75,7 +79,7 @@ const solicitudesPagina = computed(() => {
   const inicio = (pagina.value - 1) * POR_PAGINA;
   return solicitudesFiltradas.value.slice(inicio, inicio + POR_PAGINA);
 });
-watch([solicitudes, filtroModalidad], () => { pagina.value = 1; });
+watch([solicitudes, () => props.modalidad], () => { pagina.value = 1; });
 
 function verDetalle(s: SolicitudAsesoria) {
   if (s.estado === 'completado' && s.calificacion == null) {
@@ -112,53 +116,24 @@ function formatFechaHoraAgendada(s: SolicitudAsesoria): string | null {
 </script>
 
 <template>
-  <PageShell :icon="faUserTie" title="Asesorías" description="Solicita orientación personalizada para tus fichas técnicas.">
-    <div class="rounded-2xl p-8 mb-8 relative overflow-hidden" :class="ticketsDisponibles > 0 ? 'bg-brand-50 border border-brand-100' : 'bg-amber-50 border border-amber-200'">
-      <div v-if="ticketsDisponibles > 0" class="relative flex items-center gap-6 flex-wrap">
+  <PageShell :icon="ICONO_MODALIDAD[modalidad]" :title="TITULO_MODALIDAD[modalidad]" :description="DESCRIPCION_MODALIDAD[modalidad]">
+    <div class="rounded-2xl p-8 mb-8 relative overflow-hidden" :class="fichasDisponibles.length > 0 ? 'bg-brand-50 border border-brand-100' : 'bg-amber-50 border border-amber-200'">
+      <div v-if="fichasDisponibles.length > 0" class="relative flex items-center gap-6 flex-wrap">
         <div class="flex items-center gap-3 flex-1 min-w-[220px]">
           <div class="w-12 h-12 rounded-xl bg-white text-brand-600 flex items-center justify-center shadow-sm shrink-0">
-            <FontAwesomeIcon :icon="faHeadset" class="w-5 h-5" />
+            <FontAwesomeIcon :icon="ICONO_MODALIDAD[modalidad]" class="w-5 h-5" />
           </div>
           <div>
             <p class="font-bold text-brand-700">
-              {{ ticketsDisponibles }} ficha{{ ticketsDisponibles === 1 ? '' : 's' }} de consulta disponible{{ ticketsDisponibles === 1 ? '' : 's' }} este mes
+              {{ fichasDisponibles.length }} ficha{{ fichasDisponibles.length === 1 ? '' : 's' }} de {{ NOMBRE_FICHA_MODALIDAD[modalidad] }} disponible{{ fichasDisponibles.length === 1 ? '' : 's' }} este mes
             </p>
-            <p class="text-xs text-brand-600/70 mt-0.5">Cada ficha es para una modalidad específica — úsalas cuando las necesites.</p>
-          </div>
-        </div>
-
-        <div class="flex items-center gap-3">
-          <div
-            class="rounded-xl bg-white px-4 py-3 flex items-center gap-3 transition-opacity"
-            :class="fichasChat.length > 0 ? 'border border-brand-200' : 'border border-gray-200 opacity-50'"
-          >
-            <div class="w-9 h-9 rounded-lg bg-brand-100 text-brand-600 flex items-center justify-center shrink-0">
-              <FontAwesomeIcon :icon="faComments" class="w-4 h-4" />
-            </div>
-            <div>
-              <p class="text-2xl font-bold text-heading leading-tight">{{ fichasChat.length }}</p>
-              <p class="text-xs text-muted whitespace-nowrap">Ficha{{ fichasChat.length === 1 ? '' : 's' }} de chat</p>
-              <p v-if="duracionChat" class="text-[11px] text-muted mt-0.5 flex items-center gap-1">
+            <p class="text-xs text-brand-600/70 mt-0.5 flex items-center gap-1">
+              <template v-if="duracionFicha">
                 <FontAwesomeIcon :icon="faClock" class="w-2.5 h-2.5" />
-                {{ duracionChat }} min c/u
-              </p>
-            </div>
-          </div>
-          <div
-            class="rounded-xl bg-white px-4 py-3 flex items-center gap-3 transition-opacity"
-            :class="fichasVideo.length > 0 ? 'border border-violet-200' : 'border border-gray-200 opacity-50'"
-          >
-            <div class="w-9 h-9 rounded-lg bg-violet-100 text-violet-600 flex items-center justify-center shrink-0">
-              <FontAwesomeIcon :icon="faVideo" class="w-4 h-4" />
-            </div>
-            <div>
-              <p class="text-2xl font-bold text-heading leading-tight">{{ fichasVideo.length }}</p>
-              <p class="text-xs text-muted whitespace-nowrap">Ficha{{ fichasVideo.length === 1 ? '' : 's' }} de videoconferencia</p>
-              <p v-if="duracionVideo" class="text-[11px] text-muted mt-0.5 flex items-center gap-1">
-                <FontAwesomeIcon :icon="faClock" class="w-2.5 h-2.5" />
-                {{ duracionVideo }} min c/u
-              </p>
-            </div>
+                {{ duracionFicha }} min c/u —
+              </template>
+              úsalas cuando las necesites.
+            </p>
           </div>
         </div>
 
@@ -175,7 +150,7 @@ function formatFechaHoraAgendada(s: SolicitudAsesoria): string | null {
         <FontAwesomeIcon :icon="faTriangleExclamation" class="w-6 h-6 text-amber-500 mt-1 shrink-0" />
         <div class="flex-1">
           <p class="font-semibold text-heading">No tienes consultas disponibles</p>
-          <p class="text-sm text-muted mt-1">Ya usaste todas tus consultas disponibles.</p>
+          <p class="text-sm text-muted mt-1">Ya usaste todas tus consultas de {{ NOMBRE_FICHA_MODALIDAD[modalidad] }} disponibles.</p>
           <button
             v-if="ADDON_CONSULTA"
             @click="showComprarAddon = true"
@@ -189,42 +164,12 @@ function formatFechaHoraAgendada(s: SolicitudAsesoria): string | null {
       </div>
     </div>
 
-    <div class="flex items-center justify-between flex-wrap gap-3 mb-1">
-      <h2 class="text-lg font-bold text-heading">Mis consultas</h2>
-      <div class="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
-        <button
-          @click="filtroModalidad = 'todos'"
-          type="button"
-          class="px-4 py-1.5 text-sm font-medium rounded-md transition-colors duration-75"
-          :class="filtroModalidad === 'todos' ? 'bg-white text-brand-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'"
-        >
-          Todos <span class="text-[11px] text-gray-400">({{ (solicitudes ?? []).length }})</span>
-        </button>
-        <button
-          @click="filtroModalidad = 'chat'"
-          type="button"
-          class="px-4 py-1.5 text-sm font-medium rounded-md transition-colors duration-75 inline-flex items-center gap-1.5"
-          :class="filtroModalidad === 'chat' ? 'bg-white text-brand-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'"
-        >
-          <FontAwesomeIcon :icon="faComments" class="w-3 h-3" />
-          Chat <span class="text-[11px] text-gray-400">({{ conteoChat }})</span>
-        </button>
-        <button
-          @click="filtroModalidad = 'video'"
-          type="button"
-          class="px-4 py-1.5 text-sm font-medium rounded-md transition-colors duration-75 inline-flex items-center gap-1.5"
-          :class="filtroModalidad === 'video' ? 'bg-white text-brand-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'"
-        >
-          <FontAwesomeIcon :icon="faVideo" class="w-3 h-3" />
-          Videollamada <span class="text-[11px] text-gray-400">({{ conteoVideo }})</span>
-        </button>
-      </div>
-    </div>
-    <p class="text-sm text-muted mb-4">Historial de todas tus consultas y su estado actual.</p>
+    <h2 class="text-lg font-bold text-heading mb-1">Mis consultas</h2>
+    <p class="text-sm text-muted mb-4">Historial de tus consultas por {{ NOMBRE_FICHA_MODALIDAD[modalidad] }} y su estado actual.</p>
 
     <p v-if="isLoading" class="text-sm text-muted">Cargando…</p>
     <p v-else-if="solicitudesFiltradas.length === 0" class="text-sm text-muted py-8 text-center">
-      {{ filtroModalidad === 'todos' ? 'Todavía no has solicitado ninguna asesoría.' : 'No tienes consultas en esta modalidad.' }}
+      Todavía no has solicitado ninguna asesoría por {{ NOMBRE_FICHA_MODALIDAD[modalidad] }}.
     </p>
     <div v-else>
       <div class="rounded-xl border border-gray-200 overflow-hidden overflow-x-auto">
@@ -233,7 +178,6 @@ function formatFechaHoraAgendada(s: SolicitudAsesoria): string | null {
             <tr class="text-left text-[11px] uppercase tracking-widest text-muted bg-gray-50 border-b border-gray-200">
               <th class="py-2.5 px-4 font-semibold">Fecha</th>
               <th class="py-2.5 px-4 font-semibold">Categoría</th>
-              <th class="py-2.5 px-4 font-semibold">Modalidad</th>
               <th class="py-2.5 px-4 font-semibold">Docente asignado</th>
               <th class="py-2.5 px-4 font-semibold">Estado</th>
               <th class="py-2.5 px-4"></th>
@@ -244,12 +188,6 @@ function formatFechaHoraAgendada(s: SolicitudAsesoria): string | null {
               <td class="py-3 px-4 text-heading whitespace-nowrap">{{ formatFecha(s.creadoEn) }}</td>
               <td class="py-3 px-4">
                 <span class="px-2.5 py-1 rounded-full text-[11px] font-medium bg-gray-100 text-gray-600">{{ s.sectorNombre ?? '—' }}</span>
-              </td>
-              <td class="py-3 px-4">
-                <span class="inline-flex items-center gap-1.5 text-xs text-gray-600">
-                  <FontAwesomeIcon :icon="s.tipo === 'video' ? faVideo : faComments" class="w-3 h-3" />
-                  {{ s.tipo === 'video' ? 'Videollamada' : 'Chat' }}
-                </span>
               </td>
               <td class="py-3 px-4">
                 <div v-if="s.docenteNombre" class="flex items-center gap-2 whitespace-nowrap">
@@ -341,7 +279,11 @@ function formatFechaHoraAgendada(s: SolicitudAsesoria): string | null {
 
   <Transition name="fade">
     <div v-if="detalle" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" @click="detalle = null">
-      <div class="bg-white rounded-2xl shadow-modal w-full max-w-md relative" @click.stop>
+      <div
+        class="bg-white rounded-2xl shadow-modal w-full relative"
+        :class="detalle?.tipo === 'video' && detalle?.estado === 'completado' ? 'max-w-lg' : 'max-w-md'"
+        @click.stop
+      >
         <button
           @click="detalle = null"
           type="button"
@@ -360,8 +302,12 @@ function formatFechaHoraAgendada(s: SolicitudAsesoria): string | null {
           <p v-if="detalle?.estado === 'pendiente'" class="text-sm text-muted">Te notificaremos en cuanto un asesor confirme tu consulta.</p>
         </div>
 
-        <div class="mx-6 mb-6">
+        <div class="mx-6 mb-6 space-y-4">
           <ResumenSolicitudCard v-if="detalle" :solicitud="detalle" />
+          <template v-if="detalle?.tipo === 'video' && detalle?.estado === 'completado'">
+            <VideoSesionCard :link-grabacion="detalle.linkGrabacion" />
+            <ResumenIaCard :resumen-ia-texto="detalle.resumenIaTexto" />
+          </template>
         </div>
 
         <div v-if="detalle?.estado === 'pendiente'" class="px-6 pb-6 text-center">

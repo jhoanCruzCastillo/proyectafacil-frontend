@@ -1,71 +1,42 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import {
-  faXmark, faStar, faComments, faVideo, faCheck, faCheckDouble, faFileLines, faDownload, faSpinner,
+  faXmark, faStar, faComments, faVideo,
 } from '@/lib/icons';
 import Avatar from '@/components/Avatar.vue';
+import HistorialChatMensajes from '@/features/asesoria/HistorialChatMensajes.vue';
+import DetalleSesionAsesoria from '@/features/asesoria/DetalleSesionAsesoria.vue';
 import { colorCategoria, formatFechaHoraVideo } from '@/lib/consultaAsesorUI';
 import { formatHora } from '@/lib/tiempoRelativo';
-import { abrirArchivoUrl } from '@/lib/fetchBinario';
 import { useMensajesQuery } from '@/composables/useAsesoria';
-import { useUiStore } from '@/stores/ui';
+import { useHistorialConexionQuery, useGrabacionesQuery } from '@/composables/useTicketsAsesoria';
 import type { SolicitudAsesoria } from '@/types';
 
-// Resumen de solo lectura de una consulta. Dos variantes:
+// Resumen de solo lectura de una consulta. Tres variantes:
 // - Chat ya completado: "Historial de asesoría" — la conversación real (solo lectura, sin poder
 //   escribir) más el panel de detalles a la derecha. Pedido explícito del usuario, sin "Duración
 //   total" porque el sistema no trackea esa información hoy.
-// - Cualquier otro caso (video, o todavía no completada): el resumen chico de siempre — mensaje
-//   inicial del alumno y, si ya terminó, su calificación.
+// - Video ya atendida (completado u observado): mismo diseño que ve el Administrativo en "Ver
+//   detalle" (TicketDetalleCompletadoModal) — video, resumen de IA, historial de conexión — vía el
+//   componente compartido DetalleSesionAsesoria. Pedido explícito del usuario: el asesor debe ver
+//   la misma interfaz, no una versión reducida.
+// - Cualquier otro caso (pendiente, o video todavía no terminada): el resumen chico de siempre.
 const props = defineProps<{ isOpen: boolean; solicitud: SolicitudAsesoria | null; usuarioActualId: string; clienteCorreo?: string | null }>();
 const emit = defineEmits<{ close: [] }>();
 
 const esHistorialChat = computed(() => !!props.solicitud && props.solicitud.estado === 'completado' && props.solicitud.tipo === 'chat');
+const esVideoAtendida = computed(() => !!props.solicitud && props.solicitud.tipo === 'video' && (props.solicitud.estado === 'completado' || props.solicitud.estado === 'observado'));
 
 const solicitudIdParaMensajes = computed(() => (props.isOpen && esHistorialChat.value ? props.solicitud!.id : null));
 const { data: mensajes } = useMensajesQuery(solicitudIdParaMensajes, () => props.usuarioActualId);
 
-function etiquetaFecha(fechaIso: string): string {
-  const fecha = new Date(fechaIso);
-  const hoy = new Date();
-  const ayer = new Date();
-  ayer.setDate(hoy.getDate() - 1);
-  const mismoDia = (a: Date, b: Date) => a.toDateString() === b.toDateString();
-  if (mismoDia(fecha, hoy)) return 'Hoy';
-  if (mismoDia(fecha, ayer)) return 'Ayer';
-  return fecha.toLocaleDateString('es-PE', { day: 'numeric', month: 'long', year: 'numeric' });
-}
+const solicitudIdParaConexion = computed(() => (props.isOpen && esVideoAtendida.value ? props.solicitud!.id : null));
+const { data: historialConexionData } = useHistorialConexionQuery(solicitudIdParaConexion);
+const historialConexion = computed(() => historialConexionData.value?.participantes ?? []);
+const tiempoCoincidenteSegundos = computed(() => historialConexionData.value?.tiempoCoincidenteSegundos ?? 0);
 
-const mensajesConDivisor = computed(() => {
-  const lista = mensajes.value ?? [];
-  let fechaAnterior: string | null = null;
-  return lista.map((m) => {
-    const etiqueta = etiquetaFecha(m.creadoEn);
-    const mostrarDivisor = etiqueta !== fechaAnterior;
-    fechaAnterior = etiqueta;
-    return { mensaje: m, mostrarDivisor, etiquetaFecha: etiqueta };
-  });
-});
-
-function esImagen(tipo?: string | null): boolean {
-  return !!tipo && tipo.startsWith('image/');
-}
-
-const ui = useUiStore();
-// Los adjuntos que no son imagen pueden venir del proxy S3 con Bearer — un <a href> normal no manda
-// el header. abrirArchivoUrl() hace fetch con auth cuando hace falta (ver fetchBinario.ts).
-async function abrirAdjunto(url: string, nombre: string | null | undefined) {
-  try {
-    await abrirArchivoUrl(url, nombre ?? 'archivo');
-  } catch (e) {
-    ui.toast(e instanceof Error ? e.message : 'No se pudo abrir el archivo', 'error');
-  }
-}
-
-// Las imágenes de Cloudinary a veces tardan en cargar — sin esto aparecían recién cuando
-// terminaban, sin ningún indicio de que algo se estaba cargando.
-const imagenesCargadas = ref<Record<string, boolean>>({});
+const { data: grabaciones } = useGrabacionesQuery(solicitudIdParaConexion);
 
 // Chat no tiene horarioFecha/horarioHoraInicio (eso es solo de videollamada agendada) — el rango
 // mostrado sale de cuándo se creó la solicitud (primer mensaje) hasta que se finalizó.
@@ -123,59 +94,7 @@ function formatFechaHoraChat(s: SolicitudAsesoria): string {
 
         <div class="flex-1 min-h-0 flex overflow-hidden">
           <div class="flex-1 min-w-0 overflow-y-auto px-5 py-4 space-y-3 bg-gray-50">
-            <template v-for="{ mensaje: m, mostrarDivisor, etiquetaFecha: etiqueta } in mensajesConDivisor" :key="m.id">
-              <div v-if="mostrarDivisor" class="flex justify-center py-1">
-                <span class="text-[10px] font-medium text-gray-400 bg-gray-100 rounded-full px-3 py-1">{{ etiqueta }}</span>
-              </div>
-              <div class="flex" :class="m.autorId === usuarioActualId ? 'justify-end' : 'justify-start'">
-                <div
-                  class="max-w-[75%] rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed space-y-1.5 shadow-sm"
-                  :class="m.autorId === usuarioActualId ? 'bg-brand-100 text-heading rounded-br-md' : 'bg-white border border-gray-100 text-gray-700 rounded-bl-md'"
-                >
-                  <template v-if="m.adjuntoUrl">
-                    <div v-if="esImagen(m.adjuntoTipo)" class="relative">
-                      <div
-                        v-if="!imagenesCargadas[m.id]"
-                        class="w-32 h-32 rounded-lg bg-gray-100 flex items-center justify-center"
-                      >
-                        <FontAwesomeIcon :icon="faSpinner" class="w-4 h-4 text-gray-300 animate-spin" />
-                      </div>
-                      <img
-                        :src="m.adjuntoUrl"
-                        :alt="m.adjuntoNombre ?? 'Imagen adjunta'"
-                        @load="imagenesCargadas[m.id] = true"
-                        @error="imagenesCargadas[m.id] = true"
-                        class="max-w-full max-h-48 rounded-lg block object-cover"
-                        :class="{ hidden: !imagenesCargadas[m.id] }"
-                      />
-                    </div>
-                    <button
-                      v-else
-                      type="button"
-                      @click="abrirAdjunto(m.adjuntoUrl!, m.adjuntoNombre)"
-                      class="flex items-center gap-2.5 rounded-lg px-2.5 py-2 bg-white border border-gray-100 hover:bg-gray-50 transition-colors w-full text-left"
-                    >
-                      <span class="w-7 h-7 rounded-md bg-red-50 text-red-500 flex items-center justify-center shrink-0">
-                        <FontAwesomeIcon :icon="faFileLines" class="w-3.5 h-3.5" />
-                      </span>
-                      <span class="truncate flex-1 text-gray-700">{{ m.adjuntoNombre ?? 'Archivo' }}</span>
-                      <FontAwesomeIcon :icon="faDownload" class="w-3 h-3 shrink-0 text-gray-400" />
-                    </button>
-                  </template>
-                  <p v-if="m.texto">{{ m.texto }}</p>
-                  <div class="flex items-center justify-end gap-1 text-gray-400">
-                    <span class="text-[10px]">{{ formatHora(m.creadoEn) }}</span>
-                    <FontAwesomeIcon
-                      v-if="m.autorId === usuarioActualId"
-                      :icon="m.leidoEn ? faCheckDouble : faCheck"
-                      class="w-3 h-3"
-                      :class="m.leidoEn ? 'text-brand-600' : 'text-gray-400'"
-                    />
-                  </div>
-                </div>
-              </div>
-            </template>
-            <p v-if="(mensajes ?? []).length === 0" class="text-xs text-gray-400 text-center pt-4">Esta conversación no tiene mensajes.</p>
+            <HistorialChatMensajes :mensajes="mensajes ?? []" :usuario-actual-id="usuarioActualId" />
             <p class="flex justify-center pt-1">
               <span class="text-[10px] font-medium text-gray-400 bg-gray-100 rounded-full px-3 py-1">
                 Asesoría finalizada por el asesor · {{ solicitud.actualizadoEn ? formatHora(solicitud.actualizadoEn) : '' }}
@@ -212,7 +131,32 @@ function formatFechaHoraChat(s: SolicitudAsesoria): string {
         </div>
       </div>
 
-      <!-- Resumen chico (pendiente sin aceptar, o completada de videollamada) -->
+      <!-- Detalle de videollamada atendida (completado u observado) — mismo diseño que ve el
+           Administrativo en "Ver detalle", vía DetalleSesionAsesoria. -->
+      <div v-else-if="esVideoAtendida" class="bg-white rounded-2xl shadow-modal w-full max-w-3xl max-h-[88vh] overflow-y-auto" @click.stop>
+        <div class="p-5 bg-gradient-to-r from-sidebar to-brand-800 flex items-center justify-between sticky top-0 z-10">
+          <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-lg bg-white/15 text-white flex items-center justify-center shrink-0">
+              <FontAwesomeIcon :icon="faVideo" class="w-4 h-4" />
+            </div>
+            <h2 class="text-lg font-bold text-white">Detalle de la videollamada</h2>
+          </div>
+          <button @click="emit('close')" type="button" class="w-8 h-8 rounded-lg hover:bg-white/10 flex items-center justify-center text-white/80 hover:text-white transition-colors duration-100">
+            <FontAwesomeIcon :icon="faXmark" />
+          </button>
+        </div>
+        <div class="p-5">
+          <DetalleSesionAsesoria
+            :solicitud="solicitud"
+            :cliente-correo="clienteCorreo"
+            :historial-conexion="historialConexion"
+            :tiempo-coincidente-segundos="tiempoCoincidenteSegundos"
+            :grabaciones="grabaciones ?? []"
+          />
+        </div>
+      </div>
+
+      <!-- Resumen chico (pendiente sin aceptar, o video agendada todavía sin terminar) -->
       <div v-else class="bg-white rounded-2xl shadow-modal w-full max-w-sm p-6 relative" @click.stop>
         <button
           @click="emit('close')"

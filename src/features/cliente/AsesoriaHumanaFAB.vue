@@ -50,8 +50,9 @@ function handleCreada(s: SolicitudAsesoria) {
 }
 
 function verMisConsultas() {
+  const tipo = consultaEnviada.value?.tipo;
   consultaEnviada.value = null;
-  router.push({ name: 'asesorias' });
+  router.push({ name: tipo === 'video' ? 'asesorias-video' : 'asesorias-chat' });
 }
 </script>
 

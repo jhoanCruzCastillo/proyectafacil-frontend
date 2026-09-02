@@ -7,6 +7,11 @@ const props = withDefaults(
     fotoUrl?: string | null;
     /** Tailwind size classes para el círculo, ej. 'w-8 h-8' */
     size?: string;
+    /** true = nunca completar con el placeholder de Pravatar (foto de una persona cualquiera)
+     * cuando no hay fotoUrl real — va directo a iniciales. Para casos donde una "foto" sería
+     * engañosa (parece la foto real de alguien cuando no lo es) — ej. un participante de Meet no
+     * registrado en la plataforma, del que ni siquiera sabemos si es alumno o docente. */
+    sinFotoIlustrada?: boolean;
   }>(),
   { size: 'w-9 h-9' },
 );
@@ -20,6 +25,10 @@ watch(() => props.fotoUrl, () => { errorAlCargar.value = false; });
 // (mismo nombre → misma foto siempre). Si algún día hay una foto real subida por el usuario (no
 // DiceBear), esa se respeta tal cual.
 const esAvatarIlustrado = computed(() => !props.fotoUrl || props.fotoUrl.includes('dicebear.com'));
+
+// Sin fotoUrl real y con sinFotoIlustrada, ni siquiera se intenta cargar el placeholder — directo a
+// iniciales (ver template). Con fotoUrl real (o sin el flag), sigue el comportamiento de siempre.
+const mostrarImagen = computed(() => !errorAlCargar.value && (!!props.fotoUrl || !props.sinFotoIlustrada));
 
 const fotoMostrada = computed(() => (
   esAvatarIlustrado.value
@@ -45,7 +54,7 @@ const colorFondo = computed(() => {
 
 <template>
   <img
-    v-if="!errorAlCargar"
+    v-if="mostrarImagen"
     :src="fotoMostrada"
     :alt="nombre"
     :class="[size, 'rounded-full object-cover shrink-0 bg-gray-100']"

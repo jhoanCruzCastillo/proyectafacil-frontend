@@ -18,7 +18,15 @@ import {
 export function useEstadoEntrenamiento() {
   const session = useSessionStore();
   const { data: usuariosData } = useUsuariosQuery();
-  const cuentaId = computed(() => (session.sesion ? cuentaEfectivaDe(usuariosData.value ?? [], session.sesion) : ''));
+  // Cliente sin plan todavía (recién registrado) — no consultar facturación: ese endpoint
+  // auto-asigna un plan de muestra la primera vez que se lo consulta
+  // (FacturacionController::crearDefault()), y acá justamente no debe tener ninguno hasta que lo
+  // elija de verdad en "Elegir plan". Mismo guard que UserMenu.vue.
+  const cuentaId = computed(() => {
+    if (!session.sesion) return '';
+    if (session.sesion.rol === 'cliente' && session.sesion.tienePlan === false) return '';
+    return cuentaEfectivaDe(usuariosData.value ?? [], session.sesion);
+  });
   const { data: facturacionData } = useFacturacionQuery(cuentaId);
 
   return {

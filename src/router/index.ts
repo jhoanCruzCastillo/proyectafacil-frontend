@@ -131,9 +131,17 @@ const router = createRouter({
           meta: { soloCliente: true },
         },
         {
-          path: 'asesorias',
-          name: 'asesorias',
+          path: 'asesorias/chat',
+          name: 'asesorias-chat',
           component: () => import('@/features/cliente/AsesoriasPage.vue'),
+          props: { modalidad: 'chat' },
+          meta: { soloCliente: true },
+        },
+        {
+          path: 'asesorias/videollamada',
+          name: 'asesorias-video',
+          component: () => import('@/features/cliente/AsesoriasPage.vue'),
+          props: { modalidad: 'video' },
           meta: { soloCliente: true },
         },
         {
@@ -221,6 +229,12 @@ const router = createRouter({
           meta: { soloAdministrativoAsesorias: true },
         },
         {
+          path: 'asesoria/configuracion-videollamadas',
+          name: 'configuracion-videollamadas',
+          component: () => import('@/features/administrativo/ConfiguracionVideollamadasPage.vue'),
+          meta: { soloAdministrativoAsesorias: true },
+        },
+        {
           path: 'about',
           name: 'about',
           component: () => import('@/features/about/AboutPage.vue'),
@@ -231,16 +245,23 @@ const router = createRouter({
   ],
 });
 
+// Cliente sin ningún plan asignado (recién registrado, todavía sin comprar) — pedido explícito
+// del usuario: puede entrar a "Proyectos de Inversión con IA" (Formatos/Fichas técnicas/IOARR/
+// Perfiles, incluido el editor de una ficha propia) y a "Asesorías en vivo" sin haber elegido un
+// plan todavía — cada una ya trae su propio límite de uso gratuito (ver "0/10 plantillas
+// simultáneas" / fichas de consulta en esas pantallas). Cualquier otra ruta sigue rebotando a
+// "elegir-plan".
+const RUTAS_SIN_PLAN = new Set([
+  'elegir-plan', 'formatos', 'fichas-tecnicas', 'ioarr-cliente', 'perfiles', 'mis-ficha-editar', 'asesorias-chat', 'asesorias-video',
+]);
+
 router.beforeEach((to) => {
   const session = useSessionStore();
 
   if (to.meta.requiresAuth && !session.sesion) {
     return { name: 'login' };
   }
-  // Cliente sin ningún plan asignado (recién registrado, todavía sin comprar) — pedido explícito
-  // del usuario: no debe ver nada más que la pantalla de elegir plan, sin importar a dónde intentó
-  // navegar. Va ANTES que cualquier otro redirect (home→formatos incluido) para que nunca se cuele.
-  if (session.sesion?.rol === 'cliente' && session.sesion.tienePlan === false && to.name !== 'elegir-plan') {
+  if (session.sesion?.rol === 'cliente' && session.sesion.tienePlan === false && !RUTAS_SIN_PLAN.has(to.name as string)) {
     return { name: 'elegir-plan' };
   }
   // El home genérico no aplica a cliente — su "inicio" es Formatos (primer ítem del sidebar,

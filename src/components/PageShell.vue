@@ -23,6 +23,22 @@ withDefaults(
     /** true = cabecera más baja (menos padding, título/ícono más chicos) — para páginas donde los
      * indicadores viven en el contenido blanco en vez de dentro de la cabecera oscura. */
     compact?: boolean;
+    /** Override completo de fondo/borde/padding de la cabecera (ej. un gradiente de marca propio
+     * en vez del "glass" de siempre) — opt-in por página, todas las demás siguen igual. */
+    headerClass?: string;
+    /** true = la cabecera pierde el aspecto de "card" (sin esquinas redondeadas, pegada a los
+     * bordes de arriba/izquierda/derecha) en vez de quedar inset con margen — opt-in por página. */
+    headerFullBleed?: boolean;
+    /** Override completo de layout de la fila de métricas/stats (por defecto una grilla pareja de
+     * hasta 4 columnas) — para una página que en cambio quiere agruparlas compactas a la izquierda. */
+    statsClass?: string;
+    /** Override del tamaño del título — por defecto el de siempre (más chico si compact). */
+    titleClass?: string;
+    /** Override del tamaño del contenedor del ícono — por defecto el de siempre (más chico si
+     * compact). Útil junto con el slot #icon para un ícono a medida más grande. */
+    iconBoxClass?: string;
+    /** Override del tamaño de la descripción — por defecto el de siempre (más chico si compact). */
+    descriptionClass?: string;
   }>(),
   { contentClass: 'p-6 sm:p-8 lg:px-12 xl:px-16' },
 );
@@ -35,21 +51,35 @@ withDefaults(
         <slot name="breadcrumb" />
       </div>
 
-      <div class="rounded-2xl bg-glass border border-glass-border" :class="compact ? 'p-4 sm:p-5' : 'p-6 sm:p-8'">
-        <div class="flex flex-wrap items-start justify-between gap-6">
+      <div
+        class="relative overflow-hidden"
+        :class="headerFullBleed
+          ? ['-mx-6 sm:-mx-8 -mt-6 sm:-mt-8', headerClass]
+          : ['rounded-2xl', headerClass ?? ['bg-glass border border-glass-border', compact ? 'p-4 sm:p-5' : 'p-6 sm:p-8']]"
+      >
+        <!-- Decoración opcional (íconos flotantes, ilustraciones) detrás del contenido — una
+             página la usa cuando quiere una cabecera más vistosa; sin este slot, PageShell se ve
+             igual que siempre. -->
+        <div v-if="$slots.decoration" class="absolute inset-0 pointer-events-none">
+          <slot name="decoration" />
+        </div>
+
+        <div class="relative z-10 flex flex-wrap items-start justify-between gap-6">
           <div class="min-w-0">
             <div class="flex items-center gap-3">
               <div
-                v-if="icon"
+                v-if="icon || $slots.icon"
                 class="rounded-xl flex items-center justify-center shrink-0"
-                :class="[compact ? 'w-9 h-9' : 'w-11 h-11', iconColor ? '' : 'bg-brand-500/15 text-brand-400']"
+                :class="[iconBoxClass ?? (compact ? 'w-9 h-9' : 'w-11 h-11'), iconColor ? '' : 'bg-brand-500/15 text-brand-400']"
                 :style="iconColor ? { backgroundColor: iconColor + '26', color: iconColor } : undefined"
               >
-                <FontAwesomeIcon :icon="icon" :class="compact ? 'w-4 h-4' : 'w-5 h-5'" />
+                <slot name="icon">
+                  <FontAwesomeIcon :icon="icon!" :class="compact ? 'w-4 h-4' : 'w-5 h-5'" />
+                </slot>
               </div>
-              <h1 class="font-bold text-white" :class="compact ? 'text-lg sm:text-xl' : 'text-2xl sm:text-3xl'">{{ title }}</h1>
+              <h1 class="font-bold text-white" :class="titleClass ?? (compact ? 'text-lg sm:text-xl' : 'text-2xl sm:text-3xl')">{{ title }}</h1>
             </div>
-            <p v-if="description" class="text-white/60 max-w-xl" :class="compact ? 'mt-1 text-xs' : 'mt-2 text-sm'">{{ description }}</p>
+            <p v-if="description" class="text-white/60 max-w-xl" :class="descriptionClass ?? (compact ? 'mt-1 text-xs' : 'mt-2 text-sm')">{{ description }}</p>
             <div class="rounded-full bg-brand-500" :class="compact ? 'mt-2 h-0.5 w-8' : 'mt-3 h-1 w-10'" />
           </div>
           <div v-if="$slots.actions" class="flex items-center gap-3 shrink-0">
@@ -57,18 +87,20 @@ withDefaults(
           </div>
         </div>
 
-        <div v-if="$slots.stats" class="grid grid-cols-2 lg:grid-cols-4 gap-4" :class="compact ? 'mt-5' : 'mt-8'">
+        <div v-if="$slots.stats" class="relative z-10" :class="statsClass ?? ['grid grid-cols-2 lg:grid-cols-4 gap-4', compact ? 'mt-5' : 'mt-8']">
           <slot name="stats" />
         </div>
       </div>
     </div>
 
     <!-- Contenedor blanco: ancho completo sin márgenes laterales, cubre todo el resto de la
-         página hacia abajo — solo la cabecera de arriba queda fuera de él. -->
-    <div v-if="bare" class="flex-1 mt-6">
+         página hacia abajo — solo la cabecera de arriba queda fuera de él. Sin margen superior en
+         cabeceras full-bleed: ahí la cabecera ya llega hasta el borde, un mt-6 dejaría una franja
+         del fondo oscuro de la página asomando entre la cabecera de color y el panel blanco. -->
+    <div v-if="bare" class="flex-1" :class="headerFullBleed ? 'mt-0' : 'mt-6'">
       <slot />
     </div>
-    <div v-else class="flex-1 mt-6 bg-surface-card rounded-t-2xl sm:rounded-t-3xl shadow-card" :class="contentClass">
+    <div v-else class="flex-1 bg-surface-card rounded-t-2xl sm:rounded-t-3xl shadow-card" :class="[headerFullBleed ? 'mt-0' : 'mt-6', contentClass]">
       <slot />
     </div>
   </div>
