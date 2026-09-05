@@ -1,7 +1,7 @@
-// Datos ficticios generados en el FRONTEND para "Mis X" del lado cliente — mismo patrón que
-// ticketsDemoFake.ts del lado administrativo. La cuenta de demo no siempre tiene fichas reales con
-// progreso variado, así que el avance/fecha que se muestra en la lista es aleatorio pero estable
-// por ejemplo (mismo ejemplo = mismos valores mientras dure la sesión del navegador).
+// Fecha ficticia de "última edición" para "Mis X" del lado cliente, cuando el plan del usuario no
+// da acceso al historial de cambios real (ver muestraHistorial en MisFichasLista.vue) — mismo
+// patrón que ticketsDemoFake.ts del lado administrativo. Estable por ejemplo (mismo ejemplo =
+// misma fecha mientras dure la sesión del navegador), no reinventa una cada render.
 
 function hashSeed(texto: string): number {
   let h = 0;
@@ -19,18 +19,6 @@ function crearPseudoAleatorio(seed: number): () => number {
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
-}
-
-export interface ProgresoFalso {
-  pct: number;
-  completo: boolean;
-}
-
-export function progresoFalso(ejemploId: string): ProgresoFalso {
-  const rnd = crearPseudoAleatorio(hashSeed(ejemploId));
-  const completo = rnd() < 0.35;
-  const pct = completo ? 100 : 15 + Math.floor(rnd() * 75);
-  return { pct, completo };
 }
 
 export function fechaEdicionFalsa(ejemploId: string): string {

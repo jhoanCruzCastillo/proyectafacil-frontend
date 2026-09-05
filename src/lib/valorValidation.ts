@@ -1,5 +1,6 @@
 import type { Campo, Plantilla } from '@/types';
 import { aFechaISO, numeroDesdeTextoVisible } from './conversionesExcel';
+import { esJerarquica, parseDynamicRows, parseGroupedRows, parseTree, type FilaDinamica, type TreeNode, type ValorCelda } from './tableRowHelpers';
 
 // Validación de los VALORES que llena el cliente (obligatoriedad + tipo) — distinto de
 // campoValidation.ts, que valida la posición de captura en Excel (cosa del admin).
@@ -39,25 +40,64 @@ export function validarValoresPlantilla(plantilla: Plantilla, valores: Record<st
   return errores;
 }
 
+function celdaTieneValor(v: ValorCelda | undefined): boolean {
+  if (v == null) return false;
+  if (typeof v === 'string') return v.trim() !== '';
+  if (Array.isArray(v)) return v.some((x) => (x ?? '').trim() !== '');
+  return Object.values(v).some((x) => (x ?? '').trim() !== '');
+}
+
+function filaTieneValor(fila: FilaDinamica): boolean {
+  return Object.values(fila).some(celdaTieneValor);
+}
+
+function nodoTieneValor(node: TreeNode): boolean {
+  if (celdaTieneValor(node.value)) return true;
+  if (node.valores && filaTieneValor(node.valores)) return true;
+  return node.children.some(nodoTieneValor);
+}
+
+// Una tabla cuenta como "llena" solo si tiene al menos una celda con contenido real — las filas,
+// grupos o nodos vacíos que tableRowHelpers genera por defecto (para que la tabla tenga algo que
+// mostrar antes de que el cliente escriba nada) no cuentan, así que una tabla sin tocar queda
+// pendiente igual que cualquier otro campo vacío. Mismo orden de ramas que indexarCeldasDeTabla
+// (jerárquica primero, agrupador después) para no desalinearse de cómo se interpreta el JSON crudo.
+export function tablaTieneValor(campo: Campo, raw: string | undefined): boolean {
+  const config = campo.configTabla;
+  if (!raw || !config) return false;
+  if (esJerarquica(config.subtipo)) {
+    return parseTree(raw, config.columnas, config).some(nodoTieneValor);
+  }
+  if (config.agrupador) {
+    return parseGroupedRows(raw, config).some((g) => g.filas.some(filaTieneValor) || (g.valoresGrupo && filaTieneValor(g.valoresGrupo)));
+  }
+  return parseDynamicRows(raw, config).some(filaTieneValor);
+}
+
 export interface ProgresoFicha {
   llenos: number;
   total: number;
-  /** 0-100. Si la plantilla no tiene campos simples que llenar, se considera 100 (nada pendiente). */
+  /** 0-100. Si la plantilla no tiene campos editables, se considera 100 (nada pendiente). */
   porcentaje: number;
 }
 
 // Progreso de LLENADO (cuántos campos tienen algún valor) — distinto de validarValoresPlantilla,
 // que solo mira obligatoriedad/formato. Un campo opcional vacío cuenta como pendiente aquí aunque
-// no genere ningún error de validación.
+// no genere ningún error de validación. Los campos tabla/tabla_jerarquica SÍ cuentan (a diferencia
+// de validarValoresPlantilla): valen como "llenos" si tienen al menos una celda con contenido real.
 export function calcularProgresoValores(plantilla: Plantilla, valores: Record<string, string>): ProgresoFicha {
   let total = 0;
   let llenos = 0;
   for (const seccion of plantilla.secciones) {
     for (const sub of seccion.subsecciones) {
       for (const campo of sub.campos) {
-        if (campo.tipo === 'tabla' || campo.tipo === 'tabla_jerarquica' || campo.tipo === 'nota' || !campo.editable) continue;
+        if (campo.tipo === 'nota' || !campo.editable) continue;
         total++;
-        if ((valores[campo.identificador] ?? '').trim()) llenos++;
+        if (campo.tipo === 'tabla' || campo.tipo === 'tabla_jerarquica') {
+          if (tablaTieneValor(campo, valores[campo.identificador])) llenos++;
+        } else if ((valores[campo.identificador] ?? '').trim()) {
+          llenos++;
+        }
       }
     }
   }
