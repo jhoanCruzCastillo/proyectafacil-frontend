@@ -15,7 +15,6 @@ import ProcesamientoIAModal from './ProcesamientoIAModal.vue';
 import type { SeccionProgresoIA } from './ProcesamientoIAModal.vue';
 import ResultadoLlenadoIAModal from './ResultadoLlenadoIAModal.vue';
 import AsesorIAChat from './AsesorIAChat.vue';
-import AsesoriaHumanaFAB from './AsesoriaHumanaFAB.vue';
 import HistorialFichaModal from './HistorialFichaModal.vue';
 import { useClienteFichaEditor } from '@/composables/useClienteFichaEditor';
 import { useLlenadoIAProgreso } from '@/composables/useLlenadoIAProgreso';
@@ -412,7 +411,6 @@ async function onGuardar() {
       @resaltar-campo="campoResaltadoIdentificador = $event"
       @aplicar-valor-campo="onAplicarValorDesdeChat"
     />
-    <AsesoriaHumanaFAB :ejemplo-id="ejemploId" />
 
     <ConfirmModal
       :is-open="showInsertConfirm"
