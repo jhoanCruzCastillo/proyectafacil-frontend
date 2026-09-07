@@ -43,6 +43,9 @@ const props = defineProps<{
   /** Advertencias del último llenado con IA de una tabla (ej. fila con UBIGEO sin resolver — ver
    * "?" del editor), por identificador de campo */
   advertenciasPorCampo?: Record<string, string[]>;
+  /** Identificador del campo que el Asesor de IA (chat flotante) está ayudando a llenar ahora mismo
+   * — solo puede haber uno resaltado a la vez, ver AsesorIAChat.vue */
+  campoResaltadoIdentificador?: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -71,6 +74,7 @@ const emit = defineEmits<{
   'confirmar-ia': [identificador: string];
   'confirmar-borrador': [campoId: string, identificador: string];
   'llenar-tabla-ia': [campoId: string, identificador: string, seccionId: string];
+  'ayuda-ia-campo': [identificador: string, modo: 'llenar' | 'verificar'];
 }>();
 
 const ayudaAbiertaId = ref<string | null>(null);
@@ -175,6 +179,7 @@ function abrirEditorCodigo(sub: Subseccion) {
           :error-tabla-i-a="erroresTablaIAPorCampo?.[campo.id]"
           :fuente-campo="fuentesPorCampo?.[campo.identificador]"
           :advertencias-campo="advertenciasPorCampo?.[campo.identificador]"
+          :resaltado-chat="!!campoResaltadoIdentificador && campoResaltadoIdentificador === campo.identificador"
           @click="emit('select-campo', campo)"
           @delete="emit('delete-campo', campo.id, sub.id)"
           @view-json="emit('view-json-campo', campo.id, sub.id)"
@@ -186,6 +191,7 @@ function abrirEditorCodigo(sub: Subseccion) {
           @confirmar-ia="emit('confirmar-ia', campo.identificador)"
           @confirmar-borrador="emit('confirmar-borrador', campo.id, campo.identificador)"
           @llenar-tabla-ia="emit('llenar-tabla-ia', campo.id, campo.identificador, seccion.id)"
+          @ayuda-ia-campo="emit('ayuda-ia-campo', campo.identificador, $event)"
         />
         <!-- Mismos botones que los del final de la subsección, pero pegados al campo seleccionado:
              lo nuevo entra justo detrás de él, no al final. -->

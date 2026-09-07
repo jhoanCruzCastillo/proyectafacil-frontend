@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import {
   faSave, faArrowRotateLeft, faSearch, faCheck, faCopy, faDownload, faCircleCheck,
+  faFilePdf, faUpload, faTrash, faSpinner,
 } from '@/lib/icons';
 import ContextosIAPillarsNav, { type PilarContextosIA } from './ContextosIAPillarsNav.vue';
 import ContextosIAEstructuraPanel from './ContextosIAEstructuraPanel.vue';
@@ -17,6 +18,11 @@ import {
   useGuardarContextoGlobal,
   useEliminarContextoGlobal,
 } from '@/composables/useContextosIA';
+import {
+  useContextosIAArchivosQuery,
+  useSubirContextoIAArchivo,
+  useEliminarContextoIAArchivo,
+} from '@/composables/useContextosIAArchivos';
 import { obtenerMarkdown, precargarMarkdown } from '@/lib/markdownCache';
 import { useUiStore } from '@/stores/ui';
 import { tiempoRelativo } from '@/lib/tiempoRelativo';
@@ -34,6 +40,44 @@ const eliminarGeneral = useEliminarContextoGeneral();
 const guardarSeccion = useGuardarContextoSeccion();
 const guardarGlobal = useGuardarContextoGlobal();
 const eliminarGlobal = useEliminarContextoGlobal();
+
+// Archivos PDF de "Contexto general" — a propósito una cola aparte de `contextos`: nunca deben
+// aparecer como insumo asignable (ver comentario de ContextoIAArchivoGeneral en types/index.ts).
+const { data: archivosGenerales } = useContextosIAArchivosQuery(() => props.plantillaId);
+const subirArchivoGeneral = useSubirContextoIAArchivo();
+const eliminarArchivoGeneral = useEliminarContextoIAArchivo();
+const inputArchivoRef = ref<HTMLInputElement | null>(null);
+const subiendoArchivo = ref(false);
+const confirmarEliminarArchivoId = ref<string | null>(null);
+
+function abrirSelectorArchivo() {
+  inputArchivoRef.value?.click();
+}
+
+async function onArchivoSeleccionado(e: Event) {
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0] ?? null;
+  input.value = ''; // permite volver a elegir el mismo archivo después de un error
+  if (!file) return;
+  if (file.type !== 'application/pdf') {
+    ui.toast('Solo se admiten archivos PDF');
+    return;
+  }
+  subiendoArchivo.value = true;
+  try {
+    await subirArchivoGeneral.mutateAsync({ plantillaId: props.plantillaId, file });
+  } catch (err) {
+    ui.toast(err instanceof Error ? err.message : 'No se pudo subir el archivo');
+  } finally {
+    subiendoArchivo.value = false;
+  }
+}
+
+async function confirmarEliminarArchivo() {
+  if (!confirmarEliminarArchivoId.value) return;
+  await eliminarArchivoGeneral.mutateAsync({ plantillaId: props.plantillaId, archivoId: confirmarEliminarArchivoId.value });
+  confirmarEliminarArchivoId.value = null;
+}
 
 const pilar = ref<PilarContextosIA>('prompt');
 
@@ -561,6 +605,43 @@ const tituloPilar = computed(() => {
                 Todavía no hay ningún contexto general creado.
               </p>
             </div>
+
+            <div class="border-t border-gray-100 p-3 space-y-2 shrink-0">
+              <h4 class="text-xs font-bold text-heading">Archivos</h4>
+              <p class="text-[11px] text-muted leading-relaxed">
+                Solo de referencia — no se usan en el llenado automático con IA ni se pueden asignar en Estructura.
+              </p>
+              <input ref="inputArchivoRef" type="file" accept="application/pdf" class="hidden" @change="onArchivoSeleccionado" />
+              <button
+                type="button"
+                :disabled="subiendoArchivo"
+                class="w-full rounded-lg border border-dashed border-gray-300 text-muted text-xs font-medium px-3 py-2 hover:bg-gray-50 transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50"
+                @click="abrirSelectorArchivo"
+              >
+                <FontAwesomeIcon :icon="subiendoArchivo ? faSpinner : faUpload" class="w-3 h-3" :class="{ 'animate-spin': subiendoArchivo }" />
+                {{ subiendoArchivo ? 'Subiendo…' : '+ Agregar PDF' }}
+              </button>
+              <ul v-if="(archivosGenerales ?? []).length > 0" class="space-y-1">
+                <li
+                  v-for="a in archivosGenerales"
+                  :key="a.id"
+                  class="flex items-center gap-2 rounded-lg border border-gray-100 px-2.5 py-1.5"
+                >
+                  <FontAwesomeIcon :icon="faFilePdf" class="w-3.5 h-3.5 text-red-500 shrink-0" />
+                  <a :href="a.url" target="_blank" rel="noopener" :title="a.nombre" class="flex-1 min-w-0 text-[11px] text-heading truncate hover:underline">
+                    {{ a.nombre }}
+                  </a>
+                  <button
+                    type="button"
+                    title="Eliminar"
+                    class="text-gray-300 hover:text-red-600 transition-colors shrink-0"
+                    @click="confirmarEliminarArchivoId = a.id"
+                  >
+                    <FontAwesomeIcon :icon="faTrash" class="w-3 h-3" />
+                  </button>
+                </li>
+              </ul>
+            </div>
           </aside>
 
           <div class="flex-1 min-h-0 overflow-y-auto px-6 py-5">
@@ -623,6 +704,14 @@ const tituloPilar = computed(() => {
           :message="`¿Seguro que deseas eliminar &quot;${generalActivo?.nombre}&quot;? Esto lo quita del prompt de todas las secciones de esta ficha.`"
           @confirm="confirmarEliminarContextoGeneralActivo"
           @close="confirmarEliminarGeneral = false"
+        />
+
+        <ConfirmModal
+          :is-open="!!confirmarEliminarArchivoId"
+          title="Eliminar archivo"
+          message="¿Seguro que deseas eliminar este PDF? Esta acción no se puede deshacer."
+          @confirm="confirmarEliminarArchivo"
+          @close="confirmarEliminarArchivoId = null"
         />
       </template>
 

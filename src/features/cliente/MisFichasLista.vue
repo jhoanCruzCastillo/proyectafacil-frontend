@@ -3,7 +3,7 @@ import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faPlus, faTrash, faInbox, faGraduationCap, faHeadset, faUserGroup, faChevronRight, instrumentoIcons, instrumentoLabels, instrumentoLabelsPlural } from '@/lib/icons';
-import { progresoFalso, fechaEdicionFalsa } from '@/lib/fichasDemoFake';
+import { fechaEdicionFalsa } from '@/lib/fichasDemoFake';
 import { useEjemplosQuery, useEliminarEjemplo, useActualizarEjemplo } from '@/composables/useEjemplos';
 import { usePlantillasQuery } from '@/composables/usePlantillas';
 import { useSectoresQuery } from '@/composables/useSectores';
@@ -165,7 +165,7 @@ function ultimoCambioDe(ejemploId: string) {
         <p class="text-xs text-muted mt-1">Crea la primera para empezar a llenarla</p>
       </div>
       <div
-        v-for="{ ejemplo, plantilla, sector } in misFichas"
+        v-for="{ ejemplo, plantilla, sector, completo, progreso } in misFichas"
         :key="ejemplo.id"
         @click="router.push(`/mis-fichas/${ejemplo.id}`)"
         class="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-50/60 transition-colors group"
@@ -194,21 +194,21 @@ function ultimoCambioDe(ejemploId: string) {
             <template v-else>{{ fechaEdicionFalsa(ejemplo.id) }}</template>
           </p>
         </div>
-        <div class="w-32 shrink-0">
+        <div v-if="progreso && progreso.total > 0" class="w-32 shrink-0">
           <div class="h-1.5 rounded-full bg-gray-100 overflow-hidden">
-            <div class="h-full rounded-full" :class="progresoFalso(ejemplo.id).completo ? 'bg-brand-500' : 'bg-amber-400'" :style="{ width: `${progresoFalso(ejemplo.id).pct}%` }" />
+            <div class="h-full rounded-full" :class="completo ? 'bg-brand-500' : 'bg-amber-400'" :style="{ width: `${progreso.porcentaje}%` }" />
           </div>
-          <p class="text-[11px] text-muted mt-1 text-right">{{ progresoFalso(ejemplo.id).pct }}%</p>
+          <p class="text-[11px] text-muted mt-1 text-right">{{ progreso.llenos }}/{{ progreso.total }} campos</p>
         </div>
-        <span class="text-xs font-medium px-2.5 py-1 rounded-full shrink-0" :class="estadoBadge[progresoFalso(ejemplo.id).completo ? 'Completo' : 'En progreso']">
-          {{ progresoFalso(ejemplo.id).completo ? 'Completo' : 'En progreso' }}
+        <span class="text-xs font-medium px-2.5 py-1 rounded-full shrink-0" :class="estadoBadge[completo ? 'Completo' : 'En progreso']">
+          {{ completo ? 'Completo' : 'En progreso' }}
         </span>
         <button
           @click.stop="router.push(`/mis-fichas/${ejemplo.id}`)"
           type="button"
           class="px-4 py-2 rounded-lg border border-brand-200 text-brand-700 text-sm font-medium hover:bg-brand-50 transition-colors duration-75 flex items-center gap-1.5 shrink-0"
         >
-          {{ progresoFalso(ejemplo.id).completo ? 'Detalles' : 'Continuar' }}
+          {{ completo ? 'Detalles' : 'Continuar' }}
           <FontAwesomeIcon :icon="faChevronRight" class="w-3 h-3" />
         </button>
         <button
