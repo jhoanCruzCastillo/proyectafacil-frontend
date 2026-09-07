@@ -584,11 +584,20 @@ export interface CatalogoExcelPlantilla {
 // Histórico de cambios en una ficha llenada (ventaja del plan Nivel 2) — ayuda a un equipo con
 // colaboradores a ver quién editó qué. Se registra una entrada por cada vez que se presiona
 // "Guardar" y hubo campos con valores distintos, no por cada tecla.
+// 'editado' = lo escribió una persona; 'autocompletado' = lo propuso el llenado con IA (ver
+// fuentesPorCampo en useClienteFichaEditor.ts); 'eliminado' = el valor nuevo quedó vacío.
+export type AccionCambioCampo = 'editado' | 'autocompletado' | 'eliminado';
+
 export interface CampoCambio {
   identificador: string;
   etiqueta: string;
   valorAnterior: string;
   valorNuevo: string;
+  accion: AccionCambioCampo;
+  /** Sección a la que pertenece el campo, para la columna "Campo / Sección" y su filtro en el
+   * historial — ausente en cambios registrados antes de este campo. */
+  seccionNumero?: string | null;
+  seccionNombre?: string | null;
 }
 
 export interface CambioFicha {
@@ -649,6 +658,16 @@ export interface ContextoGeneralIA {
   nombre: string;
   url: string | null;
   actualizadoEn?: string | null;
+}
+
+/** PDF de referencia adjunto a "Contexto general" de una ficha — a propósito NO es parte de
+ * ContextosIAPlantilla: nunca debe poder asignarse a un paso en la pestaña Estructura ni entrar al
+ * llenado automático de la ficha con IA, se usa para otra cosa fuera de ese flujo. */
+export interface ContextoIAArchivoGeneral {
+  id: string;
+  nombre: string;
+  url: string;
+  creadoEn: string | null;
 }
 
 /** Contexto propio de UNA sección de UNA ficha. */

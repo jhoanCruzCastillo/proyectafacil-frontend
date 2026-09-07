@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, inject, nextTick, ref } from 'vue';
+import { computed, inject, nextTick, ref, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { fieldTypeIcons, fieldTypeLabels, subtipoTablaLabels, columnTypeLabels, faTriangleExclamation, faClone, faTrash, faLightbulb, faWandMagicSparkles, faSpinner, faCheck, faCircleQuestion, faFileCode, faPen } from '@/lib/icons';
 import { campoFaltaCaptura } from '@/lib/campoValidation';
 import { mejorarTexto } from '@/lib/mejoraTexto';
 import { esTablaExcluidaDeIA } from '@/lib/camposTablaExcluidosIA';
+import { esCampoAyudableConIA } from '@/lib/camposAyudaIA';
 import ExampleTableEditor from './ExampleTableEditor.vue';
 import CampoCoordenadasInput from '@/components/CampoCoordenadasInput.vue';
 import CampoImagenInput from '@/components/CampoImagenInput.vue';
@@ -57,6 +58,9 @@ const props = defineProps<{
   modoEdicion?: ModoEdicionEditor;
   /** Borrador pendiente en modo confirmar (si existe, se muestra en el editor en vez del valor confirmado) */
   valorBorrador?: string;
+  /** true = el Asesor de IA (chat flotante) está ofreciendo ayuda para ESTE campo ahora mismo —
+   * outline morado brillante + scroll automático, ver AsesorIAChat.vue */
+  resaltadoChat?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -71,9 +75,20 @@ const emit = defineEmits<{
   'confirmar-ia': [];
   'confirmar-borrador': [];
   'llenar-tabla-ia': [];
+  /** Botón "?" del campo — "llenar" si está vacío, "verificar" si ya tiene un valor (ver
+   * AsesorIAChat.vue::solicitarAyudaCampo). */
+  'ayuda-ia-campo': [modo: 'llenar' | 'verificar'];
 }>();
 
 const valorEditorEl = ref<HTMLElement | null>(null);
+const rootEl = ref<HTMLElement | null>(null);
+
+// Cuando el Asesor de IA empieza a ofrecer ayuda para este campo, lo traemos a la vista — sin robarle
+// el foco al chat (a diferencia de enfocarEditorValor(), que sí lo hace para "Confirmar" de IA).
+watch(() => props.resaltadoChat, (val) => {
+  if (!val) return;
+  void nextTick(() => rootEl.value?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+});
 const tienePendiente = computed(
   () => (props.modoEdicion ?? 'live') === 'confirmar' && props.valorBorrador !== undefined,
 );
@@ -128,6 +143,13 @@ const isFechaField = computed(() => props.campo.tipo === 'fecha');
 // Campo tipo imagen: el valor es una URL, pero se edita con vista previa y carga de archivo.
 const isImagenField = computed(() => props.campo.tipo === 'imagen');
 const faltaCaptura = computed(() => campoFaltaCaptura(props.campo));
+
+// Botón "?" — "ayúdame a llenar/verificar este campo con IA" (pedido explícito del usuario). Mismo
+// gate que "Mejorar con IA"/"Llenar con IA" (permiteMejoraIA !== undefined solo lo pasa la ficha del
+// cliente en su tab "Mi ficha" — nunca el admin, ver ClienteFichaEditPage.vue): así este botón no
+// aparece ni en Estructura ni al admin construyendo el ejemplo de referencia de la plantilla.
+const mostrarAyudaIA = computed(() => !!props.editableExample && props.permiteMejoraIA !== undefined && esCampoAyudableConIA(props.campo));
+const modoAyudaIA = computed<'llenar' | 'verificar'>(() => ((displayValue.value || '').trim() ? 'verificar' : 'llenar'));
 
 // Ayudas leídas del Excel asignado (no de la estructura JSON): las opciones del desplegable de esta
 // celda, y —si la celda es una fórmula— el valor que el Excel calcularía ahí con los datos actuales.
@@ -202,6 +224,11 @@ function handleFocusIn() {
 
 const claseContenedor = computed(() => {
   // border-2 fijo siempre: el resaltado va con outline/inset para no cambiar el box model ni empujar vecinos.
+  // Máxima prioridad: el Asesor de IA está mirando este campo ahora mismo (outline morado brillante,
+  // pedido explícito del usuario — nunca box-shadow con blur que desplace o tape campos vecinos).
+  if (props.resaltadoChat) {
+    return 'border-fuchsia-400 bg-fuchsia-50/40 outline outline-2 outline-fuchsia-500 -outline-offset-2 shadow-[0_0_0_4px_rgba(217,70,239,0.25)]';
+  }
   if (faltaCaptura.value && props.highlightWarning) {
     return 'border-red-400 bg-red-50/40 animate-pulse';
   }
@@ -263,6 +290,8 @@ const claseLabelEjemplo = computed(() => {
        propiedades en Estructura (ver FieldPropertiesPanel). -->
   <div
     v-if="campo.tipo === 'nota'"
+    ref="rootEl"
+    :data-campo-identificador="campo.identificador"
     @click="handleClick"
     @focusin="handleFocusIn"
     class="rounded-xl border-2 p-4 transition-[background-color,border-color,outline-color,box-shadow] duration-150"
@@ -291,6 +320,8 @@ const claseLabelEjemplo = computed(() => {
   </div>
   <div
     v-else
+    ref="rootEl"
+    :data-campo-identificador="campo.identificador"
     @click="handleClick"
     @focusin="handleFocusIn"
     class="rounded-xl border-2 p-4 transition-[background-color,border-color,outline-color,box-shadow] duration-150"
@@ -346,6 +377,18 @@ const claseLabelEjemplo = computed(() => {
                 </div>
               </div>
             </span>
+            <button
+              v-if="mostrarAyudaIA"
+              type="button"
+              @click.stop="emit('ayuda-ia-campo', modoAyudaIA)"
+              :disabled="!permiteMejoraIA"
+              :title="!permiteMejoraIA
+                ? 'Disponible desde Nivel 1 — actualiza tu plan'
+                : (modoAyudaIA === 'llenar' ? 'Ayúdame a llenar este campo con IA' : 'Ayúdame a verificar este campo con IA')"
+              class="w-4 h-4 rounded-full flex items-center justify-center text-violet-400 hover:text-violet-700 hover:bg-violet-50 transition-colors shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <FontAwesomeIcon :icon="faCircleQuestion" class="w-3 h-3" />
+            </button>
             <span
               v-if="faltaCaptura"
               title="Falta registrar su posición en el Excel (columna/fila) — no se insertará al Excel hasta configurarla"

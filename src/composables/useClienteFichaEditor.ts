@@ -10,6 +10,7 @@ import { useEstadoEntrenamiento } from '@/composables/useEstadoEntrenamiento';
 import { useExcelVivo, useAltoDeBloqueExcel, EXCEL_VIVO } from '@/composables/useListasExcel';
 import { useMapaValoresExcelDebounced, type ResolverValorCampo } from '@/composables/useMapaValoresExcelDebounced';
 import type { ModoEdicionEditor } from '@/composables/usePlantillaEditor';
+import type { EstadoCampoIA } from '@/types';
 import { useSessionStore } from '@/stores/session';
 import { useUiStore } from '@/stores/ui';
 import { generateId } from '@/api/mock/_shared';
@@ -202,6 +203,16 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
     fuentesPorCampo.value = { ...fuentesPorCampo.value, [identificador]: fuente };
   }
 
+  /** Campos de TABLA llenados con IA en esta sesión — señal aparte de fuentesPorCampo para el
+   * historial de cambios (ver calcularCambios): el "?" de origen del dato solo se activa si el
+   * modelo devolvió una `fuente` no vacía (setFuenteCampo la descarta si viene ""), pero una tabla
+   * puede llenarse con datos reales sin que el modelo cite una fuente concreta — sin esto, esas
+   * filas se registraban como "Editó" en vez de "Autocompletó". */
+  const identificadoresAutocompletadosPorIA = ref<Set<string>>(new Set());
+  function marcarAutocompletadoPorIA(identificador: string) {
+    identificadoresAutocompletadosPorIA.value.add(identificador);
+  }
+
   /** Advertencias del llenado con IA de una tabla — ver `advertenciasPorCampo`. Reemplaza (no
    * acumula) las de ese campo: son del último intento, no un historial. */
   function setAdvertenciasCampo(identificador: string, advertencias: string[]) {
@@ -301,9 +312,15 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
     setBorradorCampo(campoId, value, editedValores.value[campoIdentificador] ?? '');
   }
 
-  async function handleSave() {
+  /** `estadosIAActuales` viene de useLlenadoIAProgreso (otro composable, instanciado aparte en
+   * ClienteFichaEditPage.vue) — se lo pasa quien llama a handleSave() porque este composable no lo
+   * conoce; ver calcularCambios() para por qué hace falta al registrar el historial. */
+  async function handleSave(estadosIAActuales?: Record<string, EstadoCampoIA>) {
     if (!plantilla.value || !ejemplo.value || !session.sesion) return;
-    const cambios = calcularCambios(plantilla.value, ejemplo.value.valores, editedValores.value);
+    const cambios = calcularCambios(
+      plantilla.value, ejemplo.value.valores, editedValores.value,
+      fuentesPorCampo.value, estadosIAActuales, identificadoresAutocompletadosPorIA.value,
+    );
     await actualizarEjemplo.mutateAsync({
       id: ejemplo.value.id,
       data: { valores: editedValores.value, fuentes: fuentesPorCampo.value, excelActualizado: !excelDesactualizado.value },
@@ -435,7 +452,7 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
     ejemplo, plantilla, archivoEjemplo, esNivel0, vencido, diasRestantes, numeroNivel,
     soloLectura, permiteMejoraIA, muestraHistorial, showHistorial, showFuenteVerdad,
     esPropietario, ejemplosReferencia, referenciaId, referenciaEjemplo,
-    activeSectionIndex, editedValores, fuentesPorCampo, setFuenteCampo, advertenciasPorCampo, setAdvertenciasCampo, confirmarTodosLosBorradores, leftWidth, activeTab, examplesWidth, showPreview, showInsertConfirm, isInserting, insertProgress, insertProgressLabel, excelDesactualizado,
+    activeSectionIndex, editedValores, fuentesPorCampo, setFuenteCampo, marcarAutocompletadoPorIA, advertenciasPorCampo, setAdvertenciasCampo, confirmarTodosLosBorradores, leftWidth, activeTab, examplesWidth, showPreview, showInsertConfirm, isInserting, insertProgress, insertProgressLabel, excelDesactualizado,
     modoEdicion, borradoresPorCampo, confirmarBorradorCampo,
     errores, erroresCount, progreso, erroresPorSeccion,
     secciones, safeIdx, seccionActiva, isFirst, isLast,

@@ -33,7 +33,7 @@ const {
   soloLectura, permiteMejoraIA, muestraHistorial, showHistorial, showFuenteVerdad,
   esPropietario, ejemplosReferencia, referenciaId, referenciaEjemplo,
   editedValores, leftWidth, activeTab, examplesWidth, showPreview, showInsertConfirm, isInserting, insertProgress, insertProgressLabel,
-  modoEdicion, borradoresPorCampo, confirmarBorradorCampo, confirmarTodosLosBorradores, fuentesPorCampo, setFuenteCampo, advertenciasPorCampo, setAdvertenciasCampo,
+  modoEdicion, borradoresPorCampo, confirmarBorradorCampo, confirmarTodosLosBorradores, fuentesPorCampo, setFuenteCampo, marcarAutocompletadoPorIA, advertenciasPorCampo, setAdvertenciasCampo,
   errores, erroresCount, progreso, erroresPorSeccion,
   secciones, safeIdx, seccionActiva, isFirst, isLast,
   handleLeftResize, handleExamplesResize, handleSectionSelect, goToPrevSection, goToNextSection, handleValueChange,
@@ -151,6 +151,9 @@ async function onLlenarTablaIA(campoId: string, identificador: string, seccionId
   if (resultado !== null) {
     onValueChange(campoId, identificador, resultado.valorJson);
     setFuenteCampo(identificador, resultado.fuente);
+    // Aparte de setFuenteCampo: esa función descarta fuentes vacías, pero la tabla sí se llenó con
+    // IA — sin esto el historial de cambios la registraba como "Editó" (ver calcularCambios).
+    marcarAutocompletadoPorIA(identificador);
     setAdvertenciasCampo(identificador, resultado.advertencias);
   }
 }
@@ -254,6 +257,22 @@ function onConfirmarBorrador(campoId: string, identificador: string) {
   alEditarCampoIA(identificador, editedValores.value[identificador] ?? '');
 }
 
+// Asesor de IA (chat flotante) — "ayúdame a llenar el campo X": un solo campo resaltado a la vez,
+// controlado desde AsesorIAChat.vue (busca/desambigua contra plantilla.secciones, que ya tiene cargada).
+const campoResaltadoIdentificador = ref<string | null>(null);
+const asesorIAChatRef = ref<InstanceType<typeof AsesorIAChat> | null>(null);
+
+/** Botón "?" de un campo (ver FieldCard.vue) — abre el chat y dispara la MISMA consulta que
+ * "ayúdame a llenar/verificar el campo X", sin que el usuario tenga que escribirlo. */
+function onAyudaIACampo(identificador: string, modo: 'llenar' | 'verificar') {
+  void asesorIAChatRef.value?.solicitarAyudaCampo(identificador, modo);
+}
+
+function onAplicarValorDesdeChat(payload: { campoId: string; identificador: string; valor: string }) {
+  onValueChange(payload.campoId, payload.identificador, payload.valor);
+  onConfirmarBorrador(payload.campoId, payload.identificador);
+}
+
 // El botón "Guardar" de la topbar ahora hace las veces del antiguo botón "Terminar": los borradores
 // de la IA ya se confirmaron solos (ver los dos puntos de confirmarTodosLosBorradores() más arriba),
 // así que Guardar solo necesita persistir — y, si había una revisión de IA en curso, cerrarla (apaga
@@ -261,7 +280,9 @@ function onConfirmarBorrador(campoId: string, identificador: string) {
 async function onGuardar() {
   resaltarGuardar.value = false;
   const habiaRevisionIA = enRevisionIA.value;
-  await handleSave();
+  // estadosCamposIA (de useLlenadoIAProgreso) le dice a calcularCambios() qué campos trae puestos
+  // el llenado automático — así el historial los etiqueta "Autocompletó" en vez de "Editó".
+  await handleSave(estadosCamposIA.value);
   if (habiaRevisionIA) terminarProcesoLlenadoIA();
 }
 </script>
@@ -346,10 +367,12 @@ async function onGuardar() {
             :errores-tabla-i-a-por-campo="activeTab === 'mi-ficha' ? erroresTablaIAPorCampo : undefined"
             :fuentes-por-campo="activeTab === 'mi-ficha' ? fuentesPorCampo : undefined"
             :advertencias-por-campo="activeTab === 'mi-ficha' ? advertenciasPorCampo : undefined"
+            :campo-resaltado-identificador="activeTab === 'mi-ficha' ? campoResaltadoIdentificador : undefined"
             @update-example-value="(campoId, identificador, value) => onValueChange(campoId, identificador, value)"
             @confirmar-borrador="onConfirmarBorrador"
             @confirmar-ia="confirmarCampoIA"
             @llenar-tabla-ia="onLlenarTablaIA"
+            @ayuda-ia-campo="onAyudaIACampo"
           />
         </div>
 
@@ -379,7 +402,16 @@ async function onGuardar() {
       </div>
     </div>
 
-    <AsesorIAChat :plantilla="plantilla" :seccion-activa-id="seccionActiva?.id ?? null" :permitido="permiteMejoraIA" />
+    <AsesorIAChat
+      ref="asesorIAChatRef"
+      :plantilla="plantilla"
+      :seccion-activa-id="seccionActiva?.id ?? null"
+      :permitido="permiteMejoraIA"
+      :ejemplo-id="ejemploId"
+      :valores-actuales="editedValores"
+      @resaltar-campo="campoResaltadoIdentificador = $event"
+      @aplicar-valor-campo="onAplicarValorDesdeChat"
+    />
     <AsesoriaHumanaFAB :ejemplo-id="ejemploId" />
 
     <ConfirmModal
@@ -412,7 +444,7 @@ async function onGuardar() {
       @close="showPreview = false"
     />
 
-    <HistorialFichaModal :is-open="showHistorial" :ejemplo-id="ejemplo.id" @close="showHistorial = false" />
+    <HistorialFichaModal :is-open="showHistorial" :ejemplo-id="ejemplo.id" :plantilla="plantilla" @close="showHistorial = false" />
 
     <FuenteVerdadModal
       :is-open="showFuenteVerdad"

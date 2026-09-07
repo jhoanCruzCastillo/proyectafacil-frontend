@@ -19,6 +19,7 @@ import ExcelPreviewModal from './ExcelPreviewModal.vue';
 import VolcarExcelModal from './VolcarExcelModal.vue';
 import ExcelCatalogModal from '@/features/plantillas/ExcelCatalogModal.vue';
 import { usePlantillaEditor } from '@/composables/usePlantillaEditor';
+import type { Ejemplo } from '@/types';
 
 const route = useRoute();
 const sectorId = computed(() => route.params.sectorId as string);
@@ -51,6 +52,14 @@ const mostrarTipologiasIoarr = computed(() => editData.value?.instrumento === 'i
 // Contextos IA reemplaza el cuerpo del editor (no es una versión más de la ficha, así que no entra
 // en `activeTab`): la barra superior se queda y debajo se cambia todo el contenido.
 const verContextosIA = ref(false);
+
+// Pedido explícito del usuario: publicar/volver a borrador un ejemplo debe pedir confirmación —
+// mismo patrón que deleteTarget (ConfirmModal reutilizado, ver el bloque más abajo).
+const toggleEstadoTarget = ref<Ejemplo | null>(null);
+function confirmarToggleEstado() {
+  if (toggleEstadoTarget.value) handleToggleEjemploEstado(toggleEstadoTarget.value);
+  toggleEstadoTarget.value = null;
+}
 </script>
 
 <template>
@@ -88,7 +97,7 @@ const verContextosIA = ref(false);
             @preview="handlePreviewExample"
             @download="handleDownloadExcel"
             @delete="deleteTarget = $event"
-            @toggle-estado="handleToggleEjemploEstado"
+            @toggle-estado="toggleEstadoTarget = $event"
             @toggle-referencia-ia="handleToggleReferenciaIA"
             @volcar-excel="handleVolcarExcel"
           />
@@ -218,6 +227,17 @@ const verContextosIA = ref(false);
       :message="`¿Seguro que deseas eliminar el ejemplo &quot;${deleteTarget?.nombre}&quot;? Sus valores se perderán y esta acción no se puede deshacer.`"
       @close="deleteTarget = null"
       @confirm="handleDeleteEjemplo"
+    />
+
+    <ConfirmModal
+      :is-open="!!toggleEstadoTarget"
+      :title="toggleEstadoTarget?.estado === 'publicado' ? 'Volver a borrador' : 'Publicar ejemplo'"
+      :message="toggleEstadoTarget?.estado === 'publicado'
+        ? `¿Seguro que deseas volver &quot;${toggleEstadoTarget?.nombre}&quot; a borrador? Dejará de estar publicado.`
+        : `¿Seguro que deseas publicar &quot;${toggleEstadoTarget?.nombre}&quot;? Quedará visible como ejemplo publicado.`"
+      :confirm-label="toggleEstadoTarget?.estado === 'publicado' ? 'Volver a borrador' : 'Publicar'"
+      @close="toggleEstadoTarget = null"
+      @confirm="confirmarToggleEstado"
     />
 
     <ConfirmModal
