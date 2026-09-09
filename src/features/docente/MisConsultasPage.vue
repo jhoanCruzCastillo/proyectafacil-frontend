@@ -109,7 +109,16 @@ const listaFiltrada = computed(() => {
   // "Por Agendar" = el asesor todavía NO acepta (sin asignar) — "Agendadas" = ya aceptada
   // (chat en curso o video con horario) pero todavía sin terminar. "asignado" es justamente eso:
   // un chat YA aceptado, por eso va en Agendadas, no en Por Agendar.
-  if (tabActiva.value === 'por_agendar') lista = lista.filter((s) => s.estado === 'pendiente' || s.estado === 'en_espera');
+  // Pedido explícito del usuario: una solicitud "pendiente" cuyo SLA ya venció deja de ser
+  // responsabilidad del asesor — de ahí en adelante la reasigna/gestiona el Administrativo (ver
+  // "No atendidas / reasignadas"), así que no debe seguir apareciendo acá.
+  if (tabActiva.value === 'por_agendar') {
+    lista = lista.filter((s) => {
+      if (s.estado === 'en_espera') return true;
+      if (s.estado !== 'pendiente') return false;
+      return !s.slaVenceEn || !tiempoHastaVencer(s.slaVenceEn).vencido;
+    });
+  }
   else if (tabActiva.value === 'agendadas') lista = lista.filter((s) => s.estado === 'asignado' || s.estado === 'agendado');
   // "Observado" también ya tuvo su sesión real (solo que no alcanzó la duración pactada) — pedido
   // explícito del usuario para que el asesor pueda revisarla igual, no solo las "completado".
