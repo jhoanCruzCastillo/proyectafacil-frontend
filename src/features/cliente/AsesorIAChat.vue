@@ -357,7 +357,37 @@ async function solicitarAyudaCampo(identificador: string, modo: 'llenar' | 'veri
   await pedirAyudaParaCampo(candidato, modo);
 }
 
-defineExpose({ solicitarAyudaCampo });
+/** Botón "?" de una tabla (ver FieldCard.vue) — mismo patrón que solicitarAyudaCampo (abre el chat,
+ * resalta el campo, muestra el pedido como si el usuario lo hubiera escrito), pero el llenado en sí
+ * (resolver opciones de cascada, llamar al endpoint, aplicar el borrador al campo) lo hace
+ * ClienteFichaEditPage.vue vía `ejecutar` — acá solo se presenta la conversación alrededor. */
+async function solicitarAyudaTabla(identificador: string, ejecutar: () => Promise<{ fuente: string; advertencias: string[] } | null>) {
+  handleAbrir();
+  resaltarCampo(identificador);
+  agregarMensaje('usuario', `Ayúdame a llenar la tabla ${identificador}`);
+  escribiendo.value = true;
+  try {
+    const resultado = await ejecutar();
+    escribiendo.value = false;
+    if (resultado === null) {
+      agregarMensaje('asesor', `No pude llenar la tabla **${identificador}** — revisa el mensaje de error que quedó junto al campo e inténtalo de nuevo.`);
+      return;
+    }
+    const partes = [`Listo — llené la tabla **${identificador}** con IA. Revisa el borrador en el campo y confírmalo si está bien.`];
+    if (resultado.fuente.trim()) {
+      partes.push(`Fuente: ${resultado.fuente.trim()}`);
+    }
+    if (resultado.advertencias.length > 0) {
+      partes.push(`Advertencias:\n${resultado.advertencias.map((a) => `- ${a}`).join('\n')}`);
+    }
+    agregarMensaje('asesor', partes.join('\n\n'));
+  } catch (err) {
+    escribiendo.value = false;
+    agregarMensaje('asesor', err instanceof Error ? err.message : 'No pude llenar la tabla con IA. Inténtalo de nuevo en un momento.');
+  }
+}
+
+defineExpose({ solicitarAyudaCampo, solicitarAyudaTabla });
 
 /** Aplica la opción elegida — las demás quedan visibles (el usuario las puede copiar a mano) pero
  * dejan de ser botones clicables, pedido explícito del usuario. */

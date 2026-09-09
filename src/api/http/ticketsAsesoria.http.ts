@@ -34,6 +34,13 @@ export const ticketsAsesoriaHttp: TicketsAsesoriaApi = {
     });
   },
 
+  crearManual(datos) {
+    return apiFetch<SolicitudAsesoria>('asesoria/tickets/crear-manual', {
+      method: 'POST',
+      body: JSON.stringify(datos),
+    });
+  },
+
   marcarEnEspera(id) {
     return apiFetch<SolicitudAsesoria>(`asesoria/tickets/${id}/en-espera`, { method: 'POST' });
   },

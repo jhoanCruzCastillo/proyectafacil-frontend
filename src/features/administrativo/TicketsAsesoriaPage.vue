@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faListCheck, faClock, faCalendarCheck, faCircleCheck, faUserCheck, faComments, faVideo, faChevronLeft, faChevronRight, faAnglesLeft, faAnglesRight, faMagnifyingGlass, faEye } from '@/lib/icons';
+import { faListCheck, faClock, faCalendarCheck, faCircleCheck, faUserCheck, faComments, faVideo, faChevronLeft, faChevronRight, faAnglesLeft, faAnglesRight, faMagnifyingGlass, faEye, faPlus } from '@/lib/icons';
 import PageShell from '@/components/PageShell.vue';
 import Avatar from '@/components/Avatar.vue';
 import TicketDetalleModal from './TicketDetalleModal.vue';
 import TicketDetalleCompletadoModal from './TicketDetalleCompletadoModal.vue';
 import IntervencionManualModal from './IntervencionManualModal.vue';
+import CrearReunionManualModal from './CrearReunionManualModal.vue';
 import { useDashboardAsesoriaQuery, useTicketsAsesoriaQuery } from '@/composables/useTicketsAsesoria';
 import { ESTADO_ASESORIA_LABEL, ESTADO_ASESORIA_CLASE } from '@/lib/estadoAsesoria';
 import { etiquetaDocenteFalsa, claseCategoria, codigoTicketFalso } from '@/lib/ticketsDemoFake';
@@ -105,6 +106,7 @@ function cambiarPorPagina(valor: number) {
 const detalleId = ref<string | null>(null);
 const detalleCompletadoId = ref<string | null>(null);
 const intervencionTicket = ref<SolicitudAsesoria | null>(null);
+const showCrearReunion = ref(false);
 
 // Los tickets completados u observados tienen su propio modal (con video/resumen/historial de la
 // sesión) — "observado" también tuvo una sesión real (solo que no alcanzó la duración pactada), así
@@ -155,6 +157,7 @@ function slaDe(t: SolicitudAsesoria) {
     </div>
 
     <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+      <div class="flex flex-wrap items-center gap-3">
       <div class="flex gap-1 bg-gray-100 rounded-lg p-1">
         <button
           v-for="tab in TABS"
@@ -168,6 +171,16 @@ function slaDe(t: SolicitudAsesoria) {
           <FontAwesomeIcon v-if="tab.icon" :icon="tab.icon" class="w-3 h-3" />
           {{ tab.label }}
         </button>
+      </div>
+
+      <button
+        @click="showCrearReunion = true"
+        type="button"
+        class="px-4 py-2 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 transition-colors duration-75 flex items-center gap-2 shrink-0"
+      >
+        <FontAwesomeIcon :icon="faPlus" class="w-3 h-3" />
+        Agendar reunión
+      </button>
       </div>
 
       <div class="relative w-full sm:w-72">
@@ -313,4 +326,5 @@ function slaDe(t: SolicitudAsesoria) {
   <TicketDetalleModal :is-open="!!detalleId" :ticket-id="detalleId" @close="detalleId = null" />
   <TicketDetalleCompletadoModal :is-open="!!detalleCompletadoId" :ticket-id="detalleCompletadoId" @close="detalleCompletadoId = null" />
   <IntervencionManualModal :is-open="!!intervencionTicket" :ticket="intervencionTicket" @close="intervencionTicket = null" />
+  <CrearReunionManualModal :is-open="showCrearReunion" @close="showCrearReunion = false" />
 </template>

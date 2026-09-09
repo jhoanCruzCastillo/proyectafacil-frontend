@@ -127,7 +127,7 @@ function abrirContextoIA() {
   showFuenteVerdad.value = true;
 }
 
-async function onLlenarTablaIA(campoId: string, identificador: string, seccionId: string) {
+async function onLlenarTablaIA(campoId: string, identificador: string, seccionId: string): Promise<{ fuente: string; advertencias: string[] } | null> {
   // Sección 5 (Problema-Objetivo): 3 de sus tablas dependen de un desplegable del Excel que a su vez
   // depende de otro campo (INDIRECT en cascada) — se resuelven las opciones vigentes ANTES de llamar
   // a la IA, para que no tenga que adivinar el catálogo. Ver frontend/src/lib/cascadaProblemaObjetivo.ts.
@@ -147,14 +147,23 @@ async function onLlenarTablaIA(campoId: string, identificador: string, seccionId
     }
   }
   const resultado = await llenarTabla(campoId, identificador, seccionId, opciones);
-  if (resultado !== null) {
-    onValueChange(campoId, identificador, resultado.valorJson);
-    setFuenteCampo(identificador, resultado.fuente);
-    // Aparte de setFuenteCampo: esa función descarta fuentes vacías, pero la tabla sí se llenó con
-    // IA — sin esto el historial de cambios la registraba como "Editó" (ver calcularCambios).
-    marcarAutocompletadoPorIA(identificador);
-    setAdvertenciasCampo(identificador, resultado.advertencias);
-  }
+  if (resultado === null) return null;
+
+  onValueChange(campoId, identificador, resultado.valorJson);
+  setFuenteCampo(identificador, resultado.fuente);
+  // Aparte de setFuenteCampo: esa función descarta fuentes vacías, pero la tabla sí se llenó con
+  // IA — sin esto el historial de cambios la registraba como "Editó" (ver calcularCambios).
+  marcarAutocompletadoPorIA(identificador);
+  setAdvertenciasCampo(identificador, resultado.advertencias);
+  return { fuente: resultado.fuente, advertencias: resultado.advertencias };
+}
+
+/** Botón "?" de una tabla (ver FieldCard.vue) — abre el chat, muestra el pedido como si el usuario lo
+ * hubiera escrito ("Ayúdame a llenar la tabla X") y delega el llenado real a onLlenarTablaIA (misma
+ * resolución de opciones de cascada, mismo endpoint, mismo borrador aplicado al campo) — ver
+ * AsesorIAChat.vue::solicitarAyudaTabla. */
+function onAyudaIATabla(campoId: string, identificador: string, seccionId: string) {
+  void asesorIAChatRef.value?.solicitarAyudaTabla(identificador, () => onLlenarTablaIA(campoId, identificador, seccionId));
 }
 
 async function iniciarLlenadoIA(payload?: { seccionIds?: string[] }) {
@@ -372,6 +381,7 @@ async function onGuardar() {
             @confirmar-ia="confirmarCampoIA"
             @llenar-tabla-ia="onLlenarTablaIA"
             @ayuda-ia-campo="onAyudaIACampo"
+            @ayuda-ia-tabla="onAyudaIATabla"
           />
         </div>
 

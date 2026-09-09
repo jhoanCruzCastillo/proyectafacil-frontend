@@ -1,6 +1,7 @@
 import { type MaybeRefOrGetter, toValue } from 'vue';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import { ticketsAsesoriaHttp } from '@/api/http/ticketsAsesoria.http';
+import type { CrearReunionManualData } from '@/api/contracts/ticketsAsesoria';
 
 // Panel del Administrativo de Asesorías (Módulo 4) — polling cada 15s, igual que
 // useMisSolicitudesQuery, para que el dashboard y la tabla reflejen matchmaking en curso.
@@ -67,6 +68,14 @@ export function useAsignarTicket() {
   const invalidar = useInvalidarTickets();
   return useMutation({
     mutationFn: ({ id, asesorId }: { id: string; asesorId: string }) => ticketsAsesoriaHttp.asignar(id, asesorId),
+    onSuccess: invalidar,
+  });
+}
+
+export function useCrearReunionManual() {
+  const invalidar = useInvalidarTickets();
+  return useMutation({
+    mutationFn: (datos: CrearReunionManualData) => ticketsAsesoriaHttp.crearManual(datos),
     onSuccess: invalidar,
   });
 }

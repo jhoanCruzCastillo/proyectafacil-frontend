@@ -1,5 +1,16 @@
 import type { DashboardAsesoria, DocenteDisponibleAhora, GrabacionSesion, HistorialConexion, SolicitudAsesoria, TicketAsesoriaDetalle } from '@/types';
 
+export interface CrearReunionManualData {
+  clienteId: string;
+  asesorId: string;
+  /** "YYYY-MM-DD" */
+  horarioFecha: string;
+  /** "HH:MM" */
+  horarioHoraInicio: string;
+  /** "HH:MM" */
+  horarioHoraFin: string;
+}
+
 export interface TicketsAsesoriaApi {
   dashboard(): Promise<DashboardAsesoria>;
   index(): Promise<SolicitudAsesoria[]>;
@@ -8,6 +19,7 @@ export interface TicketsAsesoriaApi {
   grabaciones(id: string): Promise<GrabacionSesion[]>;
   docentesDisponibles(id: string): Promise<DocenteDisponibleAhora[]>;
   asignar(id: string, asesorId: string): Promise<SolicitudAsesoria>;
+  crearManual(datos: CrearReunionManualData): Promise<SolicitudAsesoria>;
   marcarEnEspera(id: string): Promise<SolicitudAsesoria>;
   reabrirHorario(id: string): Promise<SolicitudAsesoria>;
   cancelar(id: string): Promise<SolicitudAsesoria>;
