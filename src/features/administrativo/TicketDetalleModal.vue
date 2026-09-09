@@ -159,12 +159,21 @@ async function confirmarCancelar() {
                   <div class="w-10 h-10 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
                     <FontAwesomeIcon :icon="ticket.tipo === 'video' ? faVideo : faComments" class="w-4 h-4" />
                   </div>
-                  <div class="text-sm">
+                  <div class="text-sm min-w-0">
                     <p class="font-medium text-heading">{{ ticket.tipo === 'video' ? 'Videollamada' : 'Chat' }}</p>
                     <p v-if="ticket.horarioFecha" class="text-xs text-muted">
                       {{ new Date(`${ticket.horarioFecha}T00:00:00`).toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', month: 'long' }) }},
                       {{ ticket.horarioHoraInicio }} - {{ ticket.horarioHoraFin }}
                     </p>
+                    <a
+                      v-if="ticket.linkReunion"
+                      :href="ticket.linkReunion"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="mt-0.5 block truncate text-xs text-indigo-500 hover:text-indigo-700 hover:underline"
+                    >
+                      {{ ticket.linkReunion }}
+                    </a>
                   </div>
                 </div>
               </div>
