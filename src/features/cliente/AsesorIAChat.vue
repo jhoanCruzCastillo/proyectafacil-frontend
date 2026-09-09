@@ -361,7 +361,10 @@ async function solicitarAyudaCampo(identificador: string, modo: 'llenar' | 'veri
  * resalta el campo, muestra el pedido como si el usuario lo hubiera escrito), pero el llenado en sí
  * (resolver opciones de cascada, llamar al endpoint, aplicar el borrador al campo) lo hace
  * ClienteFichaEditPage.vue vía `ejecutar` — acá solo se presenta la conversación alrededor. */
-async function solicitarAyudaTabla(identificador: string, ejecutar: () => Promise<{ fuente: string; advertencias: string[] } | null>) {
+async function solicitarAyudaTabla(
+  identificador: string,
+  ejecutar: () => Promise<{ fuente: string; advertencias: string[]; sinCambios: boolean; vacio: boolean } | null>,
+) {
   handleAbrir();
   resaltarCampo(identificador);
   agregarMensaje('usuario', `Ayúdame a llenar la tabla ${identificador}`);
@@ -373,7 +376,16 @@ async function solicitarAyudaTabla(identificador: string, ejecutar: () => Promis
       agregarMensaje('asesor', `No pude llenar la tabla **${identificador}** — revisa el mensaje de error que quedó junto al campo e inténtalo de nuevo.`);
       return;
     }
-    const partes = [`Listo — llené la tabla **${identificador}** con IA. Revisa el borrador en el campo y confírmalo si está bien.`];
+    // Sin esto, un resultado idéntico al valor previo (ya estaba correcto, o no había información
+    // nueva que agregar) se reportaba igual que un llenado real — "Listo, la llené" aunque la tabla
+    // se viera exactamente igual, dejando al usuario buscando un cambio que nunca ocurrió.
+    const partes = resultado.sinCambios
+      ? [
+          resultado.vacio
+            ? `No encontré información en la fuente de la verdad para completar la tabla **${identificador}** — la dejé como estaba.`
+            : `Revisé la tabla **${identificador}** y ya estaba correctamente llena — no hice cambios.`,
+        ]
+      : [`Listo — llené la tabla **${identificador}** con IA. Revisa el borrador en el campo y confírmalo si está bien.`];
     if (resultado.fuente.trim()) {
       partes.push(`Fuente: ${resultado.fuente.trim()}`);
     }

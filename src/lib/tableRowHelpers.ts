@@ -515,6 +515,63 @@ function indexarCeldasJerarquicas(
   roots.forEach((raiz, i) => recorrer(raiz, [i]));
 }
 
+/** Placeholders que no cuentan como "dato real" al decidir si un valor de tabla está vacío —
+ * guiones y ceros son lo que ya trae una fila recién creada o una celda calculada sin resolver. */
+const PLACEHOLDERS_VACIOS = new Set(['', '-', '—', '0', '0.00', 'null', 'undefined']);
+
+/** ¿Este valor de tabla (JSON de filas/árbol, tal como lo guarda `Ejemplo.valores`) no tiene ningún
+ * dato real cargado? Recorre todas las celdas sin distinguir columnas editables de calculadas —
+ * alcanza para decidir el mensaje del chat de IA (ver AsesorIAChat.vue::solicitarAyudaTabla), no
+ * hace falta la precisión total de indexarCeldasDeTabla(). */
+export function valorTablaPareceVacio(valorJson: string): boolean {
+  const texto = valorJson.trim();
+  if (texto === '') return true;
+
+  let datos: unknown;
+  try {
+    datos = JSON.parse(texto);
+  } catch {
+    return !PLACEHOLDERS_VACIOS.has(texto);
+  }
+
+  let tieneDato = false;
+  const recorrer = (v: unknown): void => {
+    if (tieneDato || v == null) return;
+    if (typeof v === 'string') {
+      if (!PLACEHOLDERS_VACIOS.has(v.trim())) tieneDato = true;
+      return;
+    }
+    if (typeof v === 'number') {
+      if (v !== 0) tieneDato = true;
+      return;
+    }
+    if (Array.isArray(v)) {
+      v.forEach(recorrer);
+      return;
+    }
+    if (typeof v === 'object') {
+      Object.values(v as Record<string, unknown>).forEach(recorrer);
+    }
+  };
+  recorrer(datos);
+
+  return !tieneDato;
+}
+
+/** ¿Dos valores de tabla (JSON) representan el mismo contenido? Compara estructuralmente
+ * (parseando ambos) en vez de texto plano, para no confundir una diferencia de espaciado con un
+ * cambio real. Si alguno no parsea, cae a comparación de texto. */
+export function valoresTablaSonIguales(a: string, b: string): boolean {
+  const ta = a.trim();
+  const tb = b.trim();
+  if (ta === tb) return true;
+  try {
+    return JSON.stringify(JSON.parse(ta || 'null')) === JSON.stringify(JSON.parse(tb || 'null'));
+  } catch {
+    return false;
+  }
+}
+
 /** Punto de entrada: indexa las celdas de UN campo tipo tabla, sea cual sea su subtipo. */
 export function indexarCeldasDeTabla(mapa: Map<string, string>, hoja: string, campo: Campo, valorCrudo: string, altoDeBloque: AltoDeBloque): void {
   const config = campo.configTabla;
