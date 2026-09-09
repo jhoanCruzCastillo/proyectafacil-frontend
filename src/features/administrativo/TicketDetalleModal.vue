@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faXmark, faVideo, faComments, faCheck, faUserGear, faTrash, faEnvelope, faListCheck, faWandMagicSparkles } from '@/lib/icons';
+import { faXmark, faVideo, faComments, faCheck, faUserGear, faTrash, faEnvelope, faListCheck, faWandMagicSparkles, faSpinner } from '@/lib/icons';
 import IntervencionManualModal from './IntervencionManualModal.vue';
 import CancelarTicketModal from './CancelarTicketModal.vue';
 import Avatar from '@/components/Avatar.vue';
@@ -113,7 +113,10 @@ async function confirmarCancelar() {
             </button>
           </div>
 
-          <p v-if="isLoading" class="px-6 pb-6 text-sm text-muted">Cargando…</p>
+          <div v-if="isLoading" class="px-6 pb-14 pt-8 flex flex-col items-center justify-center gap-3 text-muted">
+            <FontAwesomeIcon :icon="faSpinner" class="w-6 h-6 animate-spin text-brand-600" />
+            <p class="text-sm">Cargando…</p>
+          </div>
           <div v-else-if="ticket" class="px-6 pb-6">
           <div class="rounded-xl border border-gray-200 overflow-hidden">
           <div class="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-gray-200">

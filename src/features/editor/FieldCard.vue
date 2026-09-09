@@ -78,6 +78,11 @@ const emit = defineEmits<{
   /** Botón "?" del campo — "llenar" si está vacío, "verificar" si ya tiene un valor (ver
    * AsesorIAChat.vue::solicitarAyudaCampo). */
   'ayuda-ia-campo': [modo: 'llenar' | 'verificar'];
+  /** Botón "?" de una tabla — a diferencia de "llenar-tabla-ia" (silencioso), esto abre el chat del
+   * asesor de IA, muestra el pedido como un mensaje del usuario ("Ayúdame a llenar la tabla X") y
+   * llena la tabla desde ahí (ver AsesorIAChat.vue::solicitarAyudaTabla). Pedido explícito del
+   * usuario: mismo patrón visual/interacción que el "?" de un campo simple, para tablas. */
+  'ayuda-ia-tabla': [];
 }>();
 
 const valorEditorEl = ref<HTMLElement | null>(null);
@@ -566,6 +571,16 @@ const claseLabelEjemplo = computed(() => {
                 <FontAwesomeIcon :icon="cargandoTablaIA ? faSpinner : faWandMagicSparkles" class="w-2.5 h-2.5" :class="cargandoTablaIA ? 'animate-spin' : ''" />
                 Llenar con IA
               </button>
+              <button
+                v-if="editableExample && isTableField && !tablaAncha && permiteMejoraIA !== undefined && !tablaExcluidaDeIA"
+                type="button"
+                @click.stop="emit('ayuda-ia-tabla')"
+                :disabled="!permiteMejoraIA || cargandoTablaIA"
+                :title="!permiteMejoraIA ? 'Disponible desde Nivel 1 — actualiza tu plan' : 'Ayúdame a llenar esta tabla con IA'"
+                class="w-4 h-4 rounded-full flex items-center justify-center text-violet-400 hover:text-violet-700 hover:bg-violet-50 transition-colors shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <FontAwesomeIcon :icon="faCircleQuestion" class="w-3 h-3" />
+              </button>
             </div>
           </div>
           <p v-if="isTableField && !tablaAncha && errorTablaIA" class="mt-1 text-[11px] text-red-600 flex items-center gap-1">
@@ -779,6 +794,16 @@ const claseLabelEjemplo = computed(() => {
           >
             <FontAwesomeIcon :icon="cargandoTablaIA ? faSpinner : faWandMagicSparkles" class="w-2.5 h-2.5" :class="cargandoTablaIA ? 'animate-spin' : ''" />
             Llenar con IA
+          </button>
+          <button
+            v-if="editableExample && permiteMejoraIA !== undefined && !tablaExcluidaDeIA"
+            type="button"
+            @click.stop="emit('ayuda-ia-tabla')"
+            :disabled="!permiteMejoraIA || cargandoTablaIA"
+            :title="!permiteMejoraIA ? 'Disponible desde Nivel 1 — actualiza tu plan' : 'Ayúdame a llenar esta tabla con IA'"
+            class="w-4 h-4 rounded-full flex items-center justify-center text-violet-400 hover:text-violet-700 hover:bg-violet-50 transition-colors shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <FontAwesomeIcon :icon="faCircleQuestion" class="w-3 h-3" />
           </button>
         </div>
       </div>

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faXmark, faListCheck } from '@/lib/icons';
+import { faXmark, faListCheck, faSpinner } from '@/lib/icons';
 import DetalleSesionAsesoria from '@/features/asesoria/DetalleSesionAsesoria.vue';
 import { useTicketDetalleQuery, useHistorialConexionQuery, useGrabacionesQuery } from '@/composables/useTicketsAsesoria';
 import { useMensajesQuery } from '@/composables/useAsesoria';
@@ -58,7 +58,10 @@ const { data: grabaciones } = useGrabacionesQuery(() => (esVideo.value ? props.t
             </button>
           </div>
 
-          <p v-if="isLoading" class="p-6 text-sm text-muted">Cargando…</p>
+          <div v-if="isLoading" class="p-14 flex flex-col items-center justify-center gap-3 text-muted">
+            <FontAwesomeIcon :icon="faSpinner" class="w-6 h-6 animate-spin text-brand-600" />
+            <p class="text-sm">Cargando…</p>
+          </div>
           <div v-else-if="ticket" class="p-5">
             <DetalleSesionAsesoria
               :solicitud="ticket"

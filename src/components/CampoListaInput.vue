@@ -1,18 +1,20 @@
 <script setup lang="ts">
-// Desplegable cuyas opciones se leen del Excel, no de la estructura JSON. Es un combobox y no un
-// <select>: el valor sigue siendo texto libre —el usuario puede escribir algo que no esté en la
-// lista— pero se avisa cuando no coincide, porque un valor fuera de lista rompe las fórmulas
-// dependientes del Excel (INDIRECT sobre el valor de la celda).
+// Desplegable cuyas opciones se leen del Excel, no de la estructura JSON. Pedido explícito del
+// usuario (2026-09-09): un valor guardado que NO está entre las opciones del Excel (ej. un "0" que
+// quedó de un cálculo o de una carga vieja) se trata como si la celda estuviera vacía — se muestra
+// en blanco en vez de mostrar ese valor con un aviso, tanto en campos simples como en celdas de
+// tabla (ambos usan este mismo componente). No se borra el dato guardado por su cuenta: el usuario
+// vuelve a ver la celda vacía y, si elige una opción real, esa sí se guarda vía `change`.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faChevronDown, faCheck, faTriangleExclamation } from '@/lib/icons';
+import { faChevronDown, faCheck } from '@/lib/icons';
 
 const props = withDefaults(
   defineProps<{
     value: string;
     opciones: string[];
     editable?: boolean;
-    /** Variante para celdas de tabla: sin bordes ni aviso extenso, para no romper la rejilla */
+    /** Variante para celdas de tabla: sin bordes ni relleno extra, para no romper la rejilla */
     compacto?: boolean;
   }>(),
   { editable: true, compacto: false },
@@ -128,21 +130,18 @@ function alternar() {
       @click.stop="alternar"
       :disabled="!editable"
       type="button"
-      :title="fueraDeLista && compacto ? 'Este valor no está entre las opciones del Excel' : undefined"
       class="w-full text-left flex gap-2 transition-colors disabled:cursor-default"
       :class="[
         compacto
           ? 'items-start px-1.5 py-1 rounded border text-xs'
           : 'items-center mt-1 px-2 py-1.5 rounded border bg-white text-sm',
-        fueraDeLista
-          ? 'border-amber-400 text-heading'
-          : compacto
-            ? 'border-transparent text-heading hover:border-gray-200'
-            : 'border-brand-200 text-heading hover:border-brand-400',
+        compacto
+          ? 'border-transparent text-heading hover:border-gray-200'
+          : 'border-brand-200 text-heading hover:border-brand-400',
       ]"
     >
       <span
-        v-if="value"
+        v-if="value && !fueraDeLista"
         class="flex-1 min-w-0"
         :class="compacto ? 'break-words whitespace-normal' : 'truncate'"
       >{{ value }}</span>
@@ -154,11 +153,6 @@ function alternar() {
         :class="[abierto ? 'rotate-180' : '', compacto ? 'mt-0.5' : '']"
       />
     </button>
-
-    <p v-if="fueraDeLista && !compacto" class="mt-1 text-[11px] text-amber-700 flex items-start gap-1">
-      <FontAwesomeIcon :icon="faTriangleExclamation" class="w-2.5 h-2.5 shrink-0 mt-0.5" />
-      <span>Este valor no está entre las opciones del Excel. Se escribirá igual, pero puede romper los campos que dependen de él.</span>
-    </p>
 
     <Teleport to="body">
     <div

@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faVideo, faComments, faCheck, faUserGear, faEnvelope, faCopy, faDisplay, faCalendarDays, faHourglassHalf } from '@/lib/icons';
+import { faVideo, faComments, faCheck, faEnvelope, faCalendarDays, faHourglassHalf } from '@/lib/icons';
 import Avatar from '@/components/Avatar.vue';
 import VideoSesionCard from './VideoSesionCard.vue';
 import ResumenIaCard from './ResumenIaCard.vue';
 import HistorialChatMensajes from './HistorialChatMensajes.vue';
-import { useUiStore } from '@/stores/ui';
 import { ESTADO_ASESORIA_CLASE, ESTADO_ASESORIA_LABEL } from '@/lib/estadoAsesoria';
 import type { DocenteNotificado, GrabacionSesion, HistorialConexionParticipante, MensajeAsesoria, SolicitudAsesoria } from '@/types';
 
@@ -28,8 +27,6 @@ const props = defineProps<{
   usuarioActualId?: string;
   grabaciones?: GrabacionSesion[];
 }>();
-
-const ui = useUiStore();
 
 function formatFechaHora(iso: string): string {
   return new Date(iso).toLocaleString('es-PE', { day: '2-digit', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
@@ -78,12 +75,6 @@ const ROL_CLASE: Record<string, string> = {
   Docente: 'text-blue-600',
   Desconocido: 'text-amber-600',
 };
-
-function copiarEnlaceReunion() {
-  if (!props.solicitud.linkReunion) return;
-  navigator.clipboard?.writeText(props.solicitud.linkReunion);
-  ui.toast('Enlace copiado');
-}
 
 interface PasoTimeline {
   titulo: string;
@@ -197,33 +188,6 @@ const pasosTimeline = computed<PasoTimeline[]>(() => {
       </div>
 
       <ResumenIaCard :resumen-ia-texto="solicitud.resumenIaTexto" />
-
-      <div>
-        <h3 class="text-sm font-bold text-heading mb-2">Detalles técnicos de la sesión</h3>
-        <div class="rounded-lg border border-gray-200 divide-y divide-gray-100 text-sm">
-          <div class="p-3 flex items-center gap-2.5">
-            <FontAwesomeIcon :icon="faUserGear" class="w-3.5 h-3.5 text-gray-400 shrink-0" />
-            <span class="text-muted shrink-0">Participantes</span>
-            <div class="flex items-center gap-1.5 ml-auto">
-              <Avatar :nombre="solicitud.clienteNombre ?? '?'" :fotoUrl="solicitud.clienteFotoUrl" size="w-6 h-6" />
-              <Avatar v-if="solicitud.docenteNombre" :nombre="solicitud.docenteNombre" :fotoUrl="solicitud.docenteFotoUrl" size="w-6 h-6" />
-            </div>
-          </div>
-          <div class="p-3 flex items-center gap-2.5">
-            <FontAwesomeIcon :icon="faDisplay" class="w-3.5 h-3.5 text-gray-400 shrink-0" />
-            <span class="text-muted">Plataforma</span>
-            <span class="ml-auto font-medium text-heading">Google Meet</span>
-          </div>
-          <div v-if="solicitud.linkReunion" class="p-3 flex items-center gap-2.5">
-            <FontAwesomeIcon :icon="faVideo" class="w-3.5 h-3.5 text-gray-400 shrink-0" />
-            <span class="text-muted shrink-0">Enlace</span>
-            <a :href="solicitud.linkReunion" target="_blank" rel="noopener" class="ml-auto text-brand-600 hover:underline truncate max-w-[240px]">{{ solicitud.linkReunion.replace('https://', '') }}</a>
-            <button @click="copiarEnlaceReunion" type="button" class="text-gray-400 hover:text-gray-600 transition-colors duration-75 shrink-0">
-              <FontAwesomeIcon :icon="faCopy" class="w-3 h-3" />
-            </button>
-          </div>
-        </div>
-      </div>
     </div>
 
     <div v-if="esChat">

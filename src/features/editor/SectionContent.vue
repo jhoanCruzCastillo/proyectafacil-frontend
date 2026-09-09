@@ -75,6 +75,7 @@ const emit = defineEmits<{
   'confirmar-borrador': [campoId: string, identificador: string];
   'llenar-tabla-ia': [campoId: string, identificador: string, seccionId: string];
   'ayuda-ia-campo': [identificador: string, modo: 'llenar' | 'verificar'];
+  'ayuda-ia-tabla': [campoId: string, identificador: string, seccionId: string];
 }>();
 
 const ayudaAbiertaId = ref<string | null>(null);
@@ -191,6 +192,7 @@ function abrirEditorCodigo(sub: Subseccion) {
           @confirmar-ia="emit('confirmar-ia', campo.identificador)"
           @confirmar-borrador="emit('confirmar-borrador', campo.id, campo.identificador)"
           @llenar-tabla-ia="emit('llenar-tabla-ia', campo.id, campo.identificador, seccion.id)"
+          @ayuda-ia-tabla="emit('ayuda-ia-tabla', campo.id, campo.identificador, seccion.id)"
           @ayuda-ia-campo="emit('ayuda-ia-campo', campo.identificador, $event)"
         />
         <!-- Mismos botones que los del final de la subsección, pero pegados al campo seleccionado:
