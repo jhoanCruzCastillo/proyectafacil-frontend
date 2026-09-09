@@ -43,7 +43,7 @@ const props = withDefaults(
   { modo: 'secciones', progresoReal: null },
 );
 
-const emit = defineEmits<{ close: []; 'ver-resultados': []; cancelar: [] }>();
+const emit = defineEmits<{ close: []; 'ver-resultados': []; cancelar: []; terminar: [] }>();
 
 const expandidaId = ref<string | null>(null);
 
@@ -259,8 +259,8 @@ function numeroSeccion(idx: number): string {
                 <strong>Contexto IA</strong>.
               </span>
               <span v-else-if="fase === 'error'">
-                Puedes cerrar y reabrir este aviso con <strong>Contexto IA</strong>, o volver a intentar desde la fuente de la verdad.
-                Si hay campos sugeridos, ábrelos con <strong>Ver resumen</strong>.
+                Usa <strong>Cancelar y reintentar</strong> para cerrar esta sesión y volver a lanzar el llenado con IA desde
+                <strong>Contexto IA</strong>. Los campos que ya se completaron antes del error se conservan en la ficha.
               </span>
               <span v-else>
                 El llenado terminó. Revisa el resumen de campos o continúa editando en la ficha.
@@ -293,21 +293,33 @@ function numeroSeccion(idx: number): string {
                 Procesando…
               </button>
             </template>
+            <template v-else-if="fase === 'error'">
+              <!-- Sin esto, "Cerrar"/"Entendido" solo ocultaban el modal — la sesión de IA seguía
+                   marcada en error (persistida en localStorage), así que "Contexto IA" volvía a
+                   mostrar este mismo aviso sin ninguna forma de reintentar el llenado. -->
+              <button
+                type="button"
+                class="px-5 py-2.5 rounded-lg border border-red-200 text-red-600 text-sm font-medium hover:bg-red-50 transition-colors"
+                @click="emit('terminar')"
+              >
+                Cancelar y reintentar
+              </button>
+              <button
+                v-if="completadas > 0"
+                type="button"
+                class="px-5 py-2.5 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-700 transition-colors"
+                @click="emit('ver-resultados')"
+              >
+                Ver resultados
+              </button>
+            </template>
             <button
-              v-else-if="fase === 'completado' || (fase === 'error' && completadas > 0)"
+              v-else-if="fase === 'completado'"
               type="button"
               class="px-5 py-2.5 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-700 transition-colors"
               @click="emit('ver-resultados')"
             >
               Ver resultados
-            </button>
-            <button
-              v-else
-              type="button"
-              class="px-5 py-2.5 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-700 transition-colors"
-              @click="emit('close')"
-            >
-              Entendido
             </button>
           </div>
         </div>

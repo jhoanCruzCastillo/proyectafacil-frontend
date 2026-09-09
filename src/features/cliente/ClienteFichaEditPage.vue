@@ -483,6 +483,7 @@ async function onGuardar() {
     @close="cerrarProcesamientoIA()"
     @ver-resultados="verResultadosLlenadoIA()"
     @cancelar="showCancelarLlenadoConfirm = true"
+    @terminar="terminarProcesoLlenadoIA()"
   />
 
   <ResultadoLlenadoIAModal
