@@ -21,6 +21,7 @@ import { useLlenadoIAProgreso } from '@/composables/useLlenadoIAProgreso';
 import { useLlenadoTablaIA } from '@/composables/useLlenadoTablaIA';
 import { opcionesLlenadoCascada } from '@/lib/cascadaProblemaObjetivo';
 import { opcionesEstaticasPorColumna } from '@/lib/opcionesEstaticasTabla';
+import { valorTablaPareceVacio, valoresTablaSonIguales } from '@/lib/tableRowHelpers';
 import { esTablaExcluidaDeIA } from '@/lib/camposTablaExcluidosIA';
 import { useUiStore } from '@/stores/ui';
 
@@ -127,7 +128,8 @@ function abrirContextoIA() {
   showFuenteVerdad.value = true;
 }
 
-async function onLlenarTablaIA(campoId: string, identificador: string, seccionId: string): Promise<{ fuente: string; advertencias: string[] } | null> {
+async function onLlenarTablaIA(campoId: string, identificador: string, seccionId: string): Promise<{ fuente: string; advertencias: string[]; sinCambios: boolean; vacio: boolean } | null> {
+  const antes = editedValores.value[identificador] ?? '';
   // Sección 5 (Problema-Objetivo): 3 de sus tablas dependen de un desplegable del Excel que a su vez
   // depende de otro campo (INDIRECT en cascada) — se resuelven las opciones vigentes ANTES de llamar
   // a la IA, para que no tenga que adivinar el catálogo. Ver frontend/src/lib/cascadaProblemaObjetivo.ts.
@@ -149,13 +151,19 @@ async function onLlenarTablaIA(campoId: string, identificador: string, seccionId
   const resultado = await llenarTabla(campoId, identificador, seccionId, opciones);
   if (resultado === null) return null;
 
+  const sinCambios = valoresTablaSonIguales(antes, resultado.valorJson);
   onValueChange(campoId, identificador, resultado.valorJson);
   setFuenteCampo(identificador, resultado.fuente);
   // Aparte de setFuenteCampo: esa función descarta fuentes vacías, pero la tabla sí se llenó con
   // IA — sin esto el historial de cambios la registraba como "Editó" (ver calcularCambios).
   marcarAutocompletadoPorIA(identificador);
   setAdvertenciasCampo(identificador, resultado.advertencias);
-  return { fuente: resultado.fuente, advertencias: resultado.advertencias };
+  return {
+    fuente: resultado.fuente,
+    advertencias: resultado.advertencias,
+    sinCambios,
+    vacio: valorTablaPareceVacio(resultado.valorJson),
+  };
 }
 
 /** Botón "?" de una tabla (ver FieldCard.vue) — abre el chat, muestra el pedido como si el usuario lo
