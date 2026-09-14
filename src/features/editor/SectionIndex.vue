@@ -72,7 +72,7 @@ const esSuperusuario = computed(() => session.sesion?.rol === 'superusuario');
         >
           {{ seccion.numero }}
         </span>
-        <span class="truncate leading-tight flex-1">{{ seccion.nombre }}</span>
+        <span class="truncate leading-tight flex-1 font-bold">{{ seccion.nombre }}</span>
         <template v-if="erroresPorSeccion">
           <span
             v-if="erroresPorSeccion[seccion.id] > 0"

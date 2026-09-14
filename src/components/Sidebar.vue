@@ -6,7 +6,7 @@ import UserMenu from '@/features/settings/UserMenu.vue';
 import MejorarPlanCard from '@/features/settings/MejorarPlanCard.vue';
 import NotificacionesBell from '@/features/asesoria/NotificacionesBell.vue';
 import { useSessionStore } from '@/stores/session';
-import { puedeAccederGestionUsuarios } from '@/lib/permisos';
+import { puedeAccederGestionUsuarios, puedeAccederProyectosIA } from '@/lib/permisos';
 import logo from '@/assets/logo.png';
 
 const session = useSessionStore();
@@ -40,12 +40,16 @@ function grupoGestionFichas(prefijo: string): NavItem {
 const navItems = computed(() => {
   let items: NavItem[];
   if (esCliente.value) {
-    // Pedido explícito del usuario: un cliente sin plan todavía puede entrar acá — cada pantalla
-    // ya trae su propio límite de uso gratuito. Ver RUTAS_SIN_PLAN en router/index.ts.
+    // "Proyectos de Inversión con IA" es de pago o solo para alumnos vigentes — pedido explícito
+    // del cliente: quien no tiene ninguna de las dos cosas lo ve bloqueado acá (candado, sin
+    // navegación) en vez de un rebote silencioso al hacer clic. "ILPIIE Live" (antes "Asesorías en
+    // vivo") queda libre para cualquier cliente, sin cambios — ver RUTAS_SIN_PLAN en
+    // router/index.ts y puedeAccederProyectosIA en lib/permisos.ts (misma regla en los tres lados).
     items = [
-      grupoGestionFichas(''),
+      { to: '/inicio', label: 'Inicio', icon: faHouse },
+      { ...grupoGestionFichas(''), locked: !(session.sesion && puedeAccederProyectosIA(session.sesion)) },
       {
-        label: 'Asesorías en vivo',
+        label: 'ILPIIE Live',
         icon: faHeadset,
         children: [
           { to: '/asesorias/chat', label: 'Por chat', icon: faComments },
@@ -90,10 +94,10 @@ const navItems = computed(() => {
   return items;
 });
 
-// Ahora hay más de un grupo desplegable ("Proyectos de Inversión con IA", "Asesorías en vivo") —
-// cada uno con su propio estado abierto/cerrado, identificado por label (ambos abiertos por
-// defecto, como antes).
-const gruposAbiertos = ref(new Set<string>(['Proyectos de Inversión con IA', 'Asesorías en vivo']));
+// Ahora hay más de un grupo desplegable ("Proyectos de Inversión con IA", "ILPIIE Live") — cada
+// uno con su propio estado abierto/cerrado, identificado por label (ambos abiertos por defecto,
+// como antes).
+const gruposAbiertos = ref(new Set<string>(['Proyectos de Inversión con IA', 'ILPIIE Live']));
 function toggleGrupo(label: string) {
   if (gruposAbiertos.value.has(label)) gruposAbiertos.value.delete(label);
   else gruposAbiertos.value.add(label);

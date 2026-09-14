@@ -18,6 +18,8 @@ const props = defineProps<{
   editable?: boolean;
   selectedCampoId?: string | null;
   highlightMissingCaptura?: boolean;
+  /** Campo señalado en naranja tras un error de "Insertar" en el Excel (ver usePlantillaEditor) */
+  campoErrorInsercionId?: string | null;
   /** true = el valor de ejemplo/cliente es editable aunque `editable` (modo estructura) sea falso — usado en la ficha del cliente */
   valuesEditable?: boolean;
   /** Mensajes de validación por identificador de campo (solo modo cliente) */
@@ -124,9 +126,9 @@ function abrirEditorCodigo(sub: Subseccion) {
           @input="emit('subsection-name-change', sub.id, ($event.target as HTMLInputElement).value)"
           type="text"
           placeholder="Nombre de la subsección..."
-          class="text-sm font-semibold uppercase tracking-wide text-heading bg-transparent border-b border-transparent hover:border-gray-200 focus:border-brand-500 focus:outline-none px-1 py-0.5 flex-1"
+          class="text-sm font-bold uppercase tracking-wide text-heading bg-transparent border-b border-transparent hover:border-gray-200 focus:border-brand-500 focus:outline-none px-1 py-0.5 flex-1"
         />
-        <span v-else class="text-sm font-semibold uppercase tracking-wide text-heading flex-1">{{ sub.nombre }}</span>
+        <span v-else class="text-sm font-bold uppercase tracking-wide text-heading flex-1">{{ sub.nombre }}</span>
         <button
           @click="ayudaAbiertaId = sub.id"
           type="button"
@@ -169,6 +171,7 @@ function abrirEditorCodigo(sub: Subseccion) {
           :editable-example="showExampleValues && (editable || valuesEditable)"
           :duplicable="editable && !showExampleValues"
           :highlight-warning="highlightMissingCaptura"
+          :error-insercion="campoErrorInsercionId === campo.id"
           :error="erroresValidacion?.[campo.identificador]"
           :referencia-valor="referenciaValores?.[campo.identificador]"
           :permite-mejora-i-a="permiteMejoraIA"

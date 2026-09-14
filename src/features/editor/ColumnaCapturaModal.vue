@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faXmark, faGear, faCheck, faPlus, faTrash, faTriangleExclamation, columnTypeLabels, columnTypePrimitivos } from '@/lib/icons';
+import { columnaExcelFormatoInvalido } from '@/lib/campoValidation';
 import type { ColumnaTabla, CabeceraGrupo, SubcolumnaTabla, TipoColumna } from '@/types';
 
 interface SiblingOption {
@@ -27,6 +28,8 @@ const emit = defineEmits<{
   'update-columna': [updates: Partial<ColumnaTabla>];
   'update-grupo': [grupo: { titulo: string; hijoIds: string[] } | null];
 }>();
+
+const columnaInvalida = computed(() => columnaExcelFormatoInvalido(props.columna?.columnaExcel));
 
 const agrupado = computed(() => !!props.grupo);
 const hijoIds = computed(() => props.grupo?.hijoIds ?? [props.columnaId]);
@@ -132,11 +135,14 @@ function quitarSub(idx: number) {
                   <label class="block text-[10px] font-medium text-muted mb-1">{{ esDinamica ? 'Columna inicial' : 'Columna' }}</label>
                   <input
                     :value="columna.columnaExcel || ''"
-                    @input="emit('update-columna', { columnaExcel: ($event.target as HTMLInputElement).value })"
+                    @input="emit('update-columna', { columnaExcel: ($event.target as HTMLInputElement).value.replace(/[^A-Za-z]/g, '').toUpperCase() })"
                     type="text"
                     placeholder="Ej. B"
-                    class="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500"
+                    title="Letra de columna de Excel (A, B, C…) — no un número"
+                    class="w-full px-3 py-2 rounded-lg border text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500"
+                    :class="columnaInvalida ? 'border-red-400 bg-red-50/40' : 'border-gray-200'"
                   />
+                  <p v-if="columnaInvalida" class="mt-1 text-[10px] font-medium text-red-600">Debe ser una letra (A, B, C…), no un número.</p>
                 </div>
                 <div>
                   <label class="block text-[10px] font-medium text-muted mb-1">{{ esDinamica ? 'Abarca (por columna)' : 'Abarca columnas' }}</label>
@@ -180,7 +186,11 @@ function quitarSub(idx: number) {
 
             <!-- Celdas partidas: no aplica a la columna dinámica (ya se expande por período) -->
             <div v-if="!soloGrupo && !esDinamica" class="pt-3 border-t border-gray-100 space-y-2.5">
-              <button @click="toggleSubcolumnas" type="button" class="w-full flex items-center justify-between">
+              <!-- text-left: un <button> centra su texto por defecto — eso también corre la posición
+                   "estática" del punto (absolute, sin left/right propio) hacia el centro/derecha del
+                   riel en vez de dejarlo pegado a la izquierda, así que sin este reset se ve desalineado
+                   o incluso saliéndose del riel al activar el switch. -->
+              <button @click="toggleSubcolumnas" type="button" class="w-full flex items-center justify-between text-left">
                 <span class="text-[10px] font-medium text-muted">Tiene subcolumnas</span>
                 <span class="relative w-8 h-4.5 rounded-full transition-colors duration-100" :class="tieneSubcolumnas ? 'bg-brand-600' : 'bg-gray-200'">
                   <span class="absolute top-0.5 w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform duration-100" :class="tieneSubcolumnas ? 'translate-x-3.5' : 'translate-x-0.5'" />
@@ -225,10 +235,12 @@ function quitarSub(idx: number) {
                     </select>
                     <input
                       :value="sub.columnaExcel || ''"
-                      @input="actualizarSub(idx, { columnaExcel: ($event.target as HTMLInputElement).value })"
+                      @input="actualizarSub(idx, { columnaExcel: ($event.target as HTMLInputElement).value.replace(/[^A-Za-z]/g, '').toUpperCase() })"
                       type="text"
                       placeholder="Col."
-                      class="px-1.5 py-1.5 rounded border border-gray-200 text-[11px] font-mono focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+                      title="Letra de columna de Excel (A, B, C…) — no un número"
+                      class="px-1.5 py-1.5 rounded border text-[11px] font-mono focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+                      :class="columnaExcelFormatoInvalido(sub.columnaExcel) ? 'border-red-400 bg-red-50/40' : 'border-gray-200'"
                     />
                     <input
                       :value="sub.abarcaColumnasExcel ?? ''"
@@ -257,7 +269,7 @@ function quitarSub(idx: number) {
             </div>
 
             <div :class="soloGrupo ? 'space-y-2.5' : 'pt-3 border-t border-gray-100 space-y-2.5'">
-              <button @click="toggleAgrupado" type="button" class="w-full flex items-center justify-between">
+              <button @click="toggleAgrupado" type="button" class="w-full flex items-center justify-between text-left">
                 <span class="text-[10px] font-medium text-muted">
                   {{ esDinamica ? 'Agrupar columnas dinámicas bajo un título' : 'Agrupar bajo un título común' }}
                 </span>

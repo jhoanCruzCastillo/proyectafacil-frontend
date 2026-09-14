@@ -22,6 +22,26 @@ export async function fetchBinario(url: string, init: RequestInit = {}): Promise
   return fetch(url, { ...init, headers, credentials: init.credentials ?? 'same-origin' });
 }
 
+// `/api/archivos/{id}/contenido` devuelve JSON (`{ error: "..." }`) cuando el proxy no logra traer
+// el archivo del storage (S3/Cloudinary caído, credenciales, red) — un 502/404/etc con cuerpo JSON,
+// no el binario esperado. Un caller que arma un Blob o JSZip.loadAsync directamente sobre ese cuerpo
+// sin revisar el status obtiene un error genérico de parseo ("no es un zip") que oculta la causa
+// real. Este wrapper revienta ANTES, con el mensaje del backend tal cual.
+export async function fetchBinarioOrFalla(url: string, init: RequestInit = {}): Promise<Response> {
+  const res = await fetchBinario(url, init);
+  if (!res.ok) {
+    let mensaje = `No se pudo descargar el archivo (${res.status})`;
+    try {
+      const cuerpo = await res.clone().json();
+      if (cuerpo?.error) mensaje = cuerpo.error;
+    } catch {
+      // el cuerpo de error no era JSON — se queda el mensaje genérico de arriba
+    }
+    throw new Error(mensaje);
+  }
+  return res;
+}
+
 export interface DescargaProgreso {
   /** 0–100; null si no hay Content-Length */
   percent: number | null;

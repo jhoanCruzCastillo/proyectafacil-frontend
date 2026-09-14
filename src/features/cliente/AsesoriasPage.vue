@@ -16,12 +16,12 @@ import ConsultaEnviadaModal from './ConsultaEnviadaModal.vue';
 import ResumenSolicitudCard from './ResumenSolicitudCard.vue';
 import ComprarAddOnModal from '@/features/settings/ComprarAddOnModal.vue';
 import AsesoriaChatPanel from '@/features/asesoria/AsesoriaChatPanel.vue';
-import VideoSesionCard from '@/features/asesoria/VideoSesionCard.vue';
-import ResumenIaCard from '@/features/asesoria/ResumenIaCard.vue';
+import DetalleSesionAsesoria from '@/features/asesoria/DetalleSesionAsesoria.vue';
 import { useSessionStore } from '@/stores/session';
 import { useUsuariosQuery } from '@/composables/useUsuarios';
 import { useTicketsConsultaQuery } from '@/composables/useTicketsConsulta';
-import { useMisSolicitudesQuery, useCancelarSolicitud } from '@/composables/useAsesoria';
+import { useMisSolicitudesQuery, useCancelarSolicitud, useMensajesQuery } from '@/composables/useAsesoria';
+import { useHistorialConexionQuery, useGrabacionesQuery } from '@/composables/useTicketsAsesoria';
 import { cuentaEfectivaDe } from '@/lib/permisos';
 import { ESTADO_ASESORIA_LABEL as ESTADO_LABEL, ESTADO_ASESORIA_CLASE as ESTADO_CLASE } from '@/lib/estadoAsesoria';
 import { addOns } from '@/data/planes';
@@ -71,6 +71,23 @@ function handleCreada(s: SolicitudAsesoria) {
   showSolicitar.value = false;
   consultaEnviada.value = s;
 }
+
+// "Ver detalle" de una consulta ya atendida (completado u observado) muestra la misma vista rica
+// que ve el asesor en ResumenConsultaModal.vue y el administrativo en TicketDetalleCompletadoModal
+// — historial de chat completo o video+grabaciones+resumen IA+línea de tiempo — vía el componente
+// compartido DetalleSesionAsesoria, en vez del resumen mínimo de siempre. Pedido explícito del
+// usuario: el cliente debe ver la misma interfaz, no una versión reducida.
+const esHistorialChatDetalle = computed(() => !!detalle.value && detalle.value.tipo === 'chat' && (detalle.value.estado === 'completado' || detalle.value.estado === 'observado'));
+const esVideoAtendidaDetalle = computed(() => !!detalle.value && detalle.value.tipo === 'video' && (detalle.value.estado === 'completado' || detalle.value.estado === 'observado'));
+
+const solicitudIdParaMensajesDetalle = computed(() => (esHistorialChatDetalle.value ? detalle.value!.id : null));
+const { data: mensajesDetalle } = useMensajesQuery(solicitudIdParaMensajesDetalle, clienteId);
+
+const solicitudIdParaConexionDetalle = computed(() => (esVideoAtendidaDetalle.value ? detalle.value!.id : null));
+const { data: historialConexionDataDetalle } = useHistorialConexionQuery(solicitudIdParaConexionDetalle);
+const historialConexionDetalle = computed(() => historialConexionDataDetalle.value?.participantes ?? []);
+const tiempoCoincidenteSegundosDetalle = computed(() => historialConexionDataDetalle.value?.tiempoCoincidenteSegundos ?? 0);
+const { data: grabacionesDetalle } = useGrabacionesQuery(solicitudIdParaConexionDetalle);
 
 const POR_PAGINA = 5;
 const pagina = ref(1);
@@ -279,11 +296,38 @@ function formatFechaHoraAgendada(s: SolicitudAsesoria): string | null {
 
   <Transition name="fade">
     <div v-if="detalle" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" @click="detalle = null">
+      <!-- Consulta ya atendida (completado u observado) — misma vista rica que ve el asesor y el
+           administrativo, vía DetalleSesionAsesoria. -->
       <div
-        class="bg-white rounded-2xl shadow-modal w-full relative"
-        :class="detalle?.tipo === 'video' && detalle?.estado === 'completado' ? 'max-w-lg' : 'max-w-md'"
+        v-if="esHistorialChatDetalle || esVideoAtendidaDetalle"
+        class="bg-white rounded-2xl shadow-modal w-full max-w-3xl max-h-[88vh] overflow-y-auto"
         @click.stop
       >
+        <div class="p-5 bg-gradient-to-r from-sidebar to-brand-800 flex items-center justify-between sticky top-0 z-10">
+          <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-lg bg-white/15 text-white flex items-center justify-center shrink-0">
+              <FontAwesomeIcon :icon="esVideoAtendidaDetalle ? faVideo : faComments" class="w-4 h-4" />
+            </div>
+            <h2 class="text-lg font-bold text-white">{{ esVideoAtendidaDetalle ? 'Detalle de la videollamada' : 'Historial de la asesoría' }}</h2>
+          </div>
+          <button @click="detalle = null" type="button" class="w-8 h-8 rounded-lg hover:bg-white/10 flex items-center justify-center text-white/80 hover:text-white transition-colors duration-100">
+            <FontAwesomeIcon :icon="faXmark" />
+          </button>
+        </div>
+        <div v-if="detalle" class="p-5">
+          <DetalleSesionAsesoria
+            :solicitud="detalle"
+            :historial-conexion="historialConexionDetalle"
+            :tiempo-coincidente-segundos="tiempoCoincidenteSegundosDetalle"
+            :grabaciones="grabacionesDetalle ?? []"
+            :mensajes-chat="mensajesDetalle ?? []"
+            :usuario-actual-id="clienteId"
+          />
+        </div>
+      </div>
+
+      <!-- Resumen chico (pendiente, cancelado, en espera, vencido) -->
+      <div v-else class="bg-white rounded-2xl shadow-modal w-full max-w-md relative" @click.stop>
         <button
           @click="detalle = null"
           type="button"
@@ -304,10 +348,6 @@ function formatFechaHoraAgendada(s: SolicitudAsesoria): string | null {
 
         <div class="mx-6 mb-6 space-y-4">
           <ResumenSolicitudCard v-if="detalle" :solicitud="detalle" />
-          <template v-if="detalle?.tipo === 'video' && detalle?.estado === 'completado'">
-            <VideoSesionCard :link-grabacion="detalle.linkGrabacion" />
-            <ResumenIaCard :resumen-ia-texto="detalle.resumenIaTexto" />
-          </template>
         </div>
 
         <div v-if="detalle?.estado === 'pendiente'" class="px-6 pb-6 text-center">

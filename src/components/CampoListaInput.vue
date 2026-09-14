@@ -84,8 +84,12 @@ function onReposicionar(e: Event) {
   situarPanel();
 }
 
+// Pedido explícito del usuario: volver a hacer clic en la opción YA seleccionada la deselecciona
+// (deja la celda vacía) en vez de forzar a tener siempre algo elegido — comparación tolerante a
+// mayúsculas/tildes, igual que `coincidenciaExacta`, para que tampoco haga falta un match exacto.
 function elegir(opcion: string) {
-  emit('change', opcion);
+  const yaSeleccionada = props.value.trim() !== '' && normalizar(opcion) === normalizar(props.value);
+  emit('change', yaSeleccionada ? '' : opcion);
   cerrar();
 }
 

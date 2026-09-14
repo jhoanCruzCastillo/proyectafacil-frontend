@@ -9,6 +9,7 @@ import { esCampoAyudableConIA } from '@/lib/camposAyudaIA';
 import ExampleTableEditor from './ExampleTableEditor.vue';
 import CampoCoordenadasInput from '@/components/CampoCoordenadasInput.vue';
 import CampoImagenInput from '@/components/CampoImagenInput.vue';
+import CampoArchivoInput from '@/components/CampoArchivoInput.vue';
 import CampoListaInput from '@/components/CampoListaInput.vue';
 import CampoEstadoIA from '@/features/cliente/CampoEstadoIA.vue';
 import CampoBooleanoInput from '@/components/CampoBooleanoInput.vue';
@@ -32,6 +33,10 @@ const props = defineProps<{
   /** true = muestra el botón de duplicar (solo tab Estructura, donde se edita el molde) */
   duplicable?: boolean;
   highlightWarning?: boolean;
+  /** true = este campo es el sospechoso de un error de "Insertar" en el Excel (ver
+   * usePlantillaEditor::señalarCampoDeErrorInsercion) — borde naranja, distinto del rojo de
+   * highlightWarning (que es "a este campo le falta posición", un problema distinto). */
+  errorInsercion?: boolean;
   /** Mensaje de validación del valor de ejemplo/cliente (solo modo cliente) */
   error?: string;
   /** Valor de un ejemplo de referencia autorado por el admin para este campo (solo modo cliente) */
@@ -147,6 +152,8 @@ const isBooleanoField = computed(() => props.campo.tipo === 'booleano');
 const isFechaField = computed(() => props.campo.tipo === 'fecha');
 // Campo tipo imagen: el valor es una URL, pero se edita con vista previa y carga de archivo.
 const isImagenField = computed(() => props.campo.tipo === 'imagen');
+// Campo tipo archivo: mismo criterio que imagen — el valor es una URL, con carga y vista previa propias.
+const isArchivoField = computed(() => props.campo.tipo === 'archivo');
 const faltaCaptura = computed(() => campoFaltaCaptura(props.campo));
 
 // Botón "?" — "ayúdame a llenar/verificar este campo con IA" (pedido explícito del usuario). Mismo
@@ -237,6 +244,9 @@ const claseContenedor = computed(() => {
   if (faltaCaptura.value && props.highlightWarning) {
     return 'border-red-400 bg-red-50/40 animate-pulse';
   }
+  if (props.errorInsercion) {
+    return 'border-orange-400 bg-orange-50/40 outline outline-2 outline-orange-500 -outline-offset-2 animate-pulse';
+  }
   if (props.isSelected) {
     return 'border-brand-500 bg-brand-50/30 outline outline-2 outline-brand-500 -outline-offset-2 shadow-[inset_0_0_14px_rgba(34,197,94,0.28)]';
   }
@@ -251,7 +261,11 @@ const claseContenedor = computed(() => {
     case 'no_encontrado':
       return 'border-rose-200 bg-rose-50/60';
     default:
-      return 'border-gray-100 bg-white';
+      // Pedido explícito del usuario: más contraste contra el fondo blanco de la página — antes
+      // era bg-white/border-gray-100 y las tarjetas se perdían visualmente unas contra otras. El
+      // recuadro interno "Valor por defecto" pasa a bg-white (ver más abajo) para que siga
+      // leyéndose como recuadro editable, más claro que esta tarjeta que lo contiene.
+      return 'border-gray-300 bg-gray-100';
   }
 });
 
@@ -463,7 +477,7 @@ const claseLabelEjemplo = computed(() => {
         <div
           v-else-if="editableDefault && !tablaAncha"
           class="mt-2 p-2.5 rounded-lg border"
-          :class="tienePendiente ? 'bg-amber-50/70 border-amber-300' : 'bg-gray-50 border-gray-200'"
+          :class="tienePendiente ? 'bg-amber-50/70 border-amber-300' : 'bg-white border-gray-200'"
           @click.stop
         >
           <div class="flex items-center justify-between gap-2">
@@ -483,6 +497,9 @@ const claseLabelEjemplo = computed(() => {
           </div>
           <div v-else-if="isImagenField" class="mt-1.5">
             <CampoImagenInput :value="valorDefaultMostrado" @change="emit('update-default-value', $event)" />
+          </div>
+          <div v-else-if="isArchivoField" class="mt-1.5">
+            <CampoArchivoInput :value="valorDefaultMostrado" @change="emit('update-default-value', $event)" />
           </div>
           <ExampleTableEditor
             v-else-if="isTableField && campo.configTabla"
@@ -593,12 +610,13 @@ const claseLabelEjemplo = computed(() => {
                <fieldset disabled> nativo: se ve exactamente igual pero ningún control responde,
                sin tener que duplicar la lógica de cada editor de tabla en una versión de solo lectura. -->
           <fieldset
-            v-if="isCoordField || isImagenField || (isTableField && campo.configTabla)"
+            v-if="isCoordField || isImagenField || isArchivoField || (isTableField && campo.configTabla)"
             :disabled="!editableExample"
             class="m-0 p-0 border-0 min-w-0 mt-1.5"
           >
             <CampoCoordenadasInput v-if="isCoordField" :value="displayValue || ''" :editable="editableExample" @change="emit('update-example-value', $event)" />
             <CampoImagenInput v-else-if="isImagenField" :value="displayValue || ''" :editable="editableExample" @change="emit('update-example-value', $event)" />
+            <CampoArchivoInput v-else-if="isArchivoField" :value="displayValue || ''" :editable="editableExample" @change="emit('update-example-value', $event)" />
             <ExampleTableEditor
               v-else-if="isTableField && campo.configTabla"
               :config="(campo.configTabla as ConfigTabla)"
@@ -657,7 +675,7 @@ const claseLabelEjemplo = computed(() => {
               {{ error }}
             </p>
           </template>
-          <div v-if="referenciaValor && referenciaValor.trim() && !isTableField && !isCoordField && !isImagenField" class="mt-2 flex items-start gap-2 p-2 rounded-lg bg-blue-50 border border-blue-100">
+          <div v-if="referenciaValor && referenciaValor.trim() && !isTableField && !isCoordField && !isImagenField && !isArchivoField" class="mt-2 flex items-start gap-2 p-2 rounded-lg bg-blue-50 border border-blue-100">
             <FontAwesomeIcon :icon="faLightbulb" class="w-3 h-3 text-blue-400 mt-0.5 shrink-0" />
             <div class="flex-1 min-w-0">
               <p class="text-[10px] font-bold uppercase tracking-wider text-blue-500">Ejemplo de referencia</p>
@@ -739,7 +757,7 @@ const claseLabelEjemplo = computed(() => {
     <div
       v-if="tablaAncha && editableDefault && !esCalculadaPorExcel"
       class="mt-2 -mx-4 py-2.5 border-t border-b"
-      :class="tienePendiente ? 'bg-amber-50/70 border-amber-300' : 'bg-gray-50 border-gray-200'"
+      :class="tienePendiente ? 'bg-amber-50/70 border-amber-300' : 'bg-white border-gray-200'"
       @click.stop
     >
       <div class="flex items-center justify-between gap-2 px-1.5">

@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import { useSessionStore } from '@/stores/session';
-import { puedeAccederGestionUsuarios } from '@/lib/permisos';
+import { puedeAccederGestionUsuarios, puedeAccederProyectosIA } from '@/lib/permisos';
 
 // Rutas agregadas en fases posteriores (sectores/:id, editor, usuarios, cliente, etc.) — ver
 // C:\Users\anton\.claude\plans\reactive-forging-wren.md. Cada meta.* controla el guard único de abajo,
@@ -151,6 +151,12 @@ const router = createRouter({
           meta: { soloCliente: true },
         },
         {
+          path: 'inicio',
+          name: 'inicio-cliente',
+          component: () => import('@/features/cliente/PortadaEntradaPage.vue'),
+          meta: { soloCliente: true },
+        },
+        {
           path: 'mis-fichas/:ejemploId',
           name: 'mis-ficha-editar',
           component: () => import('@/features/cliente/ClienteFichaEditPage.vue'),
@@ -245,14 +251,18 @@ const router = createRouter({
   ],
 });
 
-// Cliente sin ningún plan asignado (recién registrado, todavía sin comprar) — pedido explícito
-// del usuario: puede entrar a "Proyectos de Inversión con IA" (Formatos/Fichas técnicas/IOARR/
-// Perfiles, incluido el editor de una ficha propia) y a "Asesorías en vivo" sin haber elegido un
-// plan todavía — cada una ya trae su propio límite de uso gratuito (ver "0/10 plantillas
-// simultáneas" / fichas de consulta en esas pantallas). Cualquier otra ruta sigue rebotando a
-// "elegir-plan".
+// Rutas de cliente siempre libres, sin importar plan/alumno — "ILPIIE Live" (asesorías) es libre
+// para cualquier cliente (con su propio límite de uso gratuito, ver fichas de consulta en esas
+// pantallas), y "elegir-plan"/"inicio-cliente" nunca pueden quedar bloqueadas (serían un callejón
+// sin salida). "home" también va acá — sin esto, un cliente sin plan/alumno nunca llegaba a ver la
+// portada de entrada: el chequeo de plan lo interceptaba en "home" antes de que corriera el
+// redirect a "inicio-cliente" un poco más abajo, mandándolo directo a "elegir-plan" sin pasar por
+// la portada. "Proyectos de Inversión con IA" (formatos/fichas-tecnicas/ioarr-cliente/perfiles/
+// mis-ficha-editar) YA NO está acá — pedido explícito del cliente: solo entra quien tiene plan
+// vigente o es alumno vigente (ver `puedeAccederProyectosIA` en lib/permisos.ts); cualquier otro
+// cliente lo ve bloqueado en la portada/sidebar y rebota a "elegir-plan" si fuerza la URL.
 const RUTAS_SIN_PLAN = new Set([
-  'elegir-plan', 'formatos', 'fichas-tecnicas', 'ioarr-cliente', 'perfiles', 'mis-ficha-editar', 'asesorias-chat', 'asesorias-video',
+  'elegir-plan', 'inicio-cliente', 'asesorias-chat', 'asesorias-video', 'home',
 ]);
 
 router.beforeEach((to) => {
@@ -261,13 +271,16 @@ router.beforeEach((to) => {
   if (to.meta.requiresAuth && !session.sesion) {
     return { name: 'login' };
   }
-  if (session.sesion?.rol === 'cliente' && session.sesion.tienePlan === false && !RUTAS_SIN_PLAN.has(to.name as string)) {
+  if (session.sesion?.rol === 'cliente' && !puedeAccederProyectosIA(session.sesion) && !RUTAS_SIN_PLAN.has(to.name as string)) {
     return { name: 'elegir-plan' };
   }
-  // El home genérico no aplica a cliente — su "inicio" es Formatos (primer ítem del sidebar,
-  // ver Sidebar.vue), para que la URL activa coincida con el ítem resaltado en la navegación.
+  // El home genérico no aplica a cliente — su "inicio" es la portada de entrada (elegir entre
+  // "Proyectos de Inversión con IA" e "ILPIIE Live") — pedido explícito del cliente. `query:
+  // to.query` es necesario: Stripe Checkout vuelve justo a "/" (home) con
+  // ?facturacion_checkout=success&session_id=... — sin preservarla, este redirect la perdía antes
+  // de que MainLayout.vue llegara a leerla, y la confirmación del pago nunca se disparaba.
   if (to.name === 'home' && session.sesion?.rol === 'cliente') {
-    return { name: 'formatos' };
+    return { name: 'inicio-cliente', query: to.query };
   }
   // Ídem para asesor — pedido explícito del usuario: "Mis consultas" debe abrir directo la
   // pantalla con tabs (Por Agendar/Agendadas/Reprogramadas/Atendidas), no el dashboard resumen.

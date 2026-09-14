@@ -15,7 +15,7 @@
 // identificadores de campo). Aquí el lenguaje es el de Excel y los operandos son celdas.
 
 import type { LibroLeido } from './xlsxXmlReader';
-import { aAnio, aFechaISO, aPorcentaje, dateASerialExcel, dePorcentaje, textoVisibleDeNumero } from './conversionesExcel';
+import { aAnio, aFechaISO, agruparMiles, aPorcentaje, dateASerialExcel, dePorcentaje, textoVisibleDeNumero } from './conversionesExcel';
 
 export class ErrorExcel {
   codigo: string;
@@ -791,7 +791,10 @@ export function calcularCelda(
     }
     const conMascara = textoVisibleDeNumero(v, libro.codigoFormato(hoja, ref));
     if (conMascara !== null) return { texto: conMascara, soportado: true };
-    return { texto: decimales !== undefined ? v.toFixed(decimales) : String(Number(v.toPrecision(12))), soportado: true };
+    // Sin formato propio (o "General"): igual se agrupan los miles para que un número grande se
+    // lea de un vistazo (885452 -> 885,452) — pedido explícito del usuario.
+    const sinFormato = decimales !== undefined ? v.toFixed(decimales) : String(Number(v.toPrecision(12)));
+    return { texto: agruparMiles(sinFormato), soportado: true };
   }
   const t = texto(v);
   // Eval vacía pero el archivo sí trae resultado cacheado (fórmulas parciales / dependencias

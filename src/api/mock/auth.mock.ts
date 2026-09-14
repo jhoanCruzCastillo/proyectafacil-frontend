@@ -28,6 +28,8 @@ export const authMock: AuthApi = {
       rol: u.rol,
       iniciadaEn: new Date().toISOString(),
       tienePlan: true,
+      alumnoVigente: u.origen === 'alumno',
+      vigenciaAlumnoHasta: u.vigenciaAlumnoHasta ?? null,
     };
     writeLocal(SESION_KEY, sesion);
     return sesion;

@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faSearch, faPlus, faCheck, faCircle, faInfoCircle, faTrash, faEye, faDownload, faBoxArchive, faCloudArrowUp, faFileImport, faStar } from '@/lib/icons';
+import { faSearch, faPlus, faCheck, faCircle, faInfoCircle, faTrash, faEye, faDownload, faSpinner, faBoxArchive, faCloudArrowUp, faFileImport, faStar } from '@/lib/icons';
 import type { Ejemplo } from '@/types';
 
 const props = defineProps<{
   ejemplos: Ejemplo[];
   activeEjemplo: Ejemplo | null;
+  /** Id del ejemplo cuyo Excel se está descargando ahora mismo — pinta el spinner en SU botón. */
+  descargandoEjemploId?: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -107,12 +109,18 @@ const filtered = computed(() =>
             <FontAwesomeIcon :icon="faEye" class="w-3.5 h-3.5" />
           </button>
           <button
-            @click.stop="emit('download', ej)"
+            @click.stop="descargandoEjemploId !== ej.id && emit('download', ej)"
             type="button"
-            class="flex w-7 h-7 rounded-md items-center justify-center text-gray-400 hover:bg-brand-100 hover:text-brand-600 transition-colors duration-75"
-            title="Descargar Excel"
+            :disabled="descargandoEjemploId === ej.id"
+            class="flex w-7 h-7 rounded-md items-center justify-center text-gray-400 hover:bg-brand-100 hover:text-brand-600 transition-colors duration-75 disabled:hover:bg-transparent disabled:cursor-wait"
+            :class="{ 'text-brand-600': descargandoEjemploId === ej.id }"
+            :title="descargandoEjemploId === ej.id ? 'Descargando…' : 'Descargar Excel'"
           >
-            <FontAwesomeIcon :icon="faDownload" class="w-3.5 h-3.5" />
+            <FontAwesomeIcon
+              :icon="descargandoEjemploId === ej.id ? faSpinner : faDownload"
+              class="w-3.5 h-3.5"
+              :class="{ 'animate-spin': descargandoEjemploId === ej.id }"
+            />
           </button>
           <button
             @click.stop="emit('delete', ej)"

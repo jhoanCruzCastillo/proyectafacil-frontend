@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { subtipoTablaLabels, faTriangleExclamation, faGear } from '@/lib/icons';
-import { columnaFaltaCaptura } from '@/lib/campoValidation';
+import { columnaExcelFormatoInvalido, columnaFaltaCaptura } from '@/lib/campoValidation';
 import FilasDinamicasColumnsEditor from './FilasDinamicasColumnsEditor.vue';
 import MatrizPeriodosEditor from './MatrizPeriodosEditor.vue';
 import JerarquicaColumnsEditor from './JerarquicaColumnsEditor.vue';
@@ -17,6 +17,7 @@ const emit = defineEmits<{ update: [ConfigTabla] }>();
 const subtipos = Object.entries(subtipoTablaLabels) as [SubtipoTabla, string][];
 const showAgrupadorConfig = ref(false);
 const columnasSinPosicion = computed(() => props.config.columnas.filter(columnaFaltaCaptura).length);
+const columnaInicialInvalida = computed(() => columnaExcelFormatoInvalido(props.config.captura?.columnaInicial));
 
 // Proxy pasado como v-model:config a los 3 editores de columnas — cada uno solo necesita leer y
 // reasignar `config.value`, sin tener que reenviar el evento `update` manualmente.
@@ -69,11 +70,14 @@ const anchoTotalAgrupador = computed(() => cabecerasAgrupador.value.reduce((s, c
       >
         <input
           :value="config.captura?.columnaInicial ?? ''"
-          @input="updateCaptura({ columnaInicial: ($event.target as HTMLInputElement).value })"
+          @input="updateCaptura({ columnaInicial: ($event.target as HTMLInputElement).value.replace(/[^A-Za-z]/g, '').toUpperCase() })"
           type="text"
           placeholder="Ej. B"
-          class="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+          title="Letra de columna de Excel (A, B, C…) — no un número"
+          class="w-full px-3 py-2 rounded-lg border text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+          :class="columnaInicialInvalida ? 'border-red-400 bg-red-50/40' : 'border-gray-200'"
         />
+        <p v-if="columnaInicialInvalida" class="mt-1 text-[10px] font-medium text-red-600">Debe ser una letra de columna (A, B, C…), no un número.</p>
       </CampoConAyuda>
       <CampoConAyuda
         etiqueta="Fila inicial (Excel)"

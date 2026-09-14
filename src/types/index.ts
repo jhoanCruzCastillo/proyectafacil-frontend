@@ -12,6 +12,7 @@ export type TipoCampo =
   | 'tabla_jerarquica'
   | 'calculado'
   | 'imagen'
+  | 'archivo'
   | 'firma'
   | 'mapa_coordenadas'
   | 'nota';
@@ -35,7 +36,8 @@ export type TipoColumna =
   | 'calculado'
   | 'catalogo'
   | 'catalogo_encadenado'
-  | 'auto_numerico';
+  | 'auto_numerico'
+  | 'archivo';
 
 export type NivelColumna = 'padre' | 'hijo';
 
@@ -453,10 +455,18 @@ export interface Sesion {
   usuario: string;
   rol: RolUsuario;
   iniciadaEn?: string;
-  /** false = cliente sin ningún plan asignado todavía (recién registrado, sin comprar) — el
-   * router lo manda directo a "Elegir plan" y bloquea el resto. Siempre true para roles que no
-   * son cliente (no aplica). */
+  /** false = cliente sin ningún plan vigente (recién registrado, sin comprar, o con una membresía
+   * cancelada/vencida) — junto con `alumnoVigente` decide si entra a "Proyectos de Inversión con
+   * IA" (ver `puedeAccederProyectosIA()` en lib/permisos.ts). Siempre true para roles que no son
+   * cliente (no aplica). */
   tienePlan: boolean;
+  /** true = cliente con origen 'alumno' y `vigenciaAlumnoHasta` sin vencer — accede gratis a
+   * "Proyectos de Inversión con IA" e "ILPIIE Live" mientras dure. Siempre false para roles que no
+   * son cliente. */
+  alumnoVigente: boolean;
+  /** Fecha ISO (YYYY-MM-DD) hasta la que dura el acceso de alumno, o null si no aplica / no tiene
+   * fecha de corte — puramente informativo (para mostrar "vence el X" en la portada de entrada). */
+  vigenciaAlumnoHasta?: string | null;
 }
 
 /** Respuesta de POST /api/auth/login — Sesion + token Bearer para localStorage. */
@@ -798,8 +808,21 @@ export interface NoAtendidasAsesor {
 // específico — ej. dentro de Formatos Generales, "Liquidación por contrata".
 export interface SubtemaEspecialidad {
   id: string;
-  sectorId: string;
+  temaId: string;
   nombre: string;
+}
+
+// Catálogo de "temas de especialidad" del asesor (Proyectos de Inversión, Ejecución de Obras...) —
+// SEPARADO de Sector (los 13 sectores MEF de las fichas/plantillas de "Proyectos de Inversión con
+// IA"). Misma forma que Sector menos tipoSector/cantidadPlantillas/cantidadEjemplos (no aplican acá).
+export interface TemaEspecialidad {
+  id: string;
+  nombre: string;
+  codigo: string;
+  icono: string;
+  colorAccent: string;
+  descripcion?: string;
+  activo: boolean;
 }
 
 // Excepción puntual sobre el horario recurrente — marca una FECHA real (no un día de la semana)
