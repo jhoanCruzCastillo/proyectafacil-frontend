@@ -28,14 +28,14 @@ const plantillaId = computed(() => route.params.plantillaId as string);
 const {
   estadoGuardado,
   editData, activeTab, selectedCampo, isNewCampo, editingHojaSeccionId,
-  leftWidth, rightWidth, examplesWidth, highlightMissingCaptura, ejemplosCount, jsonPreview,
+  leftWidth, rightWidth, examplesWidth, highlightMissingCaptura, campoErrorInsercionId, ejemplosCount, jsonPreview,
   showImportEstructura,
   modoEdicion, setModoEdicion, borradoresPorCampo, confirmarBorradorCampo,
   handleUpdateDefaultValue, handleUpdateExampleValue,
   secciones, safeIdx, seccionActiva, isFirst, isLast, showExamples,
   ejemplos, activeEjemplo, editedValores, excelDesactualizado, showNuevoEjemplo, deleteTarget, volcarTarget, volcarEstructura,
   archivoExcelAsignado, showExcelCatalogModal, showPreview, showInsertConfirm, isInserting, insertProgress, insertProgressLabel,
-  previewFileUrl, previewFileName,
+  previewFileUrl, previewFileName, descargandoEjemploId,
   handleLeftResize, handleRightResize, handleExamplesResize, handleTabChange, handleSectionSelect,
   goToPrevSection, goToNextSection, handleFieldUpdate, handleAddCampo, handleAddNota, handleDuplicarCampo, handleDeleteCampo,
   handleSectionNameChange, handleSectionHojaChange, handleSubsectionNameChange,
@@ -92,6 +92,7 @@ function confirmarToggleEstado() {
           <ExamplesPanel
             :ejemplos="ejemplos"
             :active-ejemplo="activeEjemplo"
+            :descargando-ejemplo-id="descargandoEjemploId"
             @select="activeEjemplo = $event"
             @new-example="showNuevoEjemplo = true"
             @preview="handlePreviewExample"
@@ -135,6 +136,7 @@ function confirmarToggleEstado() {
             :example-valores="showExamples ? editedValores : undefined"
             :selected-campo-id="selectedCampo?.id"
             :highlight-missing-captura="highlightMissingCaptura"
+            :campo-error-insercion-id="campoErrorInsercionId"
             :modo-edicion="modoEdicion"
             :borradores-por-campo="borradoresPorCampo"
             @select-campo="(c) => { selectedCampo = c; isNewCampo = false; }"

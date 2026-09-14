@@ -4,6 +4,7 @@ import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faTrash, faGear, fieldTypeIcons } from '@/lib/icons';
 import CampoListaInput from '@/components/CampoListaInput.vue';
 import CampoBooleanoInput from '@/components/CampoBooleanoInput.vue';
+import CampoArchivoInput from '@/components/CampoArchivoInput.vue';
 import CeldaPartida from './CeldaPartida.vue';
 import { EXCEL_VIVO } from '@/composables/useListasExcel';
 import { etiquetaDeValor, textoVisibleDeNumero } from '@/lib/conversionesExcel';
@@ -196,6 +197,14 @@ function valorMostrado(col: ColumnaTabla, opciones: string[] | null): string {
           :value="(row[col.id] as string) || ''"
           :etiquetas="col.etiquetasBooleano ?? (varianteBooleano(col) === 'si_no' ? { true: 'Sí', false: 'No' } : null)"
           :variante="varianteBooleano(col)"
+          compacto
+          @change="emit('cell-change', col.id, $event)"
+        />
+      </td>
+      <!-- Columna archivo: sube/muestra un PDF/Excel/Word/TXT (pedido explícito del usuario) -->
+      <td v-else-if="col.tipo === 'archivo'" :style="estiloDe(col)" class="px-1 py-0.5 align-middle min-w-0 border-r border-brand-100">
+        <CampoArchivoInput
+          :value="textoPlano(col.id)"
           compacto
           @change="emit('cell-change', col.id, $event)"
         />

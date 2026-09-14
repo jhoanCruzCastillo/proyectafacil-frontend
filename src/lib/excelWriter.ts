@@ -5,6 +5,7 @@ import { aFechaISO, booleanoATexto, dateASerialExcel, dePorcentaje, numeroDesdeT
 import { parseCoords, coordsATexto } from './coords';
 import { leerLibroXlsx } from './xlsxXmlReader';
 import { catalogoDeListas, normalizarOpcion, type AvisoLista } from './xlsxListas';
+import { columnaExcelFormatoInvalido } from './campoValidation';
 
 export type { AvisoLista } from './xlsxListas';
 import type { Plantilla, Campo, ColumnaTabla, ConfigTabla, TipoCampo, TipoColumna } from '@/types';
@@ -30,6 +31,27 @@ function colIndexToLetter(n: number): string {
 
 function addCols(letter: string, delta: number): string {
   return colIndexToLetter(colLetterToIndex(letter) + delta);
+}
+
+// Resuelve el valor de un campo/columna `imagen`/`archivo` a una URL absoluta apta para el
+// hipervínculo de Excel, o null si no hay nada que enlazar. `imagen` ya guarda una URL absoluta
+// (Cloudinary) — solo se valida el formato. `archivo` guarda una ruta relativa
+// (`/api/archivos-campo/...`, ver CampoArchivosController.php) que solo tiene sentido resuelta
+// contra el origen de la propia app EN ESTE MOMENTO (funciona igual en dev/producción sin config
+// nueva, ya que excelWriter.ts corre en el navegador durante "Insertar").
+function urlParaHipervinculo(tipo: TipoCampo | TipoColumna, raw: string | undefined): string | null {
+  if (typeof raw !== 'string') return null;
+  const v = raw.trim();
+  if (v === '') return null;
+  if (tipo === 'imagen') return /^https?:\/\//i.test(v) ? v : null;
+  if (tipo === 'archivo') {
+    try {
+      return new URL(v, window.location.origin).href;
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 // `etiquetasBooleano` son las palabras con que la plantilla oficial escribe un booleano en el Excel
@@ -187,6 +209,9 @@ function writeFilaColumnas(ediciones: LibroEdits, hoja: string | undefined, conf
     } else {
       const v = fila[col.id];
       if (typeof v !== 'string' || v === '') continue;
+      // Columna `archivo`: mismo hipervínculo que ya se escribe para el campo suelto (ver writeCampo).
+      const enlace = hoja ? urlParaHipervinculo(col.tipo, v) : null;
+      if (enlace) ediciones.enlazar(hoja!, col.columnaExcel, row, enlace);
       writeCellSpan(ediciones, hoja, col.columnaExcel, row, valorDeColumna(col, v), col.abarcaColumnasExcel ?? 1, alto(col));
     }
   }
@@ -304,6 +329,8 @@ function writeArbol(
           continue;
         }
         if (typeof v !== 'string' || v === '') continue;
+        const enlaceLibre = urlParaHipervinculo(libre.tipo, v);
+        if (enlaceLibre) ediciones.enlazar(hoja, libre.columnaExcel, filaInicio, enlaceLibre);
         writeCellSpan(ediciones, hoja, libre.columnaExcel, filaInicio, valorDeColumna(libre, v), libre.abarcaColumnasExcel ?? 1);
       }
     }
@@ -321,6 +348,8 @@ function writeArbol(
         writeCellSpan(ediciones, hoja, colLetter, filaInicio, valorDeColumna(col, v), col.abarcaColumnasExcel ?? 1, filasConsumidas);
       });
     } else if (typeof node.value === 'string' && node.value !== '') {
+      const enlaceHoja = urlParaHipervinculo(col.tipo, node.value);
+      if (enlaceHoja) ediciones.enlazar(hoja, col.columnaExcel, filaInicio, enlaceHoja);
       writeCellSpan(ediciones, hoja, col.columnaExcel, filaInicio, valorDeColumna(col, node.value as string), col.abarcaColumnasExcel ?? 1, filasConsumidas);
     }
   }
@@ -439,14 +468,15 @@ function writeCampo(
     return;
   }
   if (!campo.captura?.columna || !campo.captura.fila || !hoja) return;
-  // Campo imagen: su URL se escribe como texto y además se marca la celda como hipervínculo, para
-  // abrirla de un clic en el navegador. Incrustar el binario como dibujo está implementado (ver
-  // lib/xlsxImageWriter.ts) pero desactivado: Excel seguía marcando el archivo como reparado.
-  // Para reactivarlo: saltar este campo aquí y reponer el bloque de descarga en
+  // Campo imagen/archivo: su URL se escribe como texto y además se marca la celda como
+  // hipervínculo, para abrirla de un clic en el navegador. Incrustar el binario como dibujo está
+  // implementado (ver lib/xlsxImageWriter.ts) pero desactivado: Excel seguía marcando el archivo
+  // como reparado. Para reactivarlo: saltar este campo aquí y reponer el bloque de descarga en
   // insertarValoresEnExcel, que registra la imagen con ediciones.insertarImagen().
   const raw = valores[campo.identificador];
-  if (campo.tipo === 'imagen' && typeof raw === 'string' && /^https?:\/\//i.test(raw.trim())) {
-    ediciones.enlazar(hoja, campo.captura.columna, campo.captura.fila + ediciones.desplazamientoPara(hoja, campo.captura.fila), raw.trim());
+  const enlace = urlParaHipervinculo(campo.tipo, raw);
+  if (enlace) {
+    ediciones.enlazar(hoja, campo.captura.columna, campo.captura.fila + ediciones.desplazamientoPara(hoja, campo.captura.fila), enlace);
   }
   if (raw == null || raw === '') return; // campo vacío: no tocar la celda
   const shift = ediciones.desplazamientoPara(hoja, campo.captura.fila);
@@ -510,6 +540,58 @@ function revisarListas(
 
 export type InsertProgressCb = (fraction: number, fase?: string) => void;
 
+// La UI de Estructura guarda `columnaExcel`/`captura.columna` como texto libre — nada impide que
+// alguien teclee "1" en vez de "A" (fácil de confundir: la columna VISUAL de la tabla en el editor
+// SÍ se numera 1,2,3…, pero la celda de Excel que le corresponde se referencia por letra). Un valor
+// así no falla al guardar la estructura (no está vacío, pasa `columnaFaltaCaptura`), pero al armar
+// el rango de fusión (ver `writeCellSpan`) `colLetterToIndex("1")` da un índice sin sentido y el
+// rango resultante pierde su letra de columna — ahí es donde revienta `parseDireccion` con un
+// mensaje críptico ("Dirección de celda inválida: 166", donde "166" ni siquiera es una fila real:
+// es "1" de columna pegado a "66" de fila). Se valida ANTES de tocar el Excel para fallar con un
+// mensaje que señale el campo exacto, en vez de dejar que reviente varios pasos después. El mismo
+// formato lo valida en vivo el editor de Estructura (ver columnaExcelFormatoInvalido) — esto es la
+// red de seguridad final para datos que ya existían antes de esa validación en la UI.
+export class ColumnaExcelInvalidaError extends Error {
+  campoIdentificador: string;
+  columnaInvalida: string;
+  nombreColumna?: string;
+
+  constructor(campoIdentificador: string, columnaInvalida: string, nombreColumna?: string) {
+    super(
+      `Columna de Excel inválida ("${columnaInvalida}") en el campo ${campoIdentificador}` +
+        (nombreColumna ? ` (columna "${nombreColumna}")` : '') +
+        ' — debe ser una letra de columna de Excel (A, B, C…), no un número.',
+    );
+    this.name = 'ColumnaExcelInvalidaError';
+    this.campoIdentificador = campoIdentificador;
+    this.columnaInvalida = columnaInvalida;
+    this.nombreColumna = nombreColumna;
+  }
+}
+
+function validarColumnasExcel(plantilla: Plantilla) {
+  for (const seccion of plantilla.secciones) {
+    for (const sub of seccion.subsecciones) {
+      for (const campo of sub.campos) {
+        const esTabla = campo.tipo === 'tabla' || campo.tipo === 'tabla_jerarquica';
+        if (esTabla && campo.configTabla) {
+          const columnaInicial = campo.configTabla.captura?.columnaInicial;
+          if (columnaExcelFormatoInvalido(columnaInicial)) {
+            throw new ColumnaExcelInvalidaError(campo.identificador, columnaInicial!);
+          }
+          for (const col of campo.configTabla.columnas) {
+            if (columnaExcelFormatoInvalido(col.columnaExcel)) {
+              throw new ColumnaExcelInvalidaError(campo.identificador, col.columnaExcel!, col.nombre);
+            }
+          }
+        } else if (columnaExcelFormatoInvalido(campo.captura?.columna)) {
+          throw new ColumnaExcelInvalidaError(campo.identificador, campo.captura!.columna!);
+        }
+      }
+    }
+  }
+}
+
 export async function insertarValoresEnExcel(
   dataUrl: string,
   plantilla: Plantilla,
@@ -520,6 +602,8 @@ export async function insertarValoresEnExcel(
   const report = (fraction: number, fase?: string) => {
     onProgress?.(Math.min(0.85, Math.max(0, fraction)), fase);
   };
+
+  validarColumnasExcel(plantilla);
 
   const ediciones = new LibroEdits();
   report(0.02, 'Preparando…');

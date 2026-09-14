@@ -6,6 +6,7 @@ import { useUiStore } from '@/stores/ui';
 import { useSessionStore } from '@/stores/session';
 import { useChatAsesoriaStore } from '@/stores/chatAsesoria';
 import { useInvalidarMisBeneficios } from '@/composables/useBeneficios';
+import { pagosHttp } from '@/api/http/pagos.http';
 import { useMisSolicitudesQuery } from '@/composables/useAsesoria';
 import Sidebar from '@/components/Sidebar.vue';
 import Avatar from '@/components/Avatar.vue';
@@ -31,22 +32,57 @@ const chatAbierto = computed(() => chatsEnCurso.value.find((s) => s.id === chatA
 // El globo de un chat ya abierto en el panel no aporta nada — solo los demás que siguen esperando.
 const chatsEnCursoSinAbrir = computed(() => chatsEnCurso.value.filter((s) => s.id !== chatAsesoria.chatAbiertoId));
 
+// Confirma la Checkout Session contra Stripe al volver, SIN esperar al webhook —
+// PagosController::webhook() es la fuente de verdad para eventos futuros (renovación,
+// cancelación), pero en desarrollo local nunca llega si no corre `stripe listen` en una terminal
+// aparte, así que depender solo de él dejaba a cualquiera "sin plan" aunque el cobro sí se hubiera
+// hecho (y el toast de acá mentía con un "ya debería estar activo" optimista). `sessionId` puede
+// faltar en un link viejo — ahí se asume éxito como antes, sin verificación.
+async function confirmarConStripe(sessionId: string): Promise<boolean> {
+  try {
+    const { ok } = await pagosHttp.verificarCheckout(sessionId);
+    return ok;
+  } catch {
+    // Falla de red/Stripe al verificar: no es lo mismo que "el pago no se confirmó" — no se le
+    // dice al usuario que falló, el webhook (si llega) o un refresco más tarde lo reflejan.
+    return true;
+  }
+}
+
 // Stripe Checkout siempre vuelve a la raíz del sitio (ver PagosController::checkout/checkoutPlan/
 // checkoutAddon), no necesariamente a Ajustes → Facturación — este layout es lo único que está
 // montado sin importar en qué página caiga la redirección, así que el aviso vive acá.
-onMounted(() => {
+onMounted(async () => {
   const beneficio = route.query.beneficio_checkout;
   const facturacion = route.query.facturacion_checkout;
   if (beneficio !== 'success' && beneficio !== 'cancel' && facturacion !== 'success' && facturacion !== 'cancel') return;
 
+  const sessionId = typeof route.query.session_id === 'string' ? route.query.session_id : '';
+
   if (beneficio === 'success') {
-    ui.toast('¡Beneficio comprado! Ya debería estar activo.');
+    const confirmado = sessionId ? await confirmarConStripe(sessionId) : true;
+    ui.toast(
+      confirmado ? '¡Beneficio comprado! Ya está activo.' : 'Tu pago se está procesando — esto puede tardar unos minutos.',
+      confirmado ? 'success' : 'error',
+    );
     if (session.sesion) invalidarMisBeneficios(session.sesion.usuarioId);
   } else if (beneficio === 'cancel') {
     ui.toast('Compra cancelada — no se realizó ningún cargo.', 'error');
   } else if (facturacion === 'success') {
-    ui.toast('¡Listo! Tu plan/add-on ya debería estar activo.');
-    if (session.sesion) queryClient.invalidateQueries({ queryKey: ['facturacion', session.sesion.usuarioId] });
+    const confirmado = sessionId ? await confirmarConStripe(sessionId) : true;
+    ui.toast(
+      confirmado ? '¡Listo! Tu plan/add-on ya está activo.' : 'Tu pago se está procesando — esto puede tardar unos minutos.',
+      confirmado ? 'success' : 'error',
+    );
+    if (session.sesion) {
+      queryClient.invalidateQueries({ queryKey: ['facturacion', session.sesion.usuarioId] });
+      // `tienePlan`/`alumnoVigente` (lo que de verdad desbloquea "Proyectos de Inversión con IA" en
+      // el sidebar/portada — ver puedeAccederProyectosIA en lib/permisos.ts) viven en `session.sesion`,
+      // no en la query de facturación de arriba — invalidar esa query no los actualiza. Sin este
+      // refresco, el pago quedaba confirmado en la base de datos pero la app seguía mostrando todo
+      // bloqueado hasta el próximo login.
+      if (confirmado) await session.restaurar();
+    }
   } else if (facturacion === 'cancel') {
     ui.toast('Compra cancelada — no se realizó ningún cargo.', 'error');
   }
@@ -54,6 +90,7 @@ onMounted(() => {
   const resto = { ...route.query };
   delete resto.beneficio_checkout;
   delete resto.facturacion_checkout;
+  delete resto.session_id;
   router.replace({ query: resto });
 });
 </script>

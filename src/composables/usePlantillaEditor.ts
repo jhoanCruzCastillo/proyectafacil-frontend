@@ -1,13 +1,13 @@
-import { type Ref, computed, provide, ref, watch } from 'vue';
+import { type Ref, computed, nextTick, provide, ref, watch } from 'vue';
 import { usePlantillaQuery, useActualizarPlantilla } from '@/composables/usePlantillas';
 import { useEjemplosByPlantillaQuery, useCrearEjemplo, useActualizarEjemplo, useEliminarEjemplo, useMarcarReferenciaIA } from '@/composables/useEjemplos';
 import { useCatalogoExcelQuery } from '@/composables/useArchivosExcel';
 import { useExcelEjemploQuery, useSetExcelEjemplo } from '@/composables/useExcelEjemplos';
 import { generateId } from '@/api/mock/_shared';
 import { excelEjemplosApi } from '@/api/excelEjemplos';
-import { contarCamposSinCaptura } from '@/lib/campoValidation';
+import { buscarCampoPorIdentificador, campoCercaDeFilaExcel, contarCamposSinCaptura, primerCampoSinCaptura } from '@/lib/campoValidation';
 import { buildDocumento } from '@/lib/schemaExport';
-import { insertarValoresEnExcel, type AvisoLista } from '@/lib/excelWriter';
+import { ColumnaExcelInvalidaError, insertarValoresEnExcel, type AvisoLista } from '@/lib/excelWriter';
 import { usePushActividad } from '@/composables/useActividad';
 import { useExcelVivo, useAltoDeBloqueExcel, EXCEL_VIVO, type ModoCalculoExcel } from '@/composables/useListasExcel';
 import { useMapaValoresExcelDebounced, type ResolverValorCampo } from '@/composables/useMapaValoresExcelDebounced';
@@ -69,6 +69,10 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
   const rightWidth = ref(DEFAULT_RIGHT);
   const examplesWidth = ref(DEFAULT_EXAMPLES);
   const highlightMissingCaptura = ref(false);
+  // Campo señalado en naranja tras un error de "Insertar" en el Excel (ver handleInsertExcel) —
+  // distinto de highlightMissingCaptura (rojo, todos los campos sin posición a la vez): acá es UN
+  // campo puntual, el que probablemente causó ese error concreto.
+  const campoErrorInsercionId = ref<string | null>(null);
   const jsonPreview = ref<{ title: string; json: string; editable?: boolean; identificador?: string; error?: string } | null>(null);
   const showImportEstructura = ref(false);
 
@@ -97,6 +101,10 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
   const insertProgressLabel = ref('Procesando…');
   /** Valores que no coincidieron con las opciones del desplegable de su celda en la última inserción */
   const avisosListas = ref<AvisoLista[]>([]);
+  /** Id del ejemplo cuyo Excel se está descargando ahora mismo — pinta el spinner en SU botón de la
+   * lista, no en todos: la descarga (metadata + binario) no daba ninguna señal visual mientras
+   * corría, y el usuario no tenía forma de saber si el click hizo algo. */
+  const descargandoEjemploId = ref<string | null>(null);
 
   const archivoExcelAsignado = computed(() => {
     const catalogo = catalogoExcel.value;
@@ -417,13 +425,16 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
   }
 
   async function handleDownloadExcel(ejemplo: Ejemplo) {
-    const archivo = await excelEjemplosApi.get(ejemplo.id);
-    if (!archivo) { ui.toast('Este ejemplo no tiene una copia de Excel asociada', 'error'); return; }
+    descargandoEjemploId.value = ejemplo.id;
     try {
+      const archivo = await excelEjemplosApi.get(ejemplo.id);
+      if (!archivo) { ui.toast('Este ejemplo no tiene una copia de Excel asociada', 'error'); return; }
       const { descargarArchivoUrl } = await import('@/lib/fetchBinario');
       await descargarArchivoUrl(archivo.dataUrl, nombreArchivoDescarga(ejemplo.nombre, archivo.nombre));
-    } catch {
-      ui.toast('No se pudo descargar el Excel', 'error');
+    } catch (e) {
+      ui.toast(e instanceof Error ? e.message : 'No se pudo descargar el Excel', 'error');
+    } finally {
+      descargandoEjemploId.value = null;
     }
   }
 
@@ -549,12 +560,58 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
         console.warn('[listas] valores fuera de las opciones del Excel:', avisosListas.value);
       }
     } catch (e) {
-      ui.toast(e instanceof Error ? e.message : 'No se pudo insertar los valores en el Excel', 'error');
+      const mensaje = e instanceof Error ? e.message : 'No se pudo insertar los valores en el Excel';
+      ui.toast(mensaje, 'error');
+      await señalarCampoDeErrorInsercion(e);
     } finally {
       isInserting.value = false;
       insertProgressLabel.value = 'Procesando…';
       showInsertConfirm.value = false;
     }
+  }
+
+  // Pedido explícito del usuario: si el error de "Insertar" viene de una celda mal configurada,
+  // llevar al campo responsable en vez de dejar solo el mensaje críptico — cambia de sección,
+  // selecciona el campo y hace scroll suave hasta él, resaltado en NARANJA (campoErrorInsercionId)
+  // para no confundirlo con el rojo de "falta captura" (highlightMissingCaptura), que es distinto.
+  async function resaltarCampoError(objetivo: { seccionId: string; campo: Campo }) {
+    handleSectionSelect(objetivo.seccionId);
+    selectedCampo.value = objetivo.campo;
+    isNewCampo.value = false;
+    campoErrorInsercionId.value = objetivo.campo.id;
+    setTimeout(() => { campoErrorInsercionId.value = null; }, 4000);
+    await nextTick();
+    await nextTick();
+    document.querySelector(`[data-campo-identificador="${objetivo.campo.identificador}"]`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  async function señalarCampoDeErrorInsercion(error: unknown) {
+    if (!editData.value) return;
+
+    // Caso preciso: excelWriter.ts valida el formato de columnaExcel/captura.columna ANTES de tocar
+    // el Excel y lanza este error con el campo exacto — no hace falta adivinar nada.
+    if (error instanceof ColumnaExcelInvalidaError) {
+      const objetivo = buscarCampoPorIdentificador(editData.value, error.campoIdentificador);
+      if (objetivo) await resaltarCampoError(objetivo);
+      return;
+    }
+
+    // Caso genérico (aproximado): el error trae una fila de Excel (ej. "Dirección de celda
+    // inválida: 166") de algún otro punto de aplicarEdicionesXlsx no cubierto por la validación de
+    // arriba — se aproxima al campo declarado más cerca de esa fila, en la misma hoja si se pudo
+    // identificar (los números de fila son independientes por hoja de Excel).
+    const mensaje = error instanceof Error ? error.message : String(error);
+    const filaMatch = /[Ff]ila (\d+)|: *(\d+)$/.exec(mensaje);
+    const fila = filaMatch ? Number(filaMatch[1] ?? filaMatch[2]) : null;
+    if (fila === null) return;
+
+    const hojaMatch = /^Hoja "([^"]*)"/.exec(mensaje);
+    const hoja = hojaMatch ? hojaMatch[1] : null;
+
+    const objetivo = campoCercaDeFilaExcel(editData.value, fila, hoja);
+    if (!objetivo) return;
+    await resaltarCampoError(objetivo);
   }
 
   async function handleDeleteEjemplo() {
@@ -1001,6 +1058,21 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
       ui.toast(`Guardado, pero ${sinCaptura} campo${sinCaptura === 1 ? '' : 's'} no ${sinCaptura === 1 ? 'tiene' : 'tienen'} registrada su posición en el Excel`, 'error');
       highlightMissingCaptura.value = true;
       setTimeout(() => { highlightMissingCaptura.value = false; }, 2500);
+
+      // Pedido explícito del usuario: llevar al primero de esos campos en vez de dejar que lo
+      // busque a mano — si está en OTRA sección (las secciones se paginan, no todas están montadas
+      // a la vez) primero hay que cambiar de sección y esperar a que SectionContent (con su :key)
+      // termine de remontar antes de poder ubicar el campo en el DOM.
+      const objetivo = primerCampoSinCaptura(editData.value);
+      if (objetivo) {
+        handleSectionSelect(objetivo.seccionId);
+        selectedCampo.value = objetivo.campo;
+        isNewCampo.value = false;
+        await nextTick();
+        await nextTick();
+        document.querySelector(`[data-campo-identificador="${objetivo.campo.identificador}"]`)
+          ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
     } else {
       ui.toast(`Plantilla "${editData.value.codigo}" guardada`);
     }
@@ -1109,14 +1181,14 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
   return {
     estadoGuardado: autoguardado.estado,
     editData, activeTab, activeSectionIndex, selectedCampo, isNewCampo, editingHojaSeccionId,
-    leftWidth, rightWidth, examplesWidth, highlightMissingCaptura, ejemplosCount, jsonPreview,
+    leftWidth, rightWidth, examplesWidth, highlightMissingCaptura, campoErrorInsercionId, ejemplosCount, jsonPreview,
     showImportEstructura, modoCalculo, setModoCalculo,
     modoEdicion, setModoEdicion, borradoresPorCampo, confirmarBorradorCampo,
     handleUpdateDefaultValue, handleUpdateExampleValue,
     secciones, safeIdx, seccionActiva, isFirst, isLast, showExamples,
     ejemplos, activeEjemplo, editedValores, excelDesactualizado, showNuevoEjemplo, deleteTarget, volcarTarget, volcarEstructura,
     archivoExcelAsignado, showExcelCatalogModal, showPreview, showInsertConfirm, isInserting, insertProgress, insertProgressLabel,
-    previewFileUrl, previewFileName,
+    previewFileUrl, previewFileName, descargandoEjemploId,
     handleLeftResize, handleRightResize, handleExamplesResize, handleTabChange, handleSectionSelect,
     goToPrevSection, goToNextSection, handleFieldUpdate, handleAddCampo, handleAddNota, handleDuplicarCampo, handleDeleteCampo,
     handleSectionNameChange, handleSectionHojaChange, handleSubsectionNameChange,

@@ -243,6 +243,20 @@ export function textoVisibleDeNumero(valor: string | number, codigoFormato?: str
 }
 
 /**
+ * Agrega separador de miles a un texto numérico plano ("885452" -> "885,452"), preservando signo y
+ * decimales tal cual vengan. Respaldo para cuando la celda de Excel no declara un formato propio
+ * con agrupación (`textoVisibleDeNumero` devuelve null ahí, ver calcularCelda) — un número grande
+ * sin separador es difícil de leer de un vistazo. Si el texto no es un número plano, se devuelve
+ * intacto (nunca revienta con texto no numérico).
+ */
+export function agruparMiles(texto: string): string {
+  const m = /^(-?)(\d+)(\.\d+)?$/.exec(texto.trim());
+  if (!m) return texto;
+  const [, signo, enteros, decimales = ''] = m;
+  return `${signo}${enteros.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}${decimales}`;
+}
+
+/**
  * Texto que ve el usuario ("E-01", "1,234.50") -> número a escribir en la celda.
  * Si el texto ya es un número plano ("1"), se acepta tal cual.
  */

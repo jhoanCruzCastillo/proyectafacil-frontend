@@ -12,4 +12,8 @@ export interface PagosApi {
   quitarAddon(usuarioId: string, addonSlug: string): Promise<{ ok: true }>;
   /** URL del Customer Portal de Stripe (actualizar tarjeta, ver facturas reales, cancelar). */
   portal(usuarioId: string): Promise<{ url: string }>;
+  /** Confirma una Checkout Session al volver de Stripe, sin esperar al webhook (que en desarrollo
+   * local no llega si no corre `stripe listen`) — ver PagosController::verificarCheckout().
+   * `ok: false` = el pago todavía no se confirmó del lado de Stripe (no es un error). */
+  verificarCheckout(sessionId: string): Promise<{ ok: boolean }>;
 }

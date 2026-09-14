@@ -40,4 +40,11 @@ export const pagosHttp: PagosApi = {
   portal(usuarioId) {
     return apiFetch<{ url: string }>(`pagos/portal?usuarioId=${usuarioId}`);
   },
+
+  verificarCheckout(sessionId) {
+    return apiFetch<{ ok: boolean }>('pagos/verificar-checkout', {
+      method: 'POST',
+      body: JSON.stringify({ sessionId }),
+    });
+  },
 };

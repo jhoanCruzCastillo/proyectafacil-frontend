@@ -28,12 +28,16 @@ const emit = defineEmits<{ toggle: [] }>();
       <p class="text-xs text-muted">{{ descripcion }}</p>
     </div>
     <div class="flex flex-col items-end gap-1 shrink-0">
+      <!-- text-left: un <button> centra su texto por defecto — eso también corre la posición
+           "estática" del punto (absolute, sin left/right propio) hacia el centro/derecha del riel en
+           vez de dejarlo pegado a la izquierda, así que sin este reset se ve desalineado o incluso
+           saliéndose del riel al activar el switch. -->
       <button
         type="button"
         role="switch"
         :aria-checked="activo"
         @click="emit('toggle')"
-        class="relative w-11 h-6 rounded-full transition-colors duration-100"
+        class="relative w-11 h-6 rounded-full transition-colors duration-100 text-left"
         :class="activo ? 'bg-brand-500' : 'bg-gray-300'"
       >
         <span

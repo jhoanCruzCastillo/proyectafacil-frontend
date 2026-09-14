@@ -4,7 +4,7 @@ import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faCode, faLeaf, faPencil, faSave } from '@/lib/icons';
 import { fieldTypeIcons, fieldTypeLabels, faTriangleExclamation } from '@/lib/icons';
 import { parseCampoJson, stringifyCampoJson } from '@/lib/campoJson';
-import { campoFaltaCaptura } from '@/lib/campoValidation';
+import { campoFaltaCaptura, columnaExcelFormatoInvalido } from '@/lib/campoValidation';
 import { parseCoords } from '@/lib/coords';
 import TableColumnsEditor from './TableColumnsEditor.vue';
 import CampoCoordenadasInput from '@/components/CampoCoordenadasInput.vue';
@@ -21,7 +21,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{ update: [campoId: string, updates: Partial<Campo>] }>();
 
-const allowedFieldTypes: TipoCampo[] = ['texto_corto', 'texto_largo', 'numero', 'decimal', 'fecha', 'booleano', 'mapa_coordenadas', 'tabla'];
+const allowedFieldTypes: TipoCampo[] = ['texto_corto', 'texto_largo', 'numero', 'decimal', 'fecha', 'booleano', 'mapa_coordenadas', 'imagen', 'archivo', 'tabla'];
 const allFieldTypes = allowedFieldTypes.map((k) => [k, fieldTypeLabels[k]] as [TipoCampo, string]);
 
 const defaultTableConfig: ConfigTabla = { subtipo: 'filas_dinamicas', columnas: [] };
@@ -94,6 +94,7 @@ const icon = computed(() => fieldTypeIcons[vista.value.tipo]);
 const typeLabel = computed(() => fieldTypeLabels[vista.value.tipo]);
 const isTable = computed(() => vista.value.tipo === 'tabla' || vista.value.tipo === 'tabla_jerarquica');
 const faltaCaptura = computed(() => campoFaltaCaptura(vista.value));
+const columnaInvalida = computed(() => columnaExcelFormatoInvalido(vista.value.captura?.columna));
 const coords = computed(() => parseCoords(vista.value.valorEjemplo));
 
 const etiquetaInput = ref<HTMLInputElement | null>(null);
@@ -464,12 +465,14 @@ function updateCoords(lat: number, lng: number) {
             <label class="block text-[10px] font-medium text-muted mb-1">Columna</label>
             <input
               :value="vista.captura?.columna || ''"
-              @input="updateCaptura({ columna: ($event.target as HTMLInputElement).value })"
+              @input="updateCaptura({ columna: ($event.target as HTMLInputElement).value.replace(/[^A-Za-z]/g, '').toUpperCase() })"
               type="text"
               placeholder="Ej. R"
+              title="Letra de columna de Excel (A, B, C…) — no un número"
               class="w-full px-3 py-2 rounded-lg border text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500"
-              :class="vista.captura?.columna ? 'border-gray-200' : 'border-amber-300'"
+              :class="columnaInvalida ? 'border-red-400 bg-red-50/40' : vista.captura?.columna ? 'border-gray-200' : 'border-amber-300'"
             />
+            <p v-if="columnaInvalida" class="mt-1 text-[10px] font-medium text-red-600">Debe ser una letra de columna (A, B, C…), no un número.</p>
           </div>
           <div>
             <label class="block text-[10px] font-medium text-muted mb-1">Fila</label>

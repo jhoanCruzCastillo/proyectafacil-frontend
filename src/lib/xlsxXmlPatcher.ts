@@ -480,8 +480,8 @@ function agregarMerge(doc: Document, worksheet: Element, sheetData: Element, ran
 }
 
 async function extraerMimeYBuffer(dataUrl: string): Promise<{ mime: string; buffer: ArrayBuffer }> {
-  const { fetchBinario } = await import('./fetchBinario');
-  const res = await fetchBinario(dataUrl);
+  const { fetchBinarioOrFalla } = await import('./fetchBinario');
+  const res = await fetchBinarioOrFalla(dataUrl);
   const mime = res.headers.get('content-type') || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
   const buffer = await res.arrayBuffer();
   return { mime, buffer };
@@ -539,34 +539,48 @@ export async function aplicarEdicionesXlsx(
       continue;
     }
 
-    // Insertar filas de mayor a menor `despuesDeFila`: así cada inserción solo desplaza contenido
-    // que está debajo de ella, sin invalidar los puntos de inserción de las tablas de más arriba.
-    const crecimientosOrdenados = [...edits.crecimientos].sort((a, b) => b.despuesDeFila - a.despuesDeFila);
-    for (const crecimiento of crecimientosOrdenados) {
-      insertarFilasEnHoja(worksheet, sheetData, crecimiento);
-    }
-
-    // Romper fusiones ANTES de escribir: una celda partida escribe en columnas que la plantilla
-    // traía fusionadas, y el orden inverso volvería a taparlas.
-    for (const rango of edits.desfusiones) {
-      quitarMerge(worksheet, rango);
-    }
-
-    for (const { columna, fila, valor, formula } of edits.celdas) {
-      const filaEl = ensureRow(doc, sheetData, fila);
-      const celda = ensureCell(doc, filaEl, columna, fila);
-      // Una celda que YA trae fórmula en el libro oficial es intocable: su valor lo calcula el
-      // propio Excel a partir de otras hojas, y sobrescribirla no solo pierde ese cálculo — rompe
-      // la cadena que alimenta a todo lo que dependa de ella. La plantilla del CIAI tiene ~2300.
-      if (tieneFormula(celda)) {
-        omitidasPorFormula.push(`${nombreHoja}!${columna}${fila}`);
-        continue;
+    // Cualquier `parseDireccion` de acá para abajo puede fallar por una posición mal configurada en
+    // ALGÚN campo de ESTA hoja — sin el nombre de hoja, "Dirección de celda inválida: 166" no alcanza
+    // para ubicar al culpable (el 166 de una hoja no es el 166 de otra: cada hoja numera sus filas
+    // aparte). Se re-lanza con el nombre de hoja adelante para que quien lo capture (ver
+    // usePlantillaEditor::señalarCampoDeErrorInsercion) pueda filtrar candidatos por esa MISMA hoja.
+    let paso = 'crecimientos';
+    try {
+      // Insertar filas de mayor a menor `despuesDeFila`: así cada inserción solo desplaza contenido
+      // que está debajo de ella, sin invalidar los puntos de inserción de las tablas de más arriba.
+      const crecimientosOrdenados = [...edits.crecimientos].sort((a, b) => b.despuesDeFila - a.despuesDeFila);
+      for (const crecimiento of crecimientosOrdenados) {
+        insertarFilasEnHoja(worksheet, sheetData, crecimiento);
       }
-      const estilo = celda.getAttribute('s');
-      aplicarValorCelda(doc, celda, valor, formula, estilo !== null && numericos.has(Number(estilo)));
-    }
-    for (const rango of edits.merges) {
-      agregarMerge(doc, worksheet, sheetData, rango);
+
+      // Romper fusiones ANTES de escribir: una celda partida escribe en columnas que la plantilla
+      // traía fusionadas, y el orden inverso volvería a taparlas.
+      paso = 'desfusiones';
+      for (const rango of edits.desfusiones) {
+        quitarMerge(worksheet, rango);
+      }
+
+      paso = 'celdas';
+      for (const { columna, fila, valor, formula } of edits.celdas) {
+        const filaEl = ensureRow(doc, sheetData, fila);
+        const celda = ensureCell(doc, filaEl, columna, fila);
+        // Una celda que YA trae fórmula en el libro oficial es intocable: su valor lo calcula el
+        // propio Excel a partir de otras hojas, y sobrescribirla no solo pierde ese cálculo — rompe
+        // la cadena que alimenta a todo lo que dependa de ella. La plantilla del CIAI tiene ~2300.
+        if (tieneFormula(celda)) {
+          omitidasPorFormula.push(`${nombreHoja}!${columna}${fila}`);
+          continue;
+        }
+        const estilo = celda.getAttribute('s');
+        aplicarValorCelda(doc, celda, valor, formula, estilo !== null && numericos.has(Number(estilo)));
+      }
+      paso = 'merges';
+      for (const rango of edits.merges) {
+        agregarMerge(doc, worksheet, sheetData, rango);
+      }
+    } catch (e) {
+      const mensaje = e instanceof Error ? e.message : String(e);
+      throw new Error(`Hoja "${nombreHoja}" [paso ${paso}]: ${mensaje}`);
     }
 
     // Hipervínculos: además del <hyperlink> en la hoja hay que tocar SU archivo de relaciones,

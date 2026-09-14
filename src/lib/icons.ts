@@ -93,6 +93,7 @@ import {
   faInfoCircle,
   faCopy,
   faFileExcel,
+  faFileWord,
   faDownload,
   faFileExport,
   faTags,
@@ -153,6 +154,16 @@ import {
   faCrown,
   faEnvelope,
   faNoteSticky,
+  faChartLine,
+  faFileContract,
+  faDiagramProject,
+  faSackDollar,
+  faCalculator,
+  faScaleBalanced,
+  faHelmetSafety,
+  faChartPie,
+  faGavel,
+  faMoneyBillTrendUp,
   type IconDefinition,
 } from '@fortawesome/free-solid-svg-icons';
 import type { RolUsuario, TipoInstrumento, TipologiaIoarr, TipoCampo, TipoColumna, SubtipoTabla, MetodoPago } from '@/types';
@@ -174,6 +185,16 @@ export const sectorIcons: Record<string, IconDefinition> = {
   faLandmark,
   faUmbrellaBeach,
   faFileInvoice,
+  faChartLine,
+  faFileContract,
+  faDiagramProject,
+  faSackDollar,
+  faCalculator,
+  faScaleBalanced,
+  faHelmetSafety,
+  faChartPie,
+  faGavel,
+  faMoneyBillTrendUp,
 };
 
 export const sectorIconList = [
@@ -193,6 +214,16 @@ export const sectorIconList = [
   'faLandmark',
   'faUmbrellaBeach',
   'faFileInvoice',
+  'faChartLine',
+  'faFileContract',
+  'faDiagramProject',
+  'faSackDollar',
+  'faCalculator',
+  'faScaleBalanced',
+  'faHelmetSafety',
+  'faChartPie',
+  'faGavel',
+  'faMoneyBillTrendUp',
 ] as const;
 
 export const rolUsuarioLabels: Record<RolUsuario, string> = {
@@ -271,6 +302,7 @@ export const fieldTypeIcons: Record<TipoCampo, IconDefinition> = {
   tabla_jerarquica: faSitemap,
   calculado: faLock,
   imagen: faImage,
+  archivo: faPaperclip,
   firma: faSignature,
   mapa_coordenadas: faLocationDot,
   nota: faNoteSticky,
@@ -290,6 +322,7 @@ export const fieldTypeLabels: Record<TipoCampo, string> = {
   tabla_jerarquica: 'Tabla jerárquica',
   calculado: 'Calculado',
   imagen: 'Imagen / croquis',
+  archivo: 'Archivo',
   firma: 'Firma',
   mapa_coordenadas: 'Coordenadas',
   nota: 'Nota',
@@ -307,6 +340,7 @@ export const columnTypeLabels: Record<TipoColumna, string> = {
   catalogo: 'Catálogo',
   catalogo_encadenado: 'Cat. encadenado',
   auto_numerico: 'Auto-numérico',
+  archivo: 'Archivo',
 };
 
 export const columnTypeIcons: Record<TipoColumna, IconDefinition> = {
@@ -321,6 +355,7 @@ export const columnTypeIcons: Record<TipoColumna, IconDefinition> = {
   catalogo: faListCheck,
   catalogo_encadenado: faLink,
   auto_numerico: faArrowDown19,
+  archivo: faPaperclip,
 };
 
 export const subtipoTablaLabels: Record<SubtipoTabla, string> = {
@@ -342,6 +377,7 @@ export const columnTypePrimitivos: TipoColumna[] = [
   'booleano',
   'coordenadas',
   'calculado',
+  'archivo',
 ];
 
 export {
@@ -414,6 +450,7 @@ export {
   faImage,
   faCopy,
   faFileExcel,
+  faFileWord,
   faDownload,
   faFileExport,
   faTags,
