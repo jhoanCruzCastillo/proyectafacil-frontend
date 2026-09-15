@@ -13,7 +13,7 @@
   --color-brand-800: #166534;
   --color-brand-900: #14532d;
 
-  --color-sidebar: #0a1120;
+  --color-sidebar: #0f172a;
   --color-sidebar-hover: rgb(255 255 255 / 0.06);
   --color-sidebar-active: var(--color-brand-600);
 
@@ -26,7 +26,7 @@
   /* Fondo oscuro de página (todo el área fuera del sidebar) y el panel "glass" de cabecera que
      vive sobre él — el contenido de cada sección se renderiza dentro de un contenedor blanco
      aparte (bg-surface-card), no directamente sobre este fondo. */
-  --color-page: #0a1120;
+  --color-page: #0b1120;
   --color-page-2: #0f1c33;
   --color-glass: rgb(255 255 255 / 0.045);
   --color-glass-border: rgb(255 255 255 / 0.08);

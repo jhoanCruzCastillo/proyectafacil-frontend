@@ -18,8 +18,10 @@ interface NavLink { to: string; label: string; icon: typeof faHouse; locked?: bo
 // sin ruta propia) — nunca ambos. `to` queda opcional solo para que un mismo array admita las
 // dos formas sin dos interfaces separadas. `locked`: cliente sin plan — se muestra apagado y sin
 // navegación (el guard de router/index.ts ya lo rebota a "elegir-plan" de todas formas, esto solo
-// lo hace visible de entrada en vez de un rebote silencioso).
-interface NavItem { to?: string; label: string; icon: typeof faHouse; children?: NavLink[]; locked?: boolean }
+// lo hace visible de entrada en vez de un rebote silencioso). `accent`: identidad visual del grupo
+// desplegable (fondo, borde, título, indicadores de los hijos) — pedido explícito del cliente para
+// distinguir "ILPIIE Live" (rojo) de todo lo demás (verde de marca, el default).
+interface NavItem { to?: string; label: string; icon: typeof faHouse; children?: NavLink[]; locked?: boolean; accent?: 'red' }
 
 // "Gestión de fichas": agrupa Formatos/Fichas técnicas/IOARR/Perfiles bajo un solo desplegable —
 // mismos 4 instrumentos, dos ubicaciones distintas (cliente en la raíz, catálogo del superusuario
@@ -51,6 +53,7 @@ const navItems = computed(() => {
       {
         label: 'ILPIIE Live',
         icon: faHeadset,
+        accent: 'red',
         children: [
           { to: '/asesorias/chat', label: 'Por chat', icon: faComments },
           { to: '/asesorias/videollamada', label: 'Por videollamada', icon: faVideo },
@@ -187,11 +190,36 @@ const emit = defineEmits<{ toggle: [] }>();
               <button
                 @click="toggleGrupo(item.label)"
                 type="button"
-                class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-white/90 hover:bg-sidebar-hover hover:text-white transition-colors"
+                class="w-full flex items-center gap-3 pl-3 pr-3 py-2.5 rounded-lg text-sm transition-colors border-l-[3px]"
+                :class="item.accent === 'red' ? 'border-red-500 bg-red-500/10 hover:bg-red-500/15' : 'border-brand-500 bg-brand-500/10 hover:bg-brand-500/15'"
               >
-                <FontAwesomeIcon :icon="item.icon" class="w-4 text-center shrink-0 text-brand-400" />
-                <span class="flex-1 text-left">{{ item.label }}</span>
-                <FontAwesomeIcon :icon="gruposAbiertos.has(item.label) ? faChevronUp : faChevronDown" class="w-2.5 h-2.5 text-white/40 shrink-0" />
+                <!-- Íconos a medida pedidos por el cliente para estos 2 grupos — el resto del
+                     sidebar sigue con FontAwesome, estos dos son SVG inline porque así los mandó. -->
+                <span v-if="item.label === 'ILPIIE Live'" class="relative shrink-0 inline-flex">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 18v-6a9 9 0 0118 0v6" />
+                    <path d="M21 19a2 2 0 01-2 2h-1a2 2 0 01-2-2v-3a2 2 0 012-2h3zM3 19a2 2 0 002 2h1a2 2 0 002-2v-3a2 2 0 00-2-2H3z" />
+                  </svg>
+                  <span class="live-pulse-dot absolute -top-0.5 -right-1 w-1.5 h-1.5 bg-red-500 rounded-full" />
+                </span>
+                <svg v-else-if="item.label === 'Proyectos de Inversión con IA'" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0">
+                  <path d="M14.5 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V7.5L14.5 2z" />
+                  <polyline points="14 2 14 8 20 8" />
+                  <rect x="8" y="13" width="8" height="5" rx="1" stroke="#4ade80" stroke-width="1.5" />
+                  <path d="M10 13v-1a2 2 0 014 0v1" stroke="#4ade80" stroke-width="1.5" />
+                  <circle cx="12" cy="15.5" r="0.8" fill="#22c55e" stroke="none" />
+                </svg>
+                <FontAwesomeIcon v-else :icon="item.icon" class="w-4 text-center shrink-0 text-brand-400" />
+
+                <span class="flex-1 text-left" :class="item.accent === 'red' ? 'font-bold text-red-300' : 'font-semibold text-brand-300'">{{ item.label }}</span>
+
+                <span v-if="item.label === 'ILPIIE Live'" class="text-[9px] font-bold tracking-wide bg-red-500 text-white px-1.5 py-0.5 rounded shrink-0">LIVE</span>
+
+                <FontAwesomeIcon
+                  :icon="gruposAbiertos.has(item.label) ? faChevronUp : faChevronDown"
+                  class="w-2.5 h-2.5 shrink-0"
+                  :class="item.accent === 'red' ? 'text-red-300' : 'text-brand-300'"
+                />
               </button>
               <div v-if="gruposAbiertos.has(item.label)" class="relative ml-5 mt-1 space-y-1">
                 <div class="absolute left-0 top-1 bottom-1 w-px bg-white/10" />
@@ -200,10 +228,12 @@ const emit = defineEmits<{ toggle: [] }>();
                     :href="href"
                     @click="navigate"
                     class="relative flex items-center gap-2.5 pl-4 pr-3 py-2 rounded-lg text-sm transition-colors"
-                    :class="isExactActive ? 'bg-gradient-to-r from-brand-600/15 to-brand-600 text-white shadow-card font-semibold' : 'text-white/60 hover:bg-sidebar-hover hover:text-white'"
+                    :class="isExactActive
+                      ? (item.accent === 'red' ? 'bg-gradient-to-r from-red-600/15 to-red-600 text-white shadow-card font-semibold' : 'bg-gradient-to-r from-brand-600/15 to-brand-600 text-white shadow-card font-semibold')
+                      : 'text-white/60 hover:bg-sidebar-hover hover:text-white'"
                   >
-                    <span v-if="isExactActive" class="absolute left-0 top-1 bottom-1 w-1 rounded-full bg-brand-300" />
-                    <span v-else class="absolute left-0 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-brand-500 shrink-0" />
+                    <span v-if="isExactActive" class="absolute left-0 top-1 bottom-1 w-1 rounded-full" :class="item.accent === 'red' ? 'bg-red-300' : 'bg-brand-300'" />
+                    <span v-else class="absolute left-0 -translate-x-1/2 w-1.5 h-1.5 rounded-full shrink-0" :class="item.accent === 'red' ? 'bg-red-500' : 'bg-brand-500'" />
                     <FontAwesomeIcon :icon="child.icon" class="w-3.5 text-center shrink-0" />
                     <span class="flex-1">{{ child.label }}</span>
                   </a>
@@ -256,3 +286,14 @@ const emit = defineEmits<{ toggle: [] }>();
     <UserMenu :collapsed="props.collapsed" />
   </aside>
 </template>
+
+<style scoped>
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.2); }
+}
+.live-pulse-dot {
+  animation: live-pulse 2s infinite;
+  box-shadow: 0 0 6px #ef4444;
+}
+</style>

@@ -88,21 +88,21 @@ function irAIlpiieLive() {
 
       <!-- ILPIIE Live -->
       <div class="relative flex flex-col rounded-2xl border border-gray-200 bg-white p-6">
-        <div class="w-14 h-14 rounded-full flex items-center justify-center mb-4 bg-purple-100 text-purple-600">
+        <div class="w-14 h-14 rounded-full flex items-center justify-center mb-4 bg-red-100 text-red-600">
           <FontAwesomeIcon :icon="faHeadset" class="w-6 h-6" />
         </div>
-        <p class="text-lg font-bold text-heading">ILPIIE Live</p>
+        <p class="text-lg font-bold text-red-600">ILPIIE Live</p>
         <p class="text-[0.8rem] text-muted mt-1 mb-5 flex-1">
           Asesoría en vivo por chat o videollamada sobre temas y subtemas puntuales de tu proyecto.
         </p>
-        <p class="text-[0.75rem] font-medium text-purple-600 mb-4 flex items-center gap-1.5">
+        <p class="text-[0.75rem] font-medium text-red-600 mb-4 flex items-center gap-1.5">
           <FontAwesomeIcon :icon="faCircleCheck" class="w-3 h-3" />
           Siempre disponible
         </p>
         <button
           @click="irAIlpiieLive"
           type="button"
-          class="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-purple-600 text-white text-[0.8rem] font-semibold hover:bg-purple-700 transition-colors duration-75"
+          class="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-red-600 text-white text-[0.8rem] font-semibold hover:bg-red-700 transition-colors duration-75"
         >
           Entrar
           <FontAwesomeIcon :icon="faArrowRight" class="w-3 h-3" />
