@@ -269,12 +269,17 @@ router.beforeEach((to) => {
     return { name: 'elegir-plan' };
   }
   // El home genérico no aplica a cliente — su "inicio" es la portada de entrada (elegir entre
-  // "Proyectos de Inversión con IA" e "ILPIIE Live") — pedido explícito del cliente. `query:
-  // to.query` es necesario: Stripe Checkout vuelve justo a "/" (home) con
-  // ?facturacion_checkout=success&session_id=... — sin preservarla, este redirect la perdía antes
-  // de que MainLayout.vue llegara a leerla, y la confirmación del pago nunca se disparaba.
+  // "Proyectos de Inversión con IA" e "ILPIIE Live") — pedido explícito del cliente. Pero eso es
+  // para quien YA tiene plan/es alumno vigente: un registro nuevo sin ningún plan todavía va
+  // directo a "elegir-plan" en vez de la portada (antes caían siempre en la portada, sin importar
+  // si tenían plan o no). `query: to.query` en ambas ramas es necesario: Stripe Checkout vuelve
+  // justo a "/" (home) con ?facturacion_checkout=success&session_id=... — sin preservarla, este
+  // redirect la perdía antes de que MainLayout.vue llegara a leerla, y la confirmación del pago
+  // nunca se disparaba.
   if (to.name === 'home' && session.sesion?.rol === 'cliente') {
-    return { name: 'inicio-cliente', query: to.query };
+    return puedeAccederProyectosIA(session.sesion)
+      ? { name: 'inicio-cliente', query: to.query }
+      : { name: 'elegir-plan', query: to.query };
   }
   // Ídem para asesor — pedido explícito del usuario: "Mis consultas" debe abrir directo la
   // pantalla con tabs (Por Agendar/Agendadas/Reprogramadas/Atendidas), no el dashboard resumen.
