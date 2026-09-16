@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { useRoute } from 'vue-router';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faHouse, faLayerGroup, faAnglesLeft, faAnglesRight, faUserGear, faCalendarWeek, faCalendarCheck, faCircleInfo, faCircleExclamation, faListCheck, faHeadset, faPeopleGroup, faMoneyBillTransfer, faClock, faFolderOpen, faChevronUp, faChevronDown, faLock, faVideo, faCrown, faComments, instrumentoIcons } from '@/lib/icons';
+import { faHouse, faLayerGroup, faAnglesLeft, faAnglesRight, faUserGear, faCalendarWeek, faCalendarCheck, faCircleInfo, faCircleExclamation, faListCheck, faHeadset, faPeopleGroup, faMoneyBillTransfer, faClock, faFolderOpen, faChevronUp, faChevronDown, faLock, faVideo, faComments, faStar, instrumentoIcons } from '@/lib/icons';
 import UserMenu from '@/features/settings/UserMenu.vue';
 import MejorarPlanCard from '@/features/settings/MejorarPlanCard.vue';
 import NotificacionesBell from '@/features/asesoria/NotificacionesBell.vue';
 import { useSessionStore } from '@/stores/session';
 import { puedeAccederGestionUsuarios, puedeAccederProyectosIA } from '@/lib/permisos';
+import { useIsDesktop, SIDEBAR_WIDTH, SIDEBAR_WIDTH_COLLAPSED } from '@/composables/useViewport';
 import logoIcono from '@/assets/logo-icono.png';
 
 const session = useSessionStore();
+const route = useRoute();
 const esCliente = computed(() => session.sesion?.rol === 'cliente');
 const esAsesor = computed(() => session.sesion?.rol === 'asesor');
 
@@ -20,8 +23,8 @@ interface NavLink { to: string; label: string; icon: typeof faHouse; locked?: bo
 // navegación (el guard de router/index.ts ya lo rebota a "elegir-plan" de todas formas, esto solo
 // lo hace visible de entrada en vez de un rebote silencioso). `accent`: identidad visual del grupo
 // desplegable (fondo, borde, título, indicadores de los hijos) — pedido explícito del cliente para
-// distinguir "ILPIIE Live" (rojo) de todo lo demás (verde de marca, el default).
-interface NavItem { to?: string; label: string; icon: typeof faHouse; children?: NavLink[]; locked?: boolean; accent?: 'red' }
+// distinguir "ILPIIE Live" (rojo) de "Proyectos de Inversión con IA" (verde).
+interface NavItem { to?: string; label: string; icon: typeof faHouse; children?: NavLink[]; locked?: boolean; accent?: 'red' | 'green' }
 
 // "Gestión de fichas": agrupa Formatos/Fichas técnicas/IOARR/Perfiles bajo un solo desplegable —
 // mismos 4 instrumentos, dos ubicaciones distintas (cliente en la raíz, catálogo del superusuario
@@ -30,6 +33,7 @@ function grupoGestionFichas(prefijo: string): NavItem {
   return {
     label: 'Proyectos de Inversión con IA',
     icon: faFolderOpen,
+    accent: 'green',
     children: [
       { to: `${prefijo}/formatos`, label: 'Formatos', icon: instrumentoIcons.formato },
       { to: `${prefijo}/fichas-tecnicas`, label: 'Fichas técnicas', icon: instrumentoIcons.ficha_tecnica },
@@ -59,7 +63,7 @@ const navItems = computed(() => {
           { to: '/asesorias/videollamada', label: 'Por videollamada', icon: faVideo },
         ],
       },
-      { to: '/elegir-plan', label: 'Planes y servicios', icon: faCrown },
+      { to: '/elegir-plan', label: 'Planes y servicios', icon: faStar },
     ];
   } else if (esAsesor.value) {
     items = [
@@ -106,23 +110,54 @@ function toggleGrupo(label: string) {
   else gruposAbiertos.value.add(label);
 }
 
-const props = defineProps<{ collapsed?: boolean }>();
+/** Alguna subsección del grupo está en la ruta actual → el padre se marca selected. */
+function grupoActivo(item: NavItem): boolean {
+  return (item.children ?? []).some(
+    (c) => route.path === c.to || route.path.startsWith(`${c.to}/`),
+  );
+}
+
+function hijoActivo(to: string): boolean {
+  return route.path === to || route.path.startsWith(`${to}/`);
+}
+
+const props = defineProps<{
+  collapsed?: boolean;
+  /** Drawer abierto en pantallas angostas (<1024px) — sin efecto en escritorio. */
+  mobileOpen?: boolean;
+}>();
 const emit = defineEmits<{ toggle: [] }>();
+
+const isDesktop = useIsDesktop();
+// En escritorio el ancho lo fija SIDEBAR_WIDTH (no es redimensionable — pedido explícito del
+// cliente: lo justo para que entren el logo de 60px y el texto "ProyectaFácil" a 1.8rem sin
+// apretarse contra el botón de colapsar); en móvil lo maneja el CSS (w-[85vw] max-w-[320px] del
+// <aside>) — mezclar ambos pisaría uno al otro, por eso acá se devuelve `undefined` en móvil para
+// no aplicar ningún style inline de ancho.
+const anchoPx = computed(() => (isDesktop.value ? (props.collapsed ? SIDEBAR_WIDTH_COLLAPSED : SIDEBAR_WIDTH) : undefined));
+// En móvil el sidebar es un drawer que se abre entero o nada — pedido explícito del cliente. El
+// estado "colapsado" solo existe como concepto de escritorio (el riel angosto de solo íconos), así
+// que acá se ignora por completo aunque venga en true desde un toggle hecho antes en escritorio.
+const colapsadoEfectivo = computed(() => isDesktop.value && !!props.collapsed);
 </script>
 
 <template>
   <aside
-    class="fixed left-0 top-0 bottom-0 bg-sidebar text-white flex flex-col z-40 transition-[width] duration-150 ease-out overflow-x-hidden"
-    :class="collapsed ? 'w-16' : 'w-[300px]'"
+    class="fixed left-0 top-0 bottom-0 bg-sidebar text-white flex flex-col z-40 overflow-x-hidden w-[85vw] max-w-[320px] lg:max-w-none"
+    :class="[
+      isDesktop ? 'transition-[width] duration-150 ease-out' : 'transition-transform duration-200 ease-out',
+      isDesktop ? 'translate-x-0' : (mobileOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'),
+    ]"
+    :style="anchoPx !== undefined ? { width: `${anchoPx}px` } : undefined"
   >
     <div
       class="flex items-center border-b border-white/10"
-      :class="collapsed ? 'justify-center px-0 py-4' : 'gap-3 px-5 py-5'"
+      :class="colapsadoEfectivo ? 'justify-center px-0 py-4' : 'gap-3 px-2.5 py-5'"
     >
       <!-- Colapsado: el botón de expandir vive superpuesto sobre el logo, oculto hasta el hover
            del mismo hueco — así el header no gana una fila extra ni empuja la navegación hacia
            abajo (antes el botón se apilaba debajo del logo). -->
-      <div v-if="collapsed" class="relative w-[60px] h-[60px] shrink-0 group">
+      <div v-if="colapsadoEfectivo" class="relative w-[60px] h-[60px] shrink-0 group">
         <img :src="logoIcono" alt="" class="w-[60px] h-[60px] object-contain absolute inset-0 transition-opacity duration-100 group-hover:opacity-0" />
         <button
           @click="emit('toggle')"
@@ -133,12 +168,14 @@ const emit = defineEmits<{ toggle: [] }>();
         </button>
       </div>
       <template v-else>
-        <img :src="logoIcono" alt="" class="w-[60px] h-[60px] object-contain shrink-0" />
-        <div class="flex-1 min-w-0">
-          <div class="font-heading font-semibold text-2xl leading-tight">
-            <span class="text-white">Proyecta</span><span class="text-brand-400">Fácil</span>
+        <div class="flex-1 min-w-0 flex items-center gap-1">
+          <img :src="logoIcono" alt="" class="w-[60px] h-[60px] object-contain shrink-0" />
+          <div class="min-w-0">
+            <div class="font-heading font-semibold text-[1.8rem] leading-tight">
+              <span class="text-white">Proyecta</span><span class="text-brand-400">Fácil</span>
+            </div>
+            <div class="text-[.55rem] text-dark-muted leading-tight whitespace-nowrap" title="Proyectos de Inversión y Asesorías -by ILPIIE">Proyectos de Inversión y Asesorías -by ILPIIE</div>
           </div>
-          <div class="text-xs text-dark-muted leading-tight line-clamp-2" title="Proyectos de Inversión y Asesorías -by ILPIIE">Proyectos de Inversión y Asesorías -by ILPIIE</div>
         </div>
         <button
           @click="emit('toggle')"
@@ -151,7 +188,7 @@ const emit = defineEmits<{ toggle: [] }>();
     </div>
 
     <nav class="flex-1 min-h-0 overflow-y-auto px-3 pt-6">
-      <p v-if="!collapsed" class="text-[10px] font-semibold uppercase tracking-widest text-white/40 px-3 mb-3">
+      <p v-if="!colapsadoEfectivo" class="text-[10px] font-semibold uppercase tracking-widest text-white/40 px-3 mb-3">
         Navegación
       </p>
       <ul class="space-y-1">
@@ -162,79 +199,129 @@ const emit = defineEmits<{ toggle: [] }>();
           <template v-if="item.children">
             <li v-if="item.locked">
               <div
-                :title="collapsed ? `${item.label} — elige un plan para desbloquear` : 'Elige un plan para desbloquear'"
+                :title="colapsadoEfectivo ? `${item.label} — elige un plan para desbloquear` : 'Elige un plan para desbloquear'"
                 class="flex items-center px-3 py-2.5 rounded-lg text-sm font-medium text-white/30 cursor-not-allowed"
-                :class="collapsed ? 'justify-center px-0' : 'gap-3'"
+                :class="colapsadoEfectivo ? 'justify-center px-0' : 'gap-3'"
               >
                 <FontAwesomeIcon :icon="item.icon" class="w-4 text-center shrink-0" />
-                <span v-if="!collapsed" class="flex-1">{{ item.label }}</span>
-                <FontAwesomeIcon v-if="!collapsed" :icon="faLock" class="w-3 h-3 text-white/25 shrink-0" />
+                <span v-if="!colapsadoEfectivo" class="flex-1">{{ item.label }}</span>
+                <FontAwesomeIcon v-if="!colapsadoEfectivo" :icon="faLock" class="w-3 h-3 text-white/25 shrink-0" />
               </div>
             </li>
-            <template v-else-if="collapsed">
+            <template v-else-if="colapsadoEfectivo">
               <li v-for="child in item.children" :key="child.to">
                 <RouterLink :to="child.to" custom v-slot="{ href, navigate, isExactActive }">
                   <a
                     :href="href"
-                    @click="navigate"
                     :title="child.label"
                     class="flex items-center justify-center px-0 py-2.5 rounded-lg text-sm font-medium transition-colors"
                     :class="isExactActive ? 'bg-sidebar-active text-white shadow-card' : 'text-white/65 hover:bg-sidebar-hover hover:text-white'"
+                    @click="navigate"
                   >
                     <FontAwesomeIcon :icon="child.icon" class="w-4 text-center shrink-0" />
                   </a>
                 </RouterLink>
               </li>
             </template>
-            <li v-else>
+            <li v-else class="!mt-2 first:mt-0">
               <button
                 @click="toggleGrupo(item.label)"
                 type="button"
-                class="w-full flex items-center gap-3 pl-3 pr-3 py-2.5 rounded-lg text-sm transition-colors border-l-[3px]"
-                :class="item.accent === 'red' ? 'border-red-500 bg-red-500/10 hover:bg-red-500/15' : 'border-brand-500 bg-brand-500/10 hover:bg-brand-500/15'"
+                class="flex items-center gap-3 px-4 py-2.5 text-[13.5px] transition-colors border-l-[3px] rounded-none -mx-3 w-[calc(100%+1.5rem)]"
+                :class="item.accent === 'red'
+                  ? (grupoActivo(item)
+                    ? 'border-red-500 bg-red-600/35 hover:bg-red-600/40'
+                    : 'border-red-500 bg-red-500/[0.08] hover:bg-red-500/15')
+                  : (grupoActivo(item)
+                    ? 'border-brand-500 bg-brand-600/35 hover:bg-brand-600/40'
+                    : 'border-brand-500 bg-brand-500/[0.08] hover:bg-brand-500/15')"
               >
-                <!-- Íconos a medida pedidos por el cliente para estos 2 grupos — el resto del
-                     sidebar sigue con FontAwesome, estos dos son SVG inline porque así los mandó. -->
-                <span v-if="item.label === 'ILPIIE Live'" class="relative shrink-0 inline-flex">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <!-- Íconos del mock ILPIIE LIVE (HTML Kimi): candado-en-documento / auriculares. -->
+                <span v-if="item.accent === 'red'" class="relative shrink-0 inline-flex">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M3 18v-6a9 9 0 0118 0v6" />
                     <path d="M21 19a2 2 0 01-2 2h-1a2 2 0 01-2-2v-3a2 2 0 012-2h3zM3 19a2 2 0 002 2h1a2 2 0 002-2v-3a2 2 0 00-2-2H3z" />
                   </svg>
-                  <span class="live-pulse-dot absolute -top-0.5 -right-1 w-1.5 h-1.5 bg-red-500 rounded-full" />
+                  <span class="live-pulse-dot absolute -top-0.5 -right-1 w-2 h-2 bg-red-500 rounded-full" />
                 </span>
-                <svg v-else-if="item.label === 'Proyectos de Inversión con IA'" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0">
+                <svg v-else width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0">
                   <path d="M14.5 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V7.5L14.5 2z" />
                   <polyline points="14 2 14 8 20 8" />
                   <rect x="8" y="13" width="8" height="5" rx="1" stroke="#4ade80" stroke-width="1.5" />
                   <path d="M10 13v-1a2 2 0 014 0v1" stroke="#4ade80" stroke-width="1.5" />
                   <circle cx="12" cy="15.5" r="0.8" fill="#22c55e" stroke="none" />
                 </svg>
-                <FontAwesomeIcon v-else :icon="item.icon" class="w-4 text-center shrink-0 text-brand-400" />
 
-                <span class="flex-1 text-left" :class="item.accent === 'red' ? 'font-bold text-red-300' : 'font-semibold text-brand-300'">{{ item.label }}</span>
+                <span
+                  class="flex-1 text-left leading-snug"
+                  :class="item.accent === 'red'
+                    ? (grupoActivo(item) ? 'font-bold text-red-200' : 'font-bold text-red-300')
+                    : (grupoActivo(item) ? 'font-semibold text-text-primary' : 'font-semibold text-brand-300')"
+                >
+                  {{ item.label }}
+                </span>
 
-                <span v-if="item.label === 'ILPIIE Live'" class="text-[9px] font-bold tracking-wide bg-red-500 text-white px-1.5 py-0.5 rounded shrink-0">LIVE</span>
+                <span
+                  v-if="item.accent === 'red'"
+                  class="text-[9px] font-bold tracking-wide bg-red-500 text-white px-1.5 py-0.5 rounded shrink-0"
+                >
+                  LIVE
+                </span>
 
                 <FontAwesomeIcon
                   :icon="gruposAbiertos.has(item.label) ? faChevronUp : faChevronDown"
-                  class="w-2.5 h-2.5 shrink-0"
+                  class="w-3 h-3 shrink-0"
                   :class="item.accent === 'red' ? 'text-red-300' : 'text-brand-300'"
                 />
               </button>
-              <div v-if="gruposAbiertos.has(item.label)" class="relative ml-5 mt-1 space-y-1">
-                <div class="absolute left-0 top-1 bottom-1 w-px bg-white/10" />
-                <RouterLink v-for="child in item.children" :key="child.to" :to="child.to" custom v-slot="{ href, navigate, isExactActive }">
+
+              <!-- Árbol de subsecciones: el hijo activo lleva línea/nodo en color del grupo. -->
+              <div v-if="gruposAbiertos.has(item.label)" class="-mx-3 pl-[46px]">
+                <RouterLink
+                  v-for="child in item.children"
+                  :key="child.to"
+                  :to="child.to"
+                  custom
+                  v-slot="{ href, navigate }"
+                >
                   <a
                     :href="href"
+                    class="relative flex items-center gap-2.5 py-[7px] pl-3.5 border-l-[1.5px] text-[12.5px] transition-colors"
+                    :class="[
+                      hijoActivo(child.to)
+                        ? (item.accent === 'red'
+                          ? 'border-red-500 bg-red-600/45 text-red-50 font-semibold'
+                          : 'border-brand-500 bg-brand-600/45 text-white font-semibold')
+                        : 'border-slate-600 text-slate-400 hover:text-slate-200',
+                    ]"
                     @click="navigate"
-                    class="relative flex items-center gap-2.5 pl-4 pr-3 py-2 rounded-lg text-sm transition-colors"
-                    :class="isExactActive
-                      ? (item.accent === 'red' ? 'bg-danger-dim text-text-primary font-semibold' : 'bg-primary-dim text-text-primary font-semibold')
-                      : 'text-white/60 hover:bg-sidebar-hover hover:text-white'"
                   >
-                    <span v-if="isExactActive" class="absolute left-0 top-1 bottom-1 w-1 rounded-full" :class="item.accent === 'red' ? 'bg-red-400' : 'bg-brand-400'" />
-                    <span v-else class="absolute left-0 -translate-x-1/2 w-1.5 h-1.5 rounded-full shrink-0" :class="item.accent === 'red' ? 'bg-red-500' : 'bg-brand-500'" />
-                    <FontAwesomeIcon :icon="child.icon" class="w-3.5 text-center shrink-0" />
+                    <span
+                      class="absolute -left-[3.5px] top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full shrink-0"
+                      :class="hijoActivo(child.to)
+                        ? (item.accent === 'red' ? 'bg-red-500' : 'bg-brand-500')
+                        : 'bg-slate-600'"
+                    />
+                    <!-- Íconos hijos del mock (stroke slate; más claros si selected) -->
+                    <svg v-if="child.label === 'Formatos'" width="16" height="16" viewBox="0 0 24 24" fill="none" :stroke="hijoActivo(child.to) ? '#86efac' : '#94a3b8'" stroke-width="2" stroke-linecap="round" class="shrink-0">
+                      <path d="M14.5 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V7.5L14.5 2z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><line x1="10" y1="9" x2="8" y2="9" />
+                    </svg>
+                    <svg v-else-if="child.label === 'Fichas técnicas'" width="16" height="16" viewBox="0 0 24 24" fill="none" :stroke="hijoActivo(child.to) ? '#86efac' : '#94a3b8'" stroke-width="2" stroke-linecap="round" class="shrink-0">
+                      <path d="M14.5 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V7.5L14.5 2z" /><polyline points="14 2 14 8 20 8" /><path d="M8 13h2l1-2 2 4 1-2h2" />
+                    </svg>
+                    <svg v-else-if="child.label === 'IOARR'" width="16" height="16" viewBox="0 0 24 24" fill="none" :stroke="hijoActivo(child.to) ? '#86efac' : '#94a3b8'" stroke-width="2" stroke-linecap="round" class="shrink-0">
+                      <circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z" />
+                    </svg>
+                    <svg v-else-if="child.label === 'Perfiles'" width="16" height="16" viewBox="0 0 24 24" fill="none" :stroke="hijoActivo(child.to) ? '#86efac' : '#94a3b8'" stroke-width="2" stroke-linecap="round" class="shrink-0">
+                      <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" /><circle cx="12" cy="7" r="4" />
+                    </svg>
+                    <svg v-else-if="child.label === 'Por chat'" width="16" height="16" viewBox="0 0 24 24" fill="none" :stroke="hijoActivo(child.to) ? '#fca5a5' : '#94a3b8'" stroke-width="2" stroke-linecap="round" class="shrink-0">
+                      <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+                    </svg>
+                    <svg v-else-if="child.label === 'Por videollamada'" width="16" height="16" viewBox="0 0 24 24" fill="none" :stroke="hijoActivo(child.to) ? '#fca5a5' : '#94a3b8'" stroke-width="2" stroke-linecap="round" class="shrink-0">
+                      <path d="M23 7l-7 5 7 5V7z" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+                    </svg>
+                    <FontAwesomeIcon v-else :icon="child.icon" class="w-3.5 text-center shrink-0 text-slate-400" />
                     <span class="flex-1">{{ child.label }}</span>
                   </a>
                 </RouterLink>
@@ -245,13 +332,13 @@ const emit = defineEmits<{ toggle: [] }>();
           <!-- Link simple, bloqueado (cliente sin plan) -->
           <li v-else-if="item.locked">
             <div
-              :title="collapsed ? `${item.label} — elige un plan para desbloquear` : 'Elige un plan para desbloquear'"
+              :title="colapsadoEfectivo ? `${item.label} — elige un plan para desbloquear` : 'Elige un plan para desbloquear'"
               class="flex items-center px-3 py-2.5 rounded-lg text-sm font-medium text-white/30 cursor-not-allowed"
-              :class="collapsed ? 'justify-center px-0' : 'gap-3'"
+              :class="colapsadoEfectivo ? 'justify-center px-0' : 'gap-3'"
             >
               <FontAwesomeIcon :icon="item.icon" class="w-4 text-center shrink-0" />
-              <span v-if="!collapsed" class="flex-1">{{ item.label }}</span>
-              <FontAwesomeIcon v-if="!collapsed" :icon="faLock" class="w-3 h-3 text-white/25 shrink-0" />
+              <span v-if="!colapsadoEfectivo" class="flex-1">{{ item.label }}</span>
+              <FontAwesomeIcon v-if="!colapsadoEfectivo" :icon="faLock" class="w-3 h-3 text-white/25 shrink-0" />
             </div>
           </li>
 
@@ -260,17 +347,32 @@ const emit = defineEmits<{ toggle: [] }>();
             <RouterLink :to="item.to!" custom v-slot="{ href, navigate, isExactActive }">
               <a
                 :href="href"
-                @click="navigate"
-                :title="collapsed ? item.label : undefined"
+                :title="colapsadoEfectivo ? item.label : undefined"
                 class="relative flex items-center px-3 py-2.5 rounded-lg text-sm font-medium transition-colors"
                 :class="[
                   isExactActive ? 'bg-primary-dim text-text-primary font-semibold' : 'text-white/65 hover:bg-sidebar-hover hover:text-white',
-                  collapsed ? 'justify-center px-0' : 'gap-3',
+                  colapsadoEfectivo ? 'justify-center px-0' : 'gap-3',
                 ]"
+                @click="navigate"
               >
-                <span v-if="isExactActive && !collapsed" class="absolute left-0 top-1 bottom-1 w-1 rounded-full bg-brand-400" />
-                <FontAwesomeIcon :icon="item.icon" class="w-4 text-center shrink-0" />
-                <span v-if="!collapsed" class="flex-1">{{ item.label }}</span>
+                <span v-if="isExactActive && !colapsadoEfectivo" class="absolute left-0 top-1 bottom-1 w-1 rounded-full bg-brand-400" />
+                <!-- Estrella amarilla del mock para Planes y servicios -->
+                <svg
+                  v-if="item.label === 'Planes y servicios'"
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="#fbbf24"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  class="shrink-0"
+                >
+                  <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                </svg>
+                <FontAwesomeIcon v-else :icon="item.icon" class="w-4 text-center shrink-0" />
+                <span v-if="!colapsadoEfectivo" class="flex-1" :class="item.label === 'Planes y servicios' ? 'text-slate-200' : undefined">{{ item.label }}</span>
               </a>
             </RouterLink>
           </li>
@@ -281,9 +383,9 @@ const emit = defineEmits<{ toggle: [] }>();
     <!-- Oculto sin plan: PlanesModal (que abre esta tarjeta) usa useFacturacionQuery sin el mismo
          guard que ElegirPlanPage, así que igual dispararía el auto-asignado de Nivel 1
          (FacturacionController::crearDefault()) — y ya tiene su propia pantalla de elegir plan. -->
-    <MejorarPlanCard v-if="esCliente && !collapsed && session.sesion?.tienePlan !== false" />
-    <NotificacionesBell v-if="session.sesion" :collapsed="props.collapsed" />
-    <UserMenu :collapsed="props.collapsed" />
+    <MejorarPlanCard v-if="esCliente && !colapsadoEfectivo && session.sesion?.tienePlan !== false" />
+    <NotificacionesBell v-if="session.sesion" :collapsed="colapsadoEfectivo" />
+    <UserMenu :collapsed="colapsadoEfectivo" />
   </aside>
 </template>
 

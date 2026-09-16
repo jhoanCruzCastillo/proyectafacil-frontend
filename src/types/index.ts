@@ -727,7 +727,6 @@ export interface LiquidacionDetalle {
   clienteNombre: string;
   clienteFotoUrl?: string | null;
   sectorNombre?: string | null;
-  /** Puede venir vacío: el flujo que crea solicitudes todavía no pide subtema. */
   subtemaNombre?: string | null;
   tipo: TipoAsesoria;
   /** ISO — fecha real de cierre de la asesoría. */
@@ -804,8 +803,8 @@ export interface NoAtendidasAsesor {
   agendadasNoAtendidas: SolicitudAsesoria[];
 }
 
-// Segundo nivel de las especialidades del asesor: dentro de un sector MEF ("tema"), un subtema
-// específico — ej. dentro de Formatos Generales, "Liquidación por contrata".
+// Segundo nivel de las especialidades del asesor: dentro de un tema ILPIIE, un subtema
+// específico — ej. dentro de Inversión Pública / Documentos Técnicos, "IOARR".
 export interface SubtemaEspecialidad {
   id: string;
   temaId: string;
@@ -853,8 +852,8 @@ export type TipoAsesoria = 'chat' | 'video';
 // no una colisión accidental.
 export type EstadoSolicitudAsesoria = 'pendiente' | 'asignado' | 'agendado' | 'completado' | 'cancelado' | 'en_espera' | 'observado' | 'vencido';
 
-// Los 4 tipos de documento del Formato 6A (docs/proyectafacil-asesorias.md §3.3) — paso 2 del
-// chatbot guiado, misma categorización que la asesor autogestiona en Mis especialidades.
+// Legacy: tipos de documento del Formato 6A — el selector de asesoría ya no los pide
+// (el alumno marca uno o varios subtemas ILPIIE). Se conserva porque solicitudes viejas pueden tenerlo guardado.
 export type TipoDocumento = 'formatos' | 'ioarr' | 'fichas_tecnicas' | 'perfiles';
 
 export interface SolicitudAsesoria {
@@ -868,9 +867,15 @@ export interface SolicitudAsesoria {
   docenteFotoUrl?: string | null;
   /** Ficha que el cliente estaba llenando al pedir ayuda, si aplica */
   ejemploId?: string | null;
-  /** Sector MEF elegido en el paso 1 del chatbot guiado */
+  /** Legacy: sector MEF del chatbot viejo. Las solicitudes nuevas usan tema/subtema ILPIIE. */
   sectorId?: string | null;
+  /** Tema ILPIIE, o sector MEF si la solicitud es anterior al catálogo de especialidades. */
   sectorNombre?: string | null;
+  temaNombre?: string | null;
+  subtemaId?: string | null;
+  subtemaIds?: string[];
+  subtemaNombre?: string | null;
+  subtemas?: Array<{ id: string; nombre: string; temaNombre?: string | null }>;
   tipoDocumento?: TipoDocumento | null;
   tipo: TipoAsesoria;
   estado: EstadoSolicitudAsesoria;

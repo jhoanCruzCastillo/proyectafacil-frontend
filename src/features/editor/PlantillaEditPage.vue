@@ -45,6 +45,7 @@ const {
   handleVolcarExcel, handleVolcarEstructura, handleConfirmarVolcado, getDefaultValores,
   handleImportEstructura,
   handleSave, handleViewJson, handleViewJsonCampo, handleEditJsonCampo, handleSaveJsonCampo,
+  eliminandoEjemplo,
 } = usePlantillaEditor(plantillaId);
 
 const mostrarTipologiasIoarr = computed(() => editData.value?.instrumento === 'ioarr');
@@ -56,9 +57,16 @@ const verContextosIA = ref(false);
 // Pedido explícito del usuario: publicar/volver a borrador un ejemplo debe pedir confirmación —
 // mismo patrón que deleteTarget (ConfirmModal reutilizado, ver el bloque más abajo).
 const toggleEstadoTarget = ref<Ejemplo | null>(null);
-function confirmarToggleEstado() {
-  if (toggleEstadoTarget.value) handleToggleEjemploEstado(toggleEstadoTarget.value);
-  toggleEstadoTarget.value = null;
+const confirmandoToggle = ref(false);
+async function confirmarToggleEstado() {
+  if (!toggleEstadoTarget.value || confirmandoToggle.value) return;
+  confirmandoToggle.value = true;
+  try {
+    await handleToggleEjemploEstado(toggleEstadoTarget.value);
+    toggleEstadoTarget.value = null;
+  } finally {
+    confirmandoToggle.value = false;
+  }
 }
 </script>
 
@@ -227,6 +235,8 @@ function confirmarToggleEstado() {
       :is-open="!!deleteTarget"
       title="Eliminar ejemplo"
       :message="`¿Seguro que deseas eliminar el ejemplo &quot;${deleteTarget?.nombre}&quot;? Sus valores se perderán y esta acción no se puede deshacer.`"
+      :loading="eliminandoEjemplo"
+      loading-label="Eliminando…"
       @close="deleteTarget = null"
       @confirm="handleDeleteEjemplo"
     />
@@ -238,6 +248,8 @@ function confirmarToggleEstado() {
         ? `¿Seguro que deseas volver &quot;${toggleEstadoTarget?.nombre}&quot; a borrador? Dejará de estar publicado.`
         : `¿Seguro que deseas publicar &quot;${toggleEstadoTarget?.nombre}&quot;? Quedará visible como ejemplo publicado.`"
       :confirm-label="toggleEstadoTarget?.estado === 'publicado' ? 'Volver a borrador' : 'Publicar'"
+      :loading="confirmandoToggle"
+      :loading-label="toggleEstadoTarget?.estado === 'publicado' ? 'Cambiando…' : 'Publicando…'"
       @close="toggleEstadoTarget = null"
       @confirm="confirmarToggleEstado"
     />

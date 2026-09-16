@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/vue-query';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faPeopleGroup, faMagnifyingGlass, faUserSlash, faUserCheck } from '@/lib/icons';
 import PageShell from '@/components/PageShell.vue';
+import LoadingSpinner from '@/components/LoadingSpinner.vue';
 import Avatar from '@/components/Avatar.vue';
 import { useDocentesAdminQuery } from '@/composables/useDocentesAdmin';
 import { useActualizarUsuario } from '@/composables/useUsuarios';
@@ -45,7 +46,7 @@ async function toggleEstado(d: DocenteAdmin) {
       />
     </div>
 
-    <p v-if="isLoading" class="text-sm text-muted">Cargando…</p>
+    <LoadingSpinner v-if="isLoading" />
     <p v-else-if="docentesFiltrados.length === 0" class="text-sm text-muted py-8 text-center">No se encontraron docentes.</p>
     <div v-else class="overflow-x-auto">
       <table class="w-full text-sm">

@@ -1,16 +1,20 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue';
+import { computed, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
+import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
+import { faBars } from '@/lib/icons';
 import { useUiStore } from '@/stores/ui';
 import { useSessionStore } from '@/stores/session';
 import { useChatAsesoriaStore } from '@/stores/chatAsesoria';
 import { useInvalidarMisBeneficios } from '@/composables/useBeneficios';
+import { useIsDesktop, SIDEBAR_WIDTH, SIDEBAR_WIDTH_COLLAPSED } from '@/composables/useViewport';
 import { pagosHttp } from '@/api/http/pagos.http';
 import { useMisSolicitudesQuery } from '@/composables/useAsesoria';
 import Sidebar from '@/components/Sidebar.vue';
 import Avatar from '@/components/Avatar.vue';
 import AsesoriaChatPanel from '@/features/asesoria/AsesoriaChatPanel.vue';
+import logoIcono from '@/assets/logo-icono.png';
 
 const ui = useUiStore();
 const session = useSessionStore();
@@ -19,6 +23,11 @@ const route = useRoute();
 const router = useRouter();
 const queryClient = useQueryClient();
 const invalidarMisBeneficios = useInvalidarMisBeneficios();
+const isDesktop = useIsDesktop();
+
+// El drawer móvil se cierra solo al navegar — si no, cada link forzaría al usuario a cerrarlo a
+// mano después de cada tap.
+watch(() => route.path, () => ui.closeSidebarMobile());
 
 // Globos flotantes de chats de asesoría en curso — visibles en cualquier pantalla del docente, no
 // solo en "Mis consultas", para que sepa que tiene una conversación esperando sin importar dónde
@@ -97,21 +106,49 @@ onMounted(async () => {
 
 <template>
   <div class="min-h-screen bg-page bg-[url('/bg-cont.webp')] bg-cover bg-top bg-no-repeat bg-fixed">
-    <Sidebar :collapsed="ui.sidebarCollapsed" @toggle="ui.toggleSidebar" />
+    <!-- Barra superior móvil (<1024px): en escritorio el riel siempre está a la vista, pero en
+         pantallas angostas el sidebar es un drawer oculto por defecto — sin esto no habría forma
+         de abrirlo. -->
+    <div class="lg:hidden fixed top-0 left-0 right-0 z-30 h-14 bg-sidebar border-b border-white/10 flex items-center gap-3 px-4">
+      <button
+        @click="ui.toggleSidebarMobile()"
+        type="button"
+        class="w-9 h-9 rounded-md flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 transition-colors shrink-0"
+        title="Abrir menú"
+      >
+        <FontAwesomeIcon :icon="faBars" class="w-4 h-4" />
+      </button>
+      <img :src="logoIcono" alt="" class="w-7 h-7 object-contain shrink-0" />
+      <span class="font-heading font-semibold text-white text-sm truncate">ProyectaFácil</span>
+    </div>
+
+    <!-- Telón del drawer móvil — toca afuera para cerrar. -->
+    <div
+      v-if="ui.sidebarMobileOpen"
+      @click="ui.closeSidebarMobile()"
+      class="lg:hidden fixed inset-0 z-30 bg-black/50"
+    />
+
+    <Sidebar
+      :collapsed="ui.sidebarCollapsed"
+      :mobile-open="ui.sidebarMobileOpen"
+      @toggle="ui.toggleSidebar"
+    />
 
     <main
-      class="min-h-screen transition-[margin-left] duration-150 ease-out"
-      :class="ui.sidebarCollapsed ? 'ml-16' : 'ml-[300px]'"
+      class="min-h-screen pt-14 lg:pt-0 transition-[margin-left] duration-150 ease-out"
+      :style="isDesktop ? { marginLeft: `${ui.sidebarCollapsed ? SIDEBAR_WIDTH_COLLAPSED : SIDEBAR_WIDTH}px` } : undefined"
     >
       <RouterView />
     </main>
 
     <!-- Globos de chats en curso: pegados al borde derecho del sidebar (nunca encima), apilados
-         desde la esquina inferior izquierda hacia arriba. -->
+         desde la esquina inferior izquierda hacia arriba. En móvil el sidebar es superpuesto (no
+         reserva espacio), así que ahí quedan pegados al borde de la pantalla nomás. -->
     <div
       v-if="chatsEnCursoSinAbrir.length > 0"
-      class="fixed bottom-6 z-30 flex flex-col-reverse gap-3 transition-[left] duration-150 ease-out"
-      :class="ui.sidebarCollapsed ? 'left-[76px]' : 'left-[312px]'"
+      class="fixed bottom-6 z-20 flex flex-col-reverse gap-3 transition-[left] duration-150 ease-out"
+      :style="{ left: isDesktop ? `${(ui.sidebarCollapsed ? SIDEBAR_WIDTH_COLLAPSED : SIDEBAR_WIDTH) + 12}px` : '16px' }"
     >
       <button
         v-for="s in chatsEnCursoSinAbrir"

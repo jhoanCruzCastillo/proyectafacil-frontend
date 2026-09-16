@@ -7,6 +7,7 @@ import {
   faFileLines, faCalendarDays, faCircleInfo, faCircleCheck, faClock,
 } from '@/lib/icons';
 import PageShell from '@/components/PageShell.vue';
+import LoadingSpinner from '@/components/LoadingSpinner.vue';
 import Avatar from '@/components/Avatar.vue';
 import ResumenConsultaModal from './ResumenConsultaModal.vue';
 import { useSessionStore } from '@/stores/session';
@@ -16,7 +17,7 @@ import { useMisSolicitudesQuery, useAceptarSolicitud, useCompletarVideo } from '
 import { useUsuariosQuery, useActualizarUsuario } from '@/composables/useUsuarios';
 import { tiempoHastaVencer, tiempoRelativo } from '@/lib/tiempoRelativo';
 import { ESTADO_ASESORIA_LABEL as ESTADO_LABEL, ESTADO_ASESORIA_CLASE as ESTADO_CLASE } from '@/lib/estadoAsesoria';
-import { colorCategoria, formatFechaHoraVideo, ventanaDeLlamada, unirseALlamada, puedeCompletarAsesoria } from '@/lib/consultaAsesorUI';
+import { colorCategoria, formatFechaHoraVideo, ventanaDeLlamada, unirseALlamada, puedeCompletarAsesoria, etiquetaCategoriaConsulta } from '@/lib/consultaAsesorUI';
 import type { SolicitudAsesoria } from '@/types';
 
 const session = useSessionStore();
@@ -291,7 +292,7 @@ function cambiarPorPagina(valor: number) {
       </div>
     </div>
 
-    <p v-if="isLoading" class="text-sm text-muted px-6 sm:px-8 pb-6">Cargando…</p>
+    <LoadingSpinner v-if="isLoading" wrapper-class="px-6 sm:px-8 pb-6" />
     <div v-else-if="listaFiltrada.length === 0" class="flex flex-col items-center justify-center py-16 text-center px-6">
       <div class="w-16 h-16 rounded-full bg-brand-600 text-white flex items-center justify-center mb-4">
         <FontAwesomeIcon :icon="faCircleCheck" class="w-7 h-7" />
@@ -301,7 +302,7 @@ function cambiarPorPagina(valor: number) {
     </div>
     <template v-else>
       <div class="px-6 sm:px-8">
-        <div class="rounded-xl border border-gray-200 overflow-hidden">
+        <div class="rounded-xl border border-gray-200 overflow-hidden overflow-x-auto">
           <table class="w-full text-sm border-collapse">
             <thead>
               <tr class="text-left text-xs font-semibold text-gray-600 bg-gray-50 border-b border-gray-200">
@@ -326,7 +327,7 @@ function cambiarPorPagina(valor: number) {
                   </div>
                 </td>
                 <td class="py-4 px-4">
-                  <span class="px-2.5 py-1 rounded-full text-xs font-medium" :class="colorCategoria(s.sectorNombre)">{{ s.sectorNombre ?? '—' }}</span>
+                  <span class="px-2.5 py-1 rounded-full text-xs font-medium" :class="colorCategoria(s.sectorNombre)">{{ etiquetaCategoriaConsulta(s) }}</span>
                 </td>
                 <td class="py-4 px-4">
                   <div class="flex items-center gap-1.5 text-sm text-gray-600">

@@ -10,6 +10,7 @@ import ContextosIAEstructuraPanel from './ContextosIAEstructuraPanel.vue';
 import ContextosIAMarkdownEditor from './ContextosIAMarkdownEditor.vue';
 import PromptPreviewPanel from './PromptPreviewPanel.vue';
 import ConfirmModal from '@/components/ConfirmModal.vue';
+import LoadingSpinner from '@/components/LoadingSpinner.vue';
 import {
   useContextosIAQuery,
   useGuardarContextoSeccion,
@@ -499,7 +500,7 @@ const tituloPilar = computed(() => {
     </div>
 
     <div v-if="grupoActivo === 'sistema' && subTabSistema === 'estructura'" class="flex-1 min-h-0 overflow-hidden flex flex-col">
-      <div v-if="isLoading" class="flex-1 flex items-center justify-center text-muted text-sm">Cargando contextos…</div>
+      <LoadingSpinner v-if="isLoading" wrapper-class="flex-1" />
       <ContextosIAEstructuraPanel
         v-else-if="contextos"
         :plantilla-id="plantillaId"
@@ -508,9 +509,7 @@ const tituloPilar = computed(() => {
       />
     </div>
 
-    <div v-else-if="isLoading" class="flex-1 flex items-center justify-center text-muted text-sm">
-      Cargando contextos…
-    </div>
+    <LoadingSpinner v-else-if="isLoading" wrapper-class="flex-1" />
 
     <div v-else class="flex-1 min-h-0 overflow-hidden flex flex-col">
       <!-- Prompt del sistema (pilar único, ver promptSistemaPredeterminado.ts) -->
@@ -702,6 +701,8 @@ const tituloPilar = computed(() => {
           :is-open="confirmarEliminarGeneral"
           title="Eliminar contexto general"
           :message="`¿Seguro que deseas eliminar &quot;${generalActivo?.nombre}&quot;? Esto lo quita del prompt de todas las secciones de esta ficha.`"
+          :loading="eliminarGeneral.isPending.value"
+          loading-label="Eliminando…"
           @confirm="confirmarEliminarContextoGeneralActivo"
           @close="confirmarEliminarGeneral = false"
         />
@@ -710,6 +711,8 @@ const tituloPilar = computed(() => {
           :is-open="!!confirmarEliminarArchivoId"
           title="Eliminar archivo"
           message="¿Seguro que deseas eliminar este PDF? Esta acción no se puede deshacer."
+          :loading="eliminarArchivoGeneral.isPending.value"
+          loading-label="Eliminando…"
           @confirm="confirmarEliminarArchivo"
           @close="confirmarEliminarArchivoId = null"
         />
@@ -912,6 +915,8 @@ const tituloPilar = computed(() => {
           :is-open="confirmarEliminarGlobal"
           title="Eliminar regla global"
           :message="`¿Seguro que deseas eliminar &quot;${globalActivo?.nombre}&quot;? Se quita también de cualquier sección que la tenga asociada.`"
+          :loading="eliminarGlobal.isPending.value"
+          loading-label="Eliminando…"
           @confirm="confirmarEliminarGlobalActivo"
           @close="confirmarEliminarGlobal = false"
         />

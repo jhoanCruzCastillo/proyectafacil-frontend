@@ -4,6 +4,7 @@ import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faXmark, faCircleExclamation, faCircleXmark, faRotate, faUserPlus, faCalendarXmark, faStar } from '@/lib/icons';
 import CancelarTicketModal from './CancelarTicketModal.vue';
 import Avatar from '@/components/Avatar.vue';
+import LoadingSpinner from '@/components/LoadingSpinner.vue';
 import { useDocentesDisponiblesQuery, useAsignarTicket, useMarcarEnEspera, useReabrirHorario, useCancelarTicketAdmin } from '@/composables/useTicketsAsesoria';
 import { useUiStore } from '@/stores/ui';
 import { colorCategoria } from '@/lib/consultaAsesorUI';
@@ -100,7 +101,7 @@ async function confirmarCancelar() {
               </button>
             </div>
 
-            <p v-if="isLoading" class="text-sm text-muted">Cargando…</p>
+            <LoadingSpinner v-if="isLoading" />
             <div v-else-if="(docentes ?? []).length === 0" class="rounded-xl border border-amber-200 bg-amber-50/50 p-4">
               <p class="text-sm text-heading font-medium">No hay asesores disponibles ahora mismo.</p>
               <p class="text-xs text-muted mt-1">El ticket puede marcarse "En espera" — no consume ni libera la consulta del alumno hasta que haya cobertura.</p>
@@ -176,7 +177,7 @@ async function confirmarCancelar() {
     </div>
   </Transition>
 
-  <CancelarTicketModal :is-open="showCancelar" :ticket-id="ticket?.id ?? ''" @close="showCancelar = false" @confirm="confirmarCancelar" />
+  <CancelarTicketModal :is-open="showCancelar" :ticket-id="ticket?.id ?? ''" :loading="cancelarTicket.isPending.value" @close="showCancelar = false" @confirm="confirmarCancelar" />
 </template>
 
 <style scoped>

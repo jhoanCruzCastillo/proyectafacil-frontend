@@ -3,6 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faCalendarCheck, faCalendarDays, faChevronLeft, faChevronRight } from '@/lib/icons';
 import PageShell from '@/components/PageShell.vue';
+import LoadingSpinner from '@/components/LoadingSpinner.vue';
 import { useSessionStore } from '@/stores/session';
 import { useDocentesQuery } from '@/composables/useDocentes';
 import { useMisSolicitudesQuery } from '@/composables/useAsesoria';
@@ -222,7 +223,7 @@ watch(isLoading, async (cargando) => {
       </button>
     </div>
 
-    <p v-if="isLoading" class="text-sm text-muted">Cargando…</p>
+    <LoadingSpinner v-if="isLoading" />
 
     <div v-else class="rounded-2xl border border-gray-200 overflow-hidden bg-gray-50">
       <div class="overflow-x-auto">

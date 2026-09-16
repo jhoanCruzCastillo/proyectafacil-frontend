@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faMoneyBillTransfer, faChevronLeft, faChevronRight, faCheck } from '@/lib/icons';
 import PageShell from '@/components/PageShell.vue';
+import LoadingSpinner from '@/components/LoadingSpinner.vue';
 import Avatar from '@/components/Avatar.vue';
 import { useLiquidacionesQuery, useAutorizarPago } from '@/composables/useLiquidaciones';
 import { useUiStore } from '@/stores/ui';
@@ -80,7 +81,7 @@ async function confirmarAutorizar() {
       </button>
     </div>
 
-    <p v-if="isLoading" class="text-sm text-muted">Cargando…</p>
+    <LoadingSpinner v-if="isLoading" />
     <p v-else-if="(liquidaciones?.asesores ?? []).length === 0" class="text-sm text-muted py-8 text-center">Sin consultas completadas en este periodo.</p>
     <div v-else class="overflow-x-auto">
       <table class="w-full text-sm">

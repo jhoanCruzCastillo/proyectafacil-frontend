@@ -3,11 +3,12 @@ import { computed, ref } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faCircleExclamation, faComments, faVideo, faCalendarDays, faUserCheck, faClock, faBan } from '@/lib/icons';
 import PageShell from '@/components/PageShell.vue';
+import LoadingSpinner from '@/components/LoadingSpinner.vue';
 import Avatar from '@/components/Avatar.vue';
 import { useSessionStore } from '@/stores/session';
 import { useNoAtendidasQuery } from '@/composables/useAsesoria';
 import { tiempoRelativo } from '@/lib/tiempoRelativo';
-import { colorCategoria, formatFechaHoraVideo } from '@/lib/consultaAsesorUI';
+import { colorCategoria, formatFechaHoraVideo, etiquetaCategoriaConsulta } from '@/lib/consultaAsesorUI';
 import type { MotivoNoAceptada, SolicitudNoAceptada } from '@/types';
 
 // Pantalla "de pérdidas" del asesor: no hay acciones que tomar acá, es puramente informativa —
@@ -115,7 +116,7 @@ function fechaResolucionIso(s: SolicitudNoAceptada): string | null | undefined {
       </div>
     </div>
 
-    <p v-if="isLoading" class="text-sm text-muted py-10 text-center">Cargando…</p>
+    <LoadingSpinner v-if="isLoading" wrapper-class="py-10" />
 
     <!-- Tab 1: le llegaron por broadcast pero nunca fueron suyas -->
     <template v-else-if="tabActiva === 'no_aceptadas'">
@@ -123,7 +124,7 @@ function fechaResolucionIso(s: SolicitudNoAceptada): string | null | undefined {
         No se te ha escapado ninguna consulta. Buen trabajo.
       </p>
       <div v-else class="px-6 sm:px-8 pt-5">
-        <div class="rounded-xl border border-gray-200 overflow-hidden">
+        <div class="rounded-xl border border-gray-200 overflow-hidden overflow-x-auto">
           <table class="w-full text-sm border-collapse">
             <thead>
               <tr class="text-left text-xs font-semibold text-gray-600 bg-gray-50 border-b border-gray-200">
@@ -148,7 +149,7 @@ function fechaResolucionIso(s: SolicitudNoAceptada): string | null | undefined {
                 </td>
                 <td class="py-4 px-4">
                   <span class="px-2.5 py-1 rounded-full text-xs font-medium" :class="colorCategoria(s.sectorNombre)">
-                    {{ s.sectorNombre ?? '—' }}
+                    {{ etiquetaCategoriaConsulta(s) }}
                   </span>
                 </td>
                 <td class="py-4 px-4">
@@ -181,7 +182,7 @@ function fechaResolucionIso(s: SolicitudNoAceptada): string | null | undefined {
         No tienes citas vencidas sin atender.
       </p>
       <div v-else class="px-6 sm:px-8 pt-5">
-        <div class="rounded-xl border border-gray-200 overflow-hidden">
+        <div class="rounded-xl border border-gray-200 overflow-hidden overflow-x-auto">
           <table class="w-full text-sm border-collapse">
             <thead>
               <tr class="text-left text-xs font-semibold text-gray-600 bg-gray-50 border-b border-gray-200">
@@ -205,7 +206,7 @@ function fechaResolucionIso(s: SolicitudNoAceptada): string | null | undefined {
                 </td>
                 <td class="py-4 px-4">
                   <span class="px-2.5 py-1 rounded-full text-xs font-medium" :class="colorCategoria(s.sectorNombre)">
-                    {{ s.sectorNombre ?? '—' }}
+                    {{ etiquetaCategoriaConsulta(s) }}
                   </span>
                 </td>
                 <td class="py-4 px-4">

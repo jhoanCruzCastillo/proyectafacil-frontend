@@ -7,6 +7,7 @@ import {
   faCircleCheck,
 } from '@/lib/icons';
 import PageShell from '@/components/PageShell.vue';
+import LoadingSpinner from '@/components/LoadingSpinner.vue';
 import ConfirmModal from '@/components/ConfirmModal.vue';
 import { useSessionStore } from '@/stores/session';
 import {
@@ -123,6 +124,7 @@ function toggleMenu(clave: string) {
 }
 
 const confirmarEliminar = ref<{ tipo: 'bloque' | 'excepcion'; bloqueId?: string; excepcion?: BloqueExcepcion; mensaje: string } | null>(null);
+const eliminando = ref(false);
 
 function pedirEliminarBloque(id: string, mensaje: string) {
   menuAbierto.value = null;
@@ -133,7 +135,8 @@ function pedirEliminarExcepcion(exc: BloqueExcepcion, mensaje: string) {
   confirmarEliminar.value = { tipo: 'excepcion', excepcion: exc, mensaje };
 }
 async function confirmarEliminarAhora() {
-  if (!confirmarEliminar.value) return;
+  if (!confirmarEliminar.value || eliminando.value) return;
+  eliminando.value = true;
   try {
     if (confirmarEliminar.value.tipo === 'bloque' && confirmarEliminar.value.bloqueId) {
       quitarBloque(confirmarEliminar.value.bloqueId);
@@ -143,10 +146,11 @@ async function confirmarEliminarAhora() {
       await guardarExcepciones();
     }
     ui.toast('Horario actualizado');
+    confirmarEliminar.value = null;
   } catch (e) {
     ui.toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error');
   } finally {
-    confirmarEliminar.value = null;
+    eliminando.value = false;
   }
 }
 
@@ -651,7 +655,7 @@ watch(isLoading, async (cargando) => {
       </button>
     </div>
 
-    <p v-if="isLoading" class="text-sm text-muted">Cargando…</p>
+    <LoadingSpinner v-if="isLoading" />
 
     <div v-else class="rounded-2xl border border-gray-200 overflow-hidden bg-gray-50">
       <div class="overflow-x-auto">
@@ -1052,6 +1056,8 @@ watch(isLoading, async (cargando) => {
     title="¿Eliminar este horario?"
     :message="confirmarEliminar?.mensaje ?? ''"
     confirm-label="Sí, eliminar"
+    :loading="eliminando"
+    loading-label="Eliminando…"
     @confirm="confirmarEliminarAhora"
     @close="confirmarEliminar = null"
   />

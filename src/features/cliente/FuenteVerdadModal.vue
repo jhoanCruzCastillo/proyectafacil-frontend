@@ -145,6 +145,7 @@ async function handleGuardarFuente() {
 }
 
 const showConfirmLlenar = ref(false);
+const confirmandoLlenar = ref(false);
 const hayFuente = computed(() => archivos.value.length > 0 || texto.value.trim() !== '');
 const puedeLlenar = computed(
   () => hayFuente.value && seccionIdsSeleccionados.value.length > 0 && !guardarTexto.isPending.value,
@@ -160,23 +161,26 @@ const mensajeConfirmLlenar = computed(() => {
 });
 
 async function handleLlenarFicha() {
-  showConfirmLlenar.value = false;
+  if (confirmandoLlenar.value) return;
   if (seccionIdsSeleccionados.value.length === 0) {
     ui.toast('Selecciona al menos una sección', 'error');
     return;
   }
-  // Guarda el texto adicional pendiente para que la IA lo tenga en la misma corrida.
-  if (texto.value !== textoOriginal) {
-    try {
+  confirmandoLlenar.value = true;
+  try {
+    // Guarda el texto adicional pendiente para que la IA lo tenga en la misma corrida.
+    if (texto.value !== textoOriginal) {
       await guardarTexto.mutateAsync({ ejemploId: props.ejemploId, texto: texto.value });
       textoOriginal = texto.value;
-    } catch (e) {
-      ui.toast(e instanceof Error ? e.message : 'No se pudo guardar el texto adicional', 'error');
-      return;
     }
+    showConfirmLlenar.value = false;
+    emit('iniciar-llenado', { seccionIds: [...seccionIdsSeleccionados.value] });
+    emit('close');
+  } catch (e) {
+    ui.toast(e instanceof Error ? e.message : 'No se pudo guardar el texto adicional', 'error');
+  } finally {
+    confirmandoLlenar.value = false;
   }
-  emit('iniciar-llenado', { seccionIds: [...seccionIdsSeleccionados.value] });
-  emit('close');
 }
 </script>
 
@@ -385,6 +389,8 @@ async function handleLlenarFicha() {
     title="Eliminar archivo"
     :message="`¿Seguro que deseas eliminar &quot;${eliminarTarget?.nombre}&quot; de la fuente de la verdad?`"
     confirm-label="Eliminar"
+    :loading="eliminarArchivo.isPending.value"
+    loading-label="Eliminando…"
     @confirm="confirmarEliminar"
     @close="eliminarTarget = null"
   />
@@ -394,6 +400,8 @@ async function handleLlenarFicha() {
     title="Llenar con IA"
     :message="mensajeConfirmLlenar"
     confirm-label="Llenar"
+    :loading="confirmandoLlenar"
+    loading-label="Preparando…"
     @confirm="handleLlenarFicha"
     @close="showConfirmLlenar = false"
   />

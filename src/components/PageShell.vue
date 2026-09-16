@@ -82,7 +82,7 @@ withDefaults(
             <p v-if="description" class="text-dark-muted max-w-xl" :class="descriptionClass ?? (compact ? 'mt-1 text-xs' : 'mt-2 text-sm')">{{ description }}</p>
             <div class="rounded-full bg-brand-500" :class="compact ? 'mt-2 h-0.5 w-8' : 'mt-3 h-1 w-10'" />
           </div>
-          <div v-if="$slots.actions" class="flex items-center gap-3 shrink-0">
+          <div v-if="$slots.actions" class="flex flex-wrap items-center gap-3 w-full sm:w-auto">
             <slot name="actions" />
           </div>
         </div>

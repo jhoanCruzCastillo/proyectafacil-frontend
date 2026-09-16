@@ -5,7 +5,10 @@ export interface DatosRegistro {
   correo: string;
   password: string;
   preferencia?: string;
-  sectorIds: string[];
+  /** Subtemas ILPIIE elegidos en el paso 2 — se guardan en `cliente_subtemas`. */
+  subtemaIds: string[];
+  /** Legacy: sectores MEF (`cliente_intereses`). La UI nueva no los envía. */
+  sectorIds?: string[];
 }
 
 export interface AuthApi {

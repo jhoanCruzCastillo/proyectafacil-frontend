@@ -3,6 +3,7 @@ import { ref, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faClock, faCheck, faTriangleExclamation } from '@/lib/icons';
 import PageShell from '@/components/PageShell.vue';
+import LoadingSpinner from '@/components/LoadingSpinner.vue';
 import { useConfiguracionSlaQuery, useActualizarConfiguracionSla } from '@/composables/useConfiguracionSla';
 import { usePushActividad } from '@/composables/useActividad';
 import { useUiStore } from '@/stores/ui';
@@ -59,7 +60,7 @@ async function guardar() {
     title="Configuración de SLA"
     description="Tiempos límite que rigen cuánto puede esperar una solicitud de asesoría antes de marcarse como vencida."
   >
-    <div v-if="isLoading" class="text-sm text-muted">Cargando…</div>
+    <LoadingSpinner v-if="isLoading" />
 
     <div v-else class="max-w-xl space-y-8">
       <section class="space-y-4">

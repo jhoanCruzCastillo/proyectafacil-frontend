@@ -3,6 +3,7 @@ import { ref, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faVideo, faCheck, faGlobe, faUserCheck } from '@/lib/icons';
 import PageShell from '@/components/PageShell.vue';
+import LoadingSpinner from '@/components/LoadingSpinner.vue';
 import { useConfiguracionVideoconferenciaQuery, useActualizarConfiguracionVideoconferencia } from '@/composables/useConfiguracionVideoconferencia';
 import { usePushActividad } from '@/composables/useActividad';
 import { useUiStore } from '@/stores/ui';
@@ -47,7 +48,7 @@ async function guardar() {
     title="Configuración de videollamadas"
     description="Define cómo se puede entrar a las videollamadas de asesoría que se agenden de acá en adelante."
   >
-    <div v-if="isLoading" class="text-sm text-muted">Cargando…</div>
+    <LoadingSpinner v-if="isLoading" />
 
     <div v-else class="max-w-xl space-y-8">
       <section class="space-y-4">

@@ -172,7 +172,7 @@ async function handleEliminarColaborador() {
 
     <div v-if="facturacionData.facturas.length > 0">
       <h3 class="text-sm font-semibold text-heading mb-3">Facturas</h3>
-      <div class="rounded-lg border border-gray-200 overflow-hidden">
+      <div class="rounded-lg border border-gray-200 overflow-hidden overflow-x-auto">
         <table class="w-full text-sm">
           <thead>
             <tr class="bg-gray-50 border-b border-gray-200">
@@ -207,6 +207,8 @@ async function handleEliminarColaborador() {
       :is-open="!!eliminarColaborador"
       title="Eliminar colaborador"
       :message="`¿Seguro que deseas eliminar a &quot;${eliminarColaborador?.nombre}&quot;? Esta acción no se puede deshacer.`"
+      :loading="eliminarUsuario.isPending.value"
+      loading-label="Eliminando…"
       @confirm="handleEliminarColaborador"
       @close="eliminarColaborador = null"
     />

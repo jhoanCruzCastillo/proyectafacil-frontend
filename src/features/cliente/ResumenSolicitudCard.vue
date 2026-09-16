@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faComments, faVideo, faCalendarDays } from '@/lib/icons';
-import { colorCategoria, formatFechaHoraVideo } from '@/lib/consultaAsesorUI';
+import { colorCategoria, formatFechaHoraVideo, etiquetaCategoriaConsulta } from '@/lib/consultaAsesorUI';
 import { ESTADO_ASESORIA_LABEL as ESTADO_LABEL, ESTADO_ASESORIA_CLASE as ESTADO_CLASE } from '@/lib/estadoAsesoria';
 import type { SolicitudAsesoria } from '@/types';
 
@@ -26,7 +26,7 @@ defineProps<{ solicitud: SolicitudAsesoria }>();
       </div>
       <div>
         <p class="text-xs text-muted mb-1">Categoría</p>
-        <span class="px-2.5 py-1 rounded-full text-xs font-medium" :class="colorCategoria(solicitud.sectorNombre)">{{ solicitud.sectorNombre ?? '—' }}</span>
+        <span class="px-2.5 py-1 rounded-full text-xs font-medium" :class="colorCategoria(etiquetaCategoriaConsulta(solicitud))">{{ etiquetaCategoriaConsulta(solicitud) }}</span>
       </div>
       <div>
         <p class="text-xs text-muted mb-1">Estado actual</p>

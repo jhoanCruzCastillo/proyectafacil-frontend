@@ -612,7 +612,7 @@ async function handleDelete() {
 
     <!-- Tabla + panel de detalles -->
     <div class="flex items-start gap-5 px-6 pb-6">
-      <div class="flex-1 min-w-0 rounded-xl border border-gray-200 overflow-hidden">
+      <div class="flex-1 min-w-0 rounded-xl border border-gray-200 overflow-hidden overflow-x-auto">
         <table class="w-full">
           <thead>
             <tr class="border-b border-gray-100 bg-gray-50">
@@ -1125,6 +1125,8 @@ async function handleDelete() {
       :is-open="!!deleteTarget"
       title="Eliminar usuario"
       :message="`¿Seguro que deseas eliminar a &quot;${deleteTarget?.nombre}&quot;? Esta acción no se puede deshacer.`"
+      :loading="eliminarUsuario.isPending.value"
+      loading-label="Eliminando…"
       @confirm="handleDelete"
       @close="deleteTarget = null"
     />

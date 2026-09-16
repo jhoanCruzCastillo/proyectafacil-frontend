@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faCalendarWeek, faChevronLeft, faChevronRight, faTriangleExclamation, faRotate } from '@/lib/icons';
 import PageShell from '@/components/PageShell.vue';
+import LoadingSpinner from '@/components/LoadingSpinner.vue';
 import Avatar from '@/components/Avatar.vue';
 import { useSectoresQuery } from '@/composables/useSectores';
 import { useCoberturaHorariosQuery } from '@/composables/useCoberturaHorarios';
@@ -122,7 +123,7 @@ const rangoLegible = computed(() => {
       </div>
     </div>
 
-    <p v-if="isLoading" class="text-sm text-muted">Cargando…</p>
+    <LoadingSpinner v-if="isLoading" />
     <div v-else-if="cobertura" class="overflow-x-auto">
       <table class="w-full text-xs border-separate" style="border-spacing: 2px">
         <thead>

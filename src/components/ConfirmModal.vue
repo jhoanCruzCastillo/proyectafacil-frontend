@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faTriangleExclamation } from '@/lib/icons';
+import { faTriangleExclamation, faSpinner } from '@/lib/icons';
 
 const props = withDefaults(
   defineProps<{
@@ -8,18 +8,24 @@ const props = withDefaults(
     title: string;
     message: string;
     confirmLabel?: string;
+    loading?: boolean;
+    loadingLabel?: string;
     /** 0-100: si se define, reemplaza los botones por una barra de progreso y bloquea el cierre */
     progress?: number | null;
     /** Texto de fase bajo la barra (ej. "Subiendo Excel…") */
     progressLabel?: string | null;
   }>(),
-  { confirmLabel: 'Eliminar', progress: null, progressLabel: null },
+  { confirmLabel: 'Eliminar', loading: false, progress: null, progressLabel: null },
 );
 
 const emit = defineEmits<{ confirm: []; close: [] }>();
 
 function handleOverlayClick() {
-  if (props.progress == null) emit('close');
+  if (props.progress == null && !props.loading) emit('close');
+}
+
+function handleCancel() {
+  if (!props.loading) emit('close');
 }
 </script>
 
@@ -56,16 +62,19 @@ function handleOverlayClick() {
           </div>
           <div v-else class="flex justify-end gap-3 mt-6">
             <button
-              @click="emit('close')"
-              class="px-5 py-2.5 rounded-lg border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors duration-75"
+              :disabled="loading"
+              @click="handleCancel"
+              class="px-5 py-2.5 rounded-lg border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors duration-75 disabled:opacity-70 disabled:cursor-not-allowed"
             >
               Cancelar
             </button>
             <button
+              :disabled="loading"
               @click="emit('confirm')"
-              class="px-5 py-2.5 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 transition-colors duration-75"
+              class="px-5 py-2.5 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 transition-colors duration-75 disabled:opacity-70 flex items-center gap-2"
             >
-              {{ confirmLabel }}
+              <FontAwesomeIcon v-if="loading" :icon="faSpinner" class="w-3.5 h-3.5 animate-spin" />
+              {{ loading ? (loadingLabel ?? 'Procesando…') : confirmLabel }}
             </button>
           </div>
         </div>

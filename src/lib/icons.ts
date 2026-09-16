@@ -164,6 +164,10 @@ import {
   faChartPie,
   faGavel,
   faMoneyBillTrendUp,
+  faCoins,
+  faHandshake,
+  faChartColumn,
+  faBullseye,
   type IconDefinition,
 } from '@fortawesome/free-solid-svg-icons';
 import type { RolUsuario, TipoInstrumento, TipologiaIoarr, TipoCampo, TipoColumna, SubtipoTabla, MetodoPago } from '@/types';
@@ -195,6 +199,12 @@ export const sectorIcons: Record<string, IconDefinition> = {
   faChartPie,
   faGavel,
   faMoneyBillTrendUp,
+  faCoins,
+  faHandshake,
+  faChartColumn,
+  faListUl,
+  faFileLines,
+  faFileAlt,
 };
 
 export const sectorIconList = [
@@ -224,6 +234,12 @@ export const sectorIconList = [
   'faChartPie',
   'faGavel',
   'faMoneyBillTrendUp',
+  'faCoins',
+  'faHandshake',
+  'faChartColumn',
+  'faListUl',
+  'faFileLines',
+  'faFileAlt',
 ] as const;
 
 export const rolUsuarioLabels: Record<RolUsuario, string> = {
@@ -231,7 +247,8 @@ export const rolUsuarioLabels: Record<RolUsuario, string> = {
   administrador: 'Administrador',
   cliente: 'Cliente',
   administrativo_asesorias: 'Administrativo de Asesorías',
-  asesor: 'Asesor',
+  // Un solo rol técnico (`asesor`); en UI se muestra como Asesor / Docente — pedido del cliente.
+  asesor: 'Asesor / Docente',
 };
 
 export const rolUsuarioIcons: Record<RolUsuario, IconDefinition> = {
@@ -516,4 +533,8 @@ export {
   faBook,
   faMoneyBillTransfer,
   faListCheck,
+  faCoins,
+  faHandshake,
+  faChartColumn,
+  faBullseye,
 };

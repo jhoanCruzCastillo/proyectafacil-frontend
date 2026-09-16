@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faTriangleExclamation } from '@/lib/icons';
+import { faTriangleExclamation, faSpinner } from '@/lib/icons';
 
 // Fricción intencional para una acción destructiva poco frecuente (docs/proyectafacil-asesorias.md
 // §4 Fase 4): el admin debe escribir literalmente "CANCELAR-{ticketId}" antes de poder confirmar.
-const props = defineProps<{ isOpen: boolean; ticketId: string }>();
+const props = withDefaults(
+  defineProps<{ isOpen: boolean; ticketId: string; loading?: boolean }>(),
+  { loading: false },
+);
 const emit = defineEmits<{ confirm: []; close: [] }>();
 
 const textoEsperado = computed(() => `CANCELAR-${props.ticketId}`);
@@ -13,11 +16,19 @@ const textoIngresado = ref('');
 const coincide = computed(() => textoIngresado.value.trim() === textoEsperado.value);
 
 watch(() => props.isOpen, (open) => { if (open) textoIngresado.value = ''; });
+
+function handleOverlayClick() {
+  if (!props.loading) emit('close');
+}
+
+function handleCancel() {
+  if (!props.loading) emit('close');
+}
 </script>
 
 <template>
   <Transition name="fade">
-    <div v-if="isOpen" class="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4" @click="emit('close')">
+    <div v-if="isOpen" class="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4" @click="handleOverlayClick">
       <Transition name="pop" appear>
         <div class="bg-white rounded-2xl shadow-modal w-full max-w-md p-6" @click.stop>
           <div class="flex items-start gap-4">
@@ -40,21 +51,28 @@ watch(() => props.isOpen, (open) => { if (open) textoIngresado.value = ''; });
               v-model="textoIngresado"
               type="text"
               :placeholder="textoEsperado"
-              class="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-red-300 focus:border-red-400"
+              :disabled="loading"
+              class="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-red-300 focus:border-red-400 disabled:opacity-70"
             />
           </div>
 
           <div class="flex justify-end gap-3 mt-6">
-            <button @click="emit('close')" type="button" class="px-5 py-2.5 rounded-lg border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors duration-75">
+            <button
+              @click="handleCancel"
+              :disabled="loading"
+              type="button"
+              class="px-5 py-2.5 rounded-lg border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors duration-75 disabled:opacity-70 disabled:cursor-not-allowed"
+            >
               Volver
             </button>
             <button
               @click="emit('confirm')"
-              :disabled="!coincide"
+              :disabled="!coincide || loading"
               type="button"
-              class="px-5 py-2.5 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-75"
+              class="px-5 py-2.5 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-75 flex items-center gap-2"
             >
-              Cancelar ticket
+              <FontAwesomeIcon v-if="loading" :icon="faSpinner" class="w-3.5 h-3.5 animate-spin" />
+              {{ loading ? 'Cancelando…' : 'Cancelar ticket' }}
             </button>
           </div>
         </div>

@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faListCheck, faClock, faCalendarCheck, faCircleCheck, faUserCheck, faComments, faVideo, faChevronLeft, faChevronRight, faAnglesLeft, faAnglesRight, faMagnifyingGlass, faEye, faPlus } from '@/lib/icons';
 import PageShell from '@/components/PageShell.vue';
+import LoadingSpinner from '@/components/LoadingSpinner.vue';
 import Avatar from '@/components/Avatar.vue';
 import TicketDetalleModal from './TicketDetalleModal.vue';
 import TicketDetalleCompletadoModal from './TicketDetalleCompletadoModal.vue';
@@ -12,7 +13,7 @@ import { useDashboardAsesoriaQuery, useTicketsAsesoriaQuery } from '@/composable
 import { ESTADO_ASESORIA_LABEL, ESTADO_ASESORIA_CLASE } from '@/lib/estadoAsesoria';
 import { etiquetaDocenteFalsa, claseCategoria, codigoTicketFalso } from '@/lib/ticketsDemoFake';
 import { progresoSla } from '@/lib/tiempoRelativo';
-import { formatFechaHoraVideo } from '@/lib/consultaAsesorUI';
+import { formatFechaHoraVideo, etiquetaCategoriaConsulta } from '@/lib/consultaAsesorUI';
 import type { EstadoSolicitudAsesoria, SolicitudAsesoria } from '@/types';
 
 type Tab = 'todos' | 'pendiente' | 'agendado' | 'completado' | 'cancelado' | 'vencido' | 'observado';
@@ -195,7 +196,7 @@ function slaDe(t: SolicitudAsesoria) {
       </div>
     </div>
 
-    <p v-if="isLoading" class="text-sm text-muted">Cargando…</p>
+    <LoadingSpinner v-if="isLoading" />
     <p v-else-if="ticketsBuscados.length === 0" class="text-sm text-muted py-8 text-center">No hay tickets que coincidan con la búsqueda.</p>
     <div v-else class="overflow-x-auto rounded-xl border border-gray-200">
       <table class="w-full text-sm border-collapse">
@@ -221,7 +222,7 @@ function slaDe(t: SolicitudAsesoria) {
               </div>
             </td>
             <td class="py-4 px-4">
-              <span v-if="t.sectorNombre" class="px-2.5 py-1 rounded-full text-[11px] font-medium" :class="claseCategoria(t.sectorNombre)">{{ t.sectorNombre }}</span>
+              <span v-if="etiquetaCategoriaConsulta(t) !== '—'" class="px-2.5 py-1 rounded-full text-[11px] font-medium" :class="claseCategoria(etiquetaCategoriaConsulta(t))">{{ etiquetaCategoriaConsulta(t) }}</span>
               <span v-else class="text-muted">—</span>
             </td>
             <td class="py-4 px-4">
