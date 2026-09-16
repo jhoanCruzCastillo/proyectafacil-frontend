@@ -51,7 +51,7 @@ function save(data: Record<string, FacturacionMock>): void {
 export const facturacionMock: FacturacionApi = {
   async get(usuarioId) {
     await delay();
-    return load()[usuarioId] ?? generarFacturacionDefault();
+    return load()[usuarioId] ?? null;
   },
 
   async update(usuarioId, patch) {

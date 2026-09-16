@@ -542,6 +542,24 @@ export interface FacturacionMock {
   stripeSubscriptionId: string | null;
 }
 
+/** Cupos de un cliente vistos/editados por admin en Usuarios y permisos → Membresía y pagos. */
+export interface BeneficiosAsignados {
+  cuentaId: string;
+  planId: string | null;
+  planNombre: string | null;
+  limitePlantillas: number;
+  limitePlantillasBase: number;
+  fichasChatDisponibles: number;
+  fichasVideoDisponibles: number;
+}
+
+export interface AsignarBeneficiosPayload {
+  planId?: string | null;
+  agregarFichasChat?: number;
+  agregarFichasVideo?: number;
+  limitePlantillas?: number | null;
+}
+
 export interface ActividadReciente {
   id: string;
   mensaje: string;

@@ -449,9 +449,8 @@ const colapsadoEfectivo = computed(() => isDesktop.value && !!props.collapsed);
       </ul>
     </nav>
 
-    <!-- Oculto sin plan: PlanesModal (que abre esta tarjeta) usa useFacturacionQuery sin el mismo
-         guard que ElegirPlanPage, así que igual dispararía el auto-asignado de Nivel 1
-         (FacturacionController::crearDefault()) — y ya tiene su propia pantalla de elegir plan. -->
+    <!-- Oculto sin plan: esa tarjeta abre PlanesModal, pensado para quien ya tiene membresía.
+         Quien aún no compró usa "Planes y servicios". -->
     <MejorarPlanCard v-if="esCliente && !colapsadoEfectivo && session.sesion?.tienePlan !== false" />
     <NotificacionesBell v-if="session.sesion" :collapsed="colapsadoEfectivo" />
     <UserMenu :collapsed="colapsadoEfectivo" />

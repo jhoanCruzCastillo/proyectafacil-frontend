@@ -4,7 +4,7 @@ import type { FacturacionMock, ResumenNivelesFacturacion } from '@/types';
 
 export const facturacionHttp: FacturacionApi = {
   get(usuarioId) {
-    return apiFetch<FacturacionMock>(`facturacion/${usuarioId}`);
+    return apiFetch<FacturacionMock | null>(`facturacion/${usuarioId}`);
   },
 
   update(usuarioId, data) {

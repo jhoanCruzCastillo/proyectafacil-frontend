@@ -32,10 +32,8 @@ const checkoutPlan = useCheckoutPlan();
 const ADDON_CONSULTA = addOns.find((a) => a.id === 'consultoria-1a1') ?? null;
 const showComprarLive = ref(false);
 
-// Sin plan todavía: NO consultar facturación — ese endpoint auto-asigna Plan Nivel 1 + tarjeta de
-// mentira la primera vez que se consulta (FacturacionController::crearDefault()), lo que le daría
-// un plan "gratis" a cualquiera con solo abrir esta pantalla. Con un plan real ya no hay ese
-// riesgo (la fila ya existe) — mismo guard que UserMenu.vue/useEstadoEntrenamiento.ts.
+// Sin plan todavía: no consultar facturación (no hace falta: no hay fila). El alta de membresía
+// es Checkout o el panel admin; GET /facturacion es solo lectura.
 const { data: usuariosData } = useUsuariosQuery();
 const cuentaIdFacturacion = computed(() => {
   if (!session.sesion || session.sesion.tienePlan === false) return '';
@@ -71,7 +69,7 @@ async function elegirDesdeModal(p: Plan) {
   planDetalleAbierto.value = null;
 }
 
-const tab = ref<'membresia' | 'adicionales'>('membresia');
+const tab = ref<'membresia' | 'adicionales'>('adicionales');
 
 // Estilo por nivel — no por posición: si el catálogo agrega/reordena planes, sigue enganchando por
 // numeroNivel en vez de romperse. Nivel 1 (Consultora / Empresa) es el recomendado.

@@ -7,14 +7,14 @@ import {
   faPlus, faPen, faTrash, faShieldHalved, faTags, faUserGear, faUserGroup, faGlobe,
   faGraduationCap, faSearch, faBuilding, faLayerGroup, faHeadset, faEllipsisVertical,
   faIdCard, faClockRotateLeft, faDesktop, faXmark, faEnvelope, faPhone, faCalendarDays,
-  faCheck, faGear, faMobileScreen, faCreditCard, faCalendarCheck, faStar, faComments,
-  faRotate, faGem, faCrown, faBolt, faChevronLeft, faChevronRight, faAnglesLeft, faAnglesRight,
+  faCheck, faGear, faMobileScreen, faCreditCard, faCalendarCheck, faStar, faComments, faVideo,
+  faFileLines, faRotate, faGem, faCrown, faBolt, faChevronLeft, faChevronRight, faAnglesLeft, faAnglesRight,
   rolUsuarioLabels,
 } from '@/lib/icons';
 import { rolesGestionablesPor } from '@/lib/permisos';
 import { catalogoPermisos, permisosDefaultPorRol } from '@/lib/permisosCatalogo';
 import { useSessionStore } from '@/stores/session';
-import { useUsuariosQuery, useEliminarUsuario, useActualizarUsuario } from '@/composables/useUsuarios';
+import { useUsuariosQuery, useEliminarUsuario, useActualizarUsuario, useBeneficiosAsignadosQuery, useAsignarBeneficios } from '@/composables/useUsuarios';
 import { useTiposUsuarioQuery } from '@/composables/useTiposUsuario';
 import { usePushActividad, useActividadPorActorQuery, useUltimaModificacionPerfilQuery } from '@/composables/useActividad';
 import { useFacturacionQuery, useResumenNivelesQuery } from '@/composables/useFacturacion';
@@ -368,10 +368,77 @@ const diasComoMiembro = computed(() => {
 // titular (mismo criterio que cuentaIdPermisos más arriba) — nunca tiene su propia fila. ---
 const cuentaIdMembresia = computed(() => {
   const u = usuarioSeleccionado.value;
-  return u && u.rol === 'cliente' ? (u.cuentaClienteId ?? u.id) : '';
+  if (!u || u.rol !== 'cliente' || tabDetalleActiva.value !== 'membresia') return '';
+  return u.cuentaClienteId ?? u.id;
 });
 const { data: facturacionMembresia } = useFacturacionQuery(cuentaIdMembresia);
 const planMembresia = computed(() => planes.find((p) => p.id === facturacionMembresia.value?.planId) ?? null);
+
+const clienteIdBeneficios = computed(() => {
+  const u = usuarioSeleccionado.value;
+  return u && u.rol === 'cliente' ? u.id : '';
+});
+const { data: beneficiosAsignados } = useBeneficiosAsignadosQuery(clienteIdBeneficios);
+const asignarBeneficios = useAsignarBeneficios();
+const planForm = ref('');
+const chatForm = ref(0);
+const videoForm = ref(0);
+const plantillasForm = ref(0);
+const guardandoBeneficios = ref(false);
+
+watch(clienteIdBeneficios, () => {
+  chatForm.value = 0;
+  videoForm.value = 0;
+});
+
+watch(beneficiosAsignados, (b) => {
+  if (chatForm.value > 0 || videoForm.value > 0) return;
+  planForm.value = b?.planId ?? '';
+  plantillasForm.value = b?.limitePlantillas ?? 0;
+}, { immediate: true });
+
+function onPlanFormChange() {
+  const p = planes.find((x) => x.id === planForm.value);
+  if (p && plantillasForm.value < p.limiteFichasBase) {
+    plantillasForm.value = p.limiteFichasBase;
+  }
+}
+
+const hayCambiosBeneficios = computed(() => {
+  const b = beneficiosAsignados.value;
+  const planCambio = planForm.value !== '' && planForm.value !== (b?.planId ?? '');
+  const hayPlan = !!(planForm.value || b?.planId);
+  const plantillasCambio = hayPlan && plantillasForm.value !== (b?.limitePlantillas ?? 0);
+  return planCambio || chatForm.value > 0 || videoForm.value > 0 || plantillasCambio;
+});
+
+async function guardarBeneficios() {
+  if (!usuarioSeleccionado.value || !hayCambiosBeneficios.value) return;
+  const b = beneficiosAsignados.value;
+  if (plantillasForm.value !== (b?.limitePlantillas ?? 0) && !planForm.value && !b?.planId) {
+    ui.toast('Elige un plan para poder definir plantillas simultáneas.', 'error');
+    return;
+  }
+  guardandoBeneficios.value = true;
+  try {
+    await asignarBeneficios.mutateAsync({
+      id: usuarioSeleccionado.value.id,
+      data: {
+        planId: planForm.value || undefined,
+        agregarFichasChat: Math.max(0, Number(chatForm.value) || 0),
+        agregarFichasVideo: Math.max(0, Number(videoForm.value) || 0),
+        limitePlantillas: (planForm.value || b?.planId) ? Math.max(0, Number(plantillasForm.value) || 0) : undefined,
+      },
+    });
+    chatForm.value = 0;
+    videoForm.value = 0;
+    ui.toast('Beneficios asignados');
+  } catch (e) {
+    ui.toast(e instanceof Error ? e.message : 'No se pudieron asignar los beneficios', 'error');
+  } finally {
+    guardandoBeneficios.value = false;
+  }
+}
 
 // Sin campo de ícono en el modelo de plan — se asigna uno de un set fijo según el nivel (pedido
 // explícito: "por ahora el ícono será random", sin que cambie en cada refresco/reactividad).
@@ -466,7 +533,10 @@ const cuentaIdPermisos = computed(() => {
   return u && u.rol === 'cliente' ? (u.cuentaClienteId ?? u.id) : '';
 });
 const { data: facturacionPermisos } = useFacturacionQuery(cuentaIdPermisos);
-const numeroNivelPermisos = computed(() => (cuentaIdPermisos.value ? numeroNivelDe(facturacionPermisos.value?.planId ?? 'nivel-1') : 0));
+const numeroNivelPermisos = computed(() => {
+  const planId = facturacionPermisos.value?.planId;
+  return planId ? numeroNivelDe(planId) : 0;
+});
 
 function handleNuevo() {
   editTarget.value = null;
@@ -930,6 +1000,81 @@ async function handleDelete() {
 
           <!-- Tab: Membresía y pagos (cliente) -->
           <div v-else-if="tabDetalleActiva === 'membresia' && tieneDetalleCompleto" class="space-y-4">
+            <div>
+              <h4 class="text-[11px] font-semibold text-heading uppercase tracking-wide mb-1">Asignar beneficios</h4>
+              <p class="text-[11px] text-muted mb-3">Otorga cupos sin cobro. Las fichas de chat y videollamada se suman a las que ya tiene.</p>
+
+              <div class="space-y-3 rounded-lg border border-gray-200 p-3">
+                <label class="block">
+                  <span class="text-[11px] font-medium text-gray-600">Plan</span>
+                  <select
+                    v-model="planForm"
+                    class="mt-1 w-full text-xs border border-gray-200 rounded-md px-2.5 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500/30 bg-white"
+                    @change="onPlanFormChange"
+                  >
+                    <option value="">Sin plan / no cambiar</option>
+                    <option v-for="p in planes" :key="p.id" :value="p.id">
+                      Nivel {{ p.numeroNivel }} — {{ p.nombre }} (S/ {{ p.precio }}/mes)
+                    </option>
+                  </select>
+                </label>
+
+                <div class="grid grid-cols-2 gap-2">
+                  <label class="block">
+                    <span class="flex items-center gap-1 text-[11px] font-medium text-gray-600">
+                      <FontAwesomeIcon :icon="faComments" class="w-3 h-3 text-brand-600" />
+                      Fichas de chat
+                    </span>
+                    <input
+                      v-model.number="chatForm"
+                      type="number"
+                      min="0"
+                      class="mt-1 w-full text-xs border border-gray-200 rounded-md px-2.5 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+                    />
+                    <span class="text-[10px] text-muted">Disponibles: {{ beneficiosAsignados?.fichasChatDisponibles ?? 0 }} · este valor se suma</span>
+                  </label>
+                  <label class="block">
+                    <span class="flex items-center gap-1 text-[11px] font-medium text-gray-600">
+                      <FontAwesomeIcon :icon="faVideo" class="w-3 h-3 text-rose-600" />
+                      Fichas de videollamada
+                    </span>
+                    <input
+                      v-model.number="videoForm"
+                      type="number"
+                      min="0"
+                      class="mt-1 w-full text-xs border border-gray-200 rounded-md px-2.5 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+                    />
+                    <span class="text-[10px] text-muted">Disponibles: {{ beneficiosAsignados?.fichasVideoDisponibles ?? 0 }} · este valor se suma</span>
+                  </label>
+                </div>
+
+                <label class="block">
+                  <span class="flex items-center gap-1 text-[11px] font-medium text-gray-600">
+                    <FontAwesomeIcon :icon="faFileLines" class="w-3 h-3 text-sky-600" />
+                    Plantillas simultáneas
+                  </span>
+                  <input
+                    v-model.number="plantillasForm"
+                    type="number"
+                    min="0"
+                    class="mt-1 w-full text-xs border border-gray-200 rounded-md px-2.5 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+                  />
+                  <span class="text-[10px] text-muted">
+                    Total (no se suma). Base del plan: {{ beneficiosAsignados?.limitePlantillasBase ?? 0 }}
+                  </span>
+                </label>
+
+                <button
+                  type="button"
+                  :disabled="!hayCambiosBeneficios || guardandoBeneficios"
+                  class="w-full py-2.5 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 disabled:opacity-50 transition-colors"
+                  @click="guardarBeneficios"
+                >
+                  {{ guardandoBeneficios ? 'Asignando…' : 'Asignar beneficios' }}
+                </button>
+              </div>
+            </div>
+
             <template v-if="facturacionMembresia && planMembresia">
               <div>
                 <h4 class="text-[11px] font-semibold text-heading uppercase tracking-wide mb-2">Plan actual</h4>
@@ -956,11 +1101,14 @@ async function handleDelete() {
                   </div>
 
                   <div class="flex items-center justify-between text-[11px] text-gray-600 flex-wrap gap-1">
-                    <span>
-                      Renovación automática:
-                      <strong :class="facturacionMembresia.cancelada ? 'text-amber-600' : 'text-green-600'">{{ facturacionMembresia.cancelada ? 'Desactivada' : 'Activada' }}</strong>
-                    </span>
-                    <span>Próximo cobro: {{ formatFechaLarga(cicloFin) }}</span>
+                    <template v-if="facturacionMembresia.stripeSubscriptionId">
+                      <span>
+                        Renovación automática:
+                        <strong :class="facturacionMembresia.cancelada ? 'text-amber-600' : 'text-green-600'">{{ facturacionMembresia.cancelada ? 'Desactivada' : 'Activada' }}</strong>
+                      </span>
+                      <span>Próximo cobro: {{ formatFechaLarga(cicloFin) }}</span>
+                    </template>
+                    <span v-else>Asignado por administración · sin cobro automático</span>
                   </div>
 
                   <div v-if="cicloInicio && cicloFin">
@@ -1002,7 +1150,6 @@ async function handleDelete() {
                 </ul>
               </div>
             </template>
-            <p v-else class="text-xs text-muted text-center py-8">Este cliente todavía no tiene un plan asignado.</p>
           </div>
 
           <!-- Tab: Actividad -->

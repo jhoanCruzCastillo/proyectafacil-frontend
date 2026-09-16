@@ -19,10 +19,8 @@ const emit = defineEmits<{ close: [] }>();
 const ui = useUiStore();
 const session = useSessionStore();
 // El modal queda montado siempre en la página que lo usa (isOpen solo lo muestra/oculta) — sin
-// este guard, la consulta de facturación se dispara apenas se monta la página, aunque el modal
-// nunca se haya abierto. Eso auto-asigna un plan de muestra la primera vez que se consulta
-// (FacturacionController::crearDefault()) — ver el mismo guard en UserMenu.vue. Cliente sin
-// membresía: tampoco consultar al abrir (Contratar Live suelto no debe regalar Nivel 1).
+// este guard, la consulta de facturación se disparaba apenas se monta la página. Cliente sin
+// membresía: no consultar (Contratar Live suelto no debe exigir fila de facturación).
 const { data: facturacionData } = useFacturacionQuery(() => {
   if (!props.isOpen || !props.usuarioId) return '';
   if (session.sesion?.rol === 'cliente' && session.sesion.tienePlan === false) return '';

@@ -1,6 +1,6 @@
 import { apiFetch } from './_shared';
 import type { UsuariosApi } from '../contracts/usuarios';
-import type { Usuario } from '@/types';
+import type { AsignarBeneficiosPayload, BeneficiosAsignados, Usuario } from '@/types';
 
 export const usuariosHttp: UsuariosApi = {
   list() {
@@ -27,6 +27,17 @@ export const usuariosHttp: UsuariosApi = {
     await apiFetch<{ enviado: boolean }>(`usuarios/${id}/enviar-accesos-directo`, {
       method: 'POST',
       body: JSON.stringify({ password }),
+    });
+  },
+
+  beneficiosAsignados(id) {
+    return apiFetch<BeneficiosAsignados>(`usuarios/${id}/asignar-beneficios`);
+  },
+
+  asignarBeneficios(id, data: AsignarBeneficiosPayload) {
+    return apiFetch<BeneficiosAsignados>(`usuarios/${id}/asignar-beneficios`, {
+      method: 'POST',
+      body: JSON.stringify(data),
     });
   },
 };
