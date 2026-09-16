@@ -9,52 +9,32 @@ import {
 import PageShell from '@/components/PageShell.vue';
 import Avatar from '@/components/Avatar.vue';
 import { useSessionStore } from '@/stores/session';
-import { puedeAccederProyectosIA, cuentaEfectivaDe, puedeVerFicha } from '@/lib/permisos';
+import { puedeAccederProyectosIA, cuentaEfectivaDe, puedeVerFicha, tieneServicioIlpiieLive } from '@/lib/permisos';
 import { useEjemplosQuery } from '@/composables/useEjemplos';
 import { usePlantillasQuery } from '@/composables/usePlantillas';
 import { useUsuariosQuery } from '@/composables/useUsuarios';
 import { useMisSolicitudesQuery } from '@/composables/useAsesoria';
+import { useTicketsConsultaQuery } from '@/composables/useTicketsConsulta';
 import { validarValoresPlantilla, calcularProgresoValores } from '@/lib/valorValidation';
 import { ventanaDeLlamada } from '@/lib/consultaAsesorUI';
 import type { TipoInstrumento } from '@/types';
 
-// Portada de entrada — pedido explícito del cliente: al ingresar, elegir entre "Proyectos de
-// Inversión con IA" e "ILPIIE Live" antes de entrar a cualquiera de los dos. "Proyectos de
-// Inversión con IA" se bloquea (visible, sin poder entrar) para quien no tiene plan vigente ni es
-// alumno vigente — mismo chequeo que usan el guard del router y el candado del sidebar
-// (`puedeAccederProyectosIA`, único lugar donde vive la regla).
-//
-// Manual de diseño v1.0, Figura 5: rediseño con las 4 tarjetas de módulo, el widget ILPIIE Live
-// enriquecido y las tarjetas de progreso/próxima asesoría — todo con datos reales (fichas y
-// solicitudes propias). "Asesores en línea ahora" usa el toggle real `disponible` de cada
-// asesor (no presencia WebSocket); si ninguno está marcado disponible, se oculta ese bloque.
+// Portada de entrada — al ingresar, elegir entre "Proyectos de Inversión con IA" e "ILPIIE Live".
+// Si el cliente todavía no contrató un servicio, la tarjeta se ve gris con candado pero SÍ se
+// puede entrar. El color de marca (módulos verdes / banner rojo) vuelve cuando lo adquiere:
+// PI+IA = plan o alumno vigente; ILPIIE Live = al menos una ficha de chat/video.
 const router = useRouter();
 const session = useSessionStore();
 
 const desbloqueadoProyectosIA = computed(() => (session.sesion ? puedeAccederProyectosIA(session.sesion) : false));
 
-const subtituloProyectosIA = computed(() => {
-  if (!session.sesion) return '';
-  if (session.sesion.alumnoVigente) {
-    const hasta = session.sesion.vigenciaAlumnoHasta;
-    return hasta
-      ? `Acceso de alumno hasta el ${new Date(hasta + 'T00:00:00').toLocaleDateString('es-PE', { day: 'numeric', month: 'long', year: 'numeric' })}`
-      : 'Acceso de alumno activo';
-  }
-  if (session.sesion.tienePlan) return 'Incluido en tu plan actual';
-  return 'Disponible con un plan o como alumno del programa';
-});
-
-// Chip del hero ("Plan Alumno · Incluido") — mismo criterio que el subtítulo de arriba, solo que
-// condensado para el chip. Sin nombre de plan puntual (requeriría otra consulta de facturación
-// más solo para el chip); "activo" ya es la información que importa acá.
 const chipPlan = computed(() => {
   if (!session.sesion || !desbloqueadoProyectosIA.value) return null;
   return session.sesion.alumnoVigente ? 'Alumno del programa · Activo' : 'Plan activo · Incluido';
 });
 
-function verPlanes() {
-  router.push({ name: 'elegir-plan' });
+function irAProyectosIA() {
+  router.push({ name: 'formatos' });
 }
 function irAIlpiieLive() {
   router.push({ name: 'asesorias-chat' });
@@ -71,6 +51,8 @@ const { data: usuariosData } = useUsuariosQuery();
 const usuarios = computed(() => usuariosData.value ?? []);
 const cuentaId = computed(() => (session.sesion ? cuentaEfectivaDe(usuarios.value, session.sesion) : null));
 const esTitular = computed(() => !!session.sesion && session.sesion.usuarioId === cuentaId.value);
+const { data: ticketsConsulta } = useTicketsConsultaQuery(() => cuentaId.value ?? '');
+const tieneIlpiieLive = computed(() => tieneServicioIlpiieLive(ticketsConsulta.value));
 
 const misFichas = computed(() => {
   if (!cuentaId.value || !session.sesion) return [];
@@ -132,7 +114,7 @@ const proximaVideollamada = computed(() => {
     .sort((a, b) => `${a.horarioFecha}T${a.horarioHoraInicio}`.localeCompare(`${b.horarioFecha}T${b.horarioHoraInicio}`));
   return candidatas[0] ?? null;
 });
-const columnaDerecha = computed(() => desbloqueadoProyectosIA.value || !!proximaVideollamada.value);
+const columnaDerecha = computed(() => tieneIlpiieLive.value && (desbloqueadoProyectosIA.value || !!proximaVideollamada.value));
 function formatoFechaHora(fecha: string, hora: string) {
   const fechaTexto = new Date(fecha + 'T00:00:00').toLocaleDateString('es-PE', { day: 'numeric', month: 'short' });
   return `${fechaTexto} · ${hora}`;
@@ -160,11 +142,15 @@ const asesoresExtra = computed(() => Math.max(0, asesoresDisponibles.value.lengt
       </span>
     </template>
 
-    <!-- Proyectos de Inversión con IA: 4 tarjetas de módulo si hay acceso, o la tarjeta única
-         bloqueada de siempre si no. -->
+    <div
+      class="mb-6"
+      :class="!desbloqueadoProyectosIA && !tieneIlpiieLive ? 'grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl mx-auto' : ''"
+    >
+    <!-- Proyectos de Inversión con IA: 4 módulos con color de marca si ya lo adquirió;
+         si no, tarjeta gris con candado — se puede entrar igual. -->
     <template v-if="desbloqueadoProyectosIA">
-      <p class="text-[11px] font-semibold uppercase tracking-widest text-muted mb-3">Proyectos de inversión con IA</p>
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <p class="text-[11px] font-semibold uppercase tracking-widest text-muted mb-3 md:col-span-2">Proyectos de inversión con IA</p>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:col-span-2">
         <div v-for="modulo in modulos" :key="modulo.tipo" class="flex flex-col rounded-2xl border border-border-light bg-white p-5 shadow-card">
           <div class="w-11 h-11 rounded-xl flex items-center justify-center mb-3 bg-brand-100 text-brand-600">
             <FontAwesomeIcon :icon="instrumentoIcons[modulo.tipo]" class="w-5 h-5" />
@@ -185,28 +171,60 @@ const asesoresExtra = computed(() => Math.max(0, asesoresDisponibles.value.lengt
         </div>
       </div>
     </template>
-    <div v-else class="relative flex flex-col rounded-2xl border border-border-light bg-gray-50 p-6 mb-6 max-w-md">
-      <div class="w-14 h-14 rounded-full flex items-center justify-center mb-4 bg-gray-200 text-gray-400">
-        <FontAwesomeIcon :icon="faFolderOpen" class="w-6 h-6" />
+    <div
+      v-else
+      class="relative flex flex-col items-center text-center rounded-2xl border border-gray-200 bg-gray-100 p-8"
+      :class="tieneIlpiieLive ? 'max-w-md' : ''"
+    >
+      <div class="w-16 h-16 rounded-full flex items-center justify-center mb-4 bg-gray-200 text-gray-400">
+        <FontAwesomeIcon :icon="faFolderOpen" class="w-7 h-7" />
       </div>
-      <p class="text-lg font-heading font-semibold text-gray-400">Proyectos de Inversión con IA</p>
+      <p class="text-lg font-heading font-semibold text-gray-600">Proyectos de Inversión con IA</p>
       <p class="text-[0.8rem] mt-1 mb-5 text-gray-400">
         Formatos, fichas técnicas, IOARR y perfiles — llena tus documentos de inversión con ayuda de IA.
       </p>
-      <p class="text-[0.75rem] font-medium mb-4 flex items-center gap-1.5 text-gray-400">
+      <p class="text-[0.75rem] font-medium mb-5 flex items-center justify-center gap-1.5 text-gray-400">
         <FontAwesomeIcon :icon="faLock" class="w-3 h-3" />
-        {{ subtituloProyectosIA }}
+        Aún no has adquirido este beneficio
       </p>
       <button
-        @click="verPlanes"
+        @click="irAProyectosIA"
         type="button"
-        class="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-gray-300 text-gray-600 text-[0.8rem] font-semibold hover:bg-gray-100 transition-colors duration-75"
+        class="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-gray-300 text-gray-700 text-[0.8rem] font-semibold hover:bg-gray-400/70 transition-colors duration-75"
       >
-        Ver planes
+        Entrar
+        <FontAwesomeIcon :icon="faArrowRight" class="w-3 h-3" />
       </button>
     </div>
 
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div
+      v-if="!tieneIlpiieLive"
+      class="relative flex flex-col items-center text-center rounded-2xl border border-gray-200 bg-gray-100 p-8"
+      :class="desbloqueadoProyectosIA ? 'max-w-md' : ''"
+    >
+      <div class="w-16 h-16 rounded-full flex items-center justify-center mb-4 bg-gray-200 text-gray-400">
+        <FontAwesomeIcon :icon="faHeadset" class="w-7 h-7" />
+      </div>
+      <p class="text-lg font-heading font-semibold text-gray-600">ILPIIE Live</p>
+      <p class="text-[0.8rem] mt-1 mb-5 text-gray-400">
+        Asesoría en vivo por chat o videollamada sobre temas y subtemas puntuales de tu proyecto.
+      </p>
+      <p class="text-[0.75rem] font-medium mb-5 flex items-center justify-center gap-1.5 text-gray-400">
+        <FontAwesomeIcon :icon="faLock" class="w-3 h-3" />
+        Aún no has adquirido este servicio
+      </p>
+      <button
+        @click="irAIlpiieLive"
+        type="button"
+        class="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-gray-300 text-gray-700 text-[0.8rem] font-semibold hover:bg-gray-400/70 transition-colors duration-75"
+      >
+        Entrar
+        <FontAwesomeIcon :icon="faArrowRight" class="w-3 h-3" />
+      </button>
+    </div>
+    </div>
+
+    <div v-if="tieneIlpiieLive" class="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <!-- ILPIIE Live — foto de fondo + gradiente rojo (mock Figura 5). -->
       <div
         class="ilpiie-live-card relative overflow-hidden flex flex-col rounded-2xl border border-red-500/35 p-6 sm:p-7 min-h-[300px]"

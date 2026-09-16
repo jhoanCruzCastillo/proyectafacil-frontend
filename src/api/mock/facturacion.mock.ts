@@ -15,8 +15,8 @@ function generarFacturacionDefault(): FacturacionMock {
 
   return {
     planId: 'nivel-1',
-    plan: 'Nivel 1 — Profesional',
-    precio: '$150',
+    plan: 'Nivel 1 — Consultora / Empresa',
+    precio: 'S/ 1200',
     periodicidad: 'Mensual',
     cancelada: false,
     fechaRenovacion: renovacion.toLocaleDateString('es-PE'),
@@ -26,8 +26,8 @@ function generarFacturacionDefault(): FacturacionMock {
     stripeCustomerId: null,
     stripeSubscriptionId: null,
     facturas: [
-      { id: generateId(), fecha: facturaMesPasado.toLocaleDateString('es-PE'), total: '$150.00', estado: 'Pagado' },
-      { id: generateId(), fecha: facturaDosMeses.toLocaleDateString('es-PE'), total: '$150.00', estado: 'Pagado' },
+      { id: generateId(), fecha: facturaMesPasado.toLocaleDateString('es-PE'), total: 'S/ 1200.00', estado: 'Pagado' },
+      { id: generateId(), fecha: facturaDosMeses.toLocaleDateString('es-PE'), total: 'S/ 1200.00', estado: 'Pagado' },
     ],
     addons: {},
   };

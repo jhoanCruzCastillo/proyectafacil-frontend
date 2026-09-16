@@ -4,6 +4,7 @@ import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faXmark, faMinus, faPlus, faCartShopping } from '@/lib/icons';
 import { useFacturacionQuery } from '@/composables/useFacturacion';
 import { useCheckoutAddon } from '@/composables/usePagos';
+import { useSessionStore } from '@/stores/session';
 import { useUiStore } from '@/stores/ui';
 import type { AddOn } from '@/types';
 
@@ -16,11 +17,17 @@ const props = defineProps<{
 const emit = defineEmits<{ close: [] }>();
 
 const ui = useUiStore();
+const session = useSessionStore();
 // El modal queda montado siempre en la página que lo usa (isOpen solo lo muestra/oculta) — sin
 // este guard, la consulta de facturación se dispara apenas se monta la página, aunque el modal
 // nunca se haya abierto. Eso auto-asigna un plan de muestra la primera vez que se consulta
-// (FacturacionController::crearDefault()) — ver el mismo guard en UserMenu.vue.
-const { data: facturacionData } = useFacturacionQuery(() => (props.isOpen ? props.usuarioId : ''));
+// (FacturacionController::crearDefault()) — ver el mismo guard en UserMenu.vue. Cliente sin
+// membresía: tampoco consultar al abrir (Contratar Live suelto no debe regalar Nivel 1).
+const { data: facturacionData } = useFacturacionQuery(() => {
+  if (!props.isOpen || !props.usuarioId) return '';
+  if (session.sesion?.rol === 'cliente' && session.sesion.tienePlan === false) return '';
+  return props.usuarioId;
+});
 const checkoutAddon = useCheckoutAddon();
 const cantidad = ref(1);
 

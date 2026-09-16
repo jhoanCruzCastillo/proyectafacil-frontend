@@ -11,9 +11,9 @@ import IntervencionManualModal from './IntervencionManualModal.vue';
 import CrearReunionManualModal from './CrearReunionManualModal.vue';
 import { useDashboardAsesoriaQuery, useTicketsAsesoriaQuery } from '@/composables/useTicketsAsesoria';
 import { ESTADO_ASESORIA_LABEL, ESTADO_ASESORIA_CLASE } from '@/lib/estadoAsesoria';
-import { etiquetaDocenteFalsa, claseCategoria, codigoTicketFalso } from '@/lib/ticketsDemoFake';
+import { etiquetaDocenteFalsa, claseCategoria } from '@/lib/ticketsDemoFake';
 import { progresoSla } from '@/lib/tiempoRelativo';
-import { formatFechaHoraVideo, etiquetaCategoriaConsulta } from '@/lib/consultaAsesorUI';
+import { formatFechaHoraVideo, etiquetaCategoriaConsulta, codigoTicket } from '@/lib/consultaAsesorUI';
 import type { EstadoSolicitudAsesoria, SolicitudAsesoria } from '@/types';
 
 type Tab = 'todos' | 'pendiente' | 'agendado' | 'completado' | 'cancelado' | 'vencido' | 'observado';
@@ -57,7 +57,8 @@ const ticketsBuscados = computed(() => {
   return ticketsFiltrados.value.filter((t) => (
     (t.clienteNombre ?? '').toLowerCase().includes(q)
     || (t.docenteNombre ?? '').toLowerCase().includes(q)
-    || codigoTicketFalso(t.id).toLowerCase().includes(q)
+    || codigoTicket(t).toLowerCase().includes(q)
+    || t.id.toLowerCase().includes(q)
   ));
 });
 
@@ -214,7 +215,7 @@ function slaDe(t: SolicitudAsesoria) {
         </thead>
         <tbody>
           <tr v-for="t in ticketsPagina" :key="t.id" class="border-b border-gray-200 last:border-b-0">
-            <td class="py-4 px-4 font-mono text-xs whitespace-nowrap" :class="slaDe(t).vencido ? 'text-red-600 font-semibold' : 'text-heading'">{{ codigoTicketFalso(t.id) }}</td>
+            <td class="py-4 px-4 font-mono text-xs whitespace-nowrap" :class="slaDe(t).vencido ? 'text-red-600 font-semibold' : 'text-heading'">{{ codigoTicket(t) }}</td>
             <td class="py-4 px-4 text-heading whitespace-nowrap">
               <div class="flex items-center gap-2">
                 <Avatar :nombre="t.clienteNombre ?? '?'" :fotoUrl="t.clienteFotoUrl" size="w-7 h-7" />

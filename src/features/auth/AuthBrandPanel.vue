@@ -23,10 +23,10 @@ const BENEFICIOS = [
 
 <template>
   <aside class="auth-brand-panel relative hidden lg:flex flex-col justify-between w-[46%] min-h-screen text-white p-10 xl:p-14 overflow-hidden">
-    <div class="relative z-10 flex items-center gap-3">
-      <img :src="logoIcono" alt="" class="w-12 h-12 object-contain shrink-0 rounded-full" />
+    <div class="relative z-10 flex items-center gap-3.5">
+      <img :src="logoIcono" alt="" class="w-16 h-16 object-contain shrink-0 rounded-full" />
       <div>
-        <p class="font-heading font-semibold text-xl leading-tight">
+        <p class="font-heading font-semibold text-3xl leading-tight">
           <span class="text-white">Proyecta</span><span class="text-brand-400">Fácil</span>
         </p>
         <p class="text-[10px] text-white/55 leading-tight mt-0.5">Proyectos de Inversión y Asesorías · by ILPIIE</p>

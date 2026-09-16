@@ -9,8 +9,8 @@ import LoadingSpinner from '@/components/LoadingSpinner.vue';
 import { useTicketDetalleQuery, useCancelarTicketAdmin, useCompletarVideoAdmin } from '@/composables/useTicketsAsesoria';
 import { useUiStore } from '@/stores/ui';
 import { ESTADO_ASESORIA_LABEL, ESTADO_ASESORIA_CLASE } from '@/lib/estadoAsesoria';
-import { codigoTicketFalso, nivelFalso, estadoNotificacionFalso } from '@/lib/ticketsDemoFake';
-import { puedeCompletarAsesoria, etiquetaCategoriaConsulta } from '@/lib/consultaAsesorUI';
+import { nivelFalso, estadoNotificacionFalso } from '@/lib/ticketsDemoFake';
+import { puedeCompletarAsesoria, etiquetaCategoriaConsulta, codigoTicket } from '@/lib/consultaAsesorUI';
 
 const props = defineProps<{ isOpen: boolean; ticketId: string | null }>();
 const emit = defineEmits<{ close: [] }>();
@@ -104,7 +104,7 @@ async function confirmarCancelar() {
               <div class="w-9 h-9 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center shrink-0">
                 <FontAwesomeIcon :icon="faListCheck" class="w-4 h-4" />
               </div>
-              <h2 class="text-lg font-bold text-heading">{{ ticketId ? codigoTicketFalso(ticketId) : '' }}</h2>
+              <h2 class="text-lg font-bold text-heading">{{ ticket ? codigoTicket(ticket) : ticketId ? codigoTicket({ id: ticketId }) : '' }}</h2>
               <span v-if="ticket" class="px-2.5 py-1 rounded-full text-[11px] font-medium" :class="ESTADO_ASESORIA_CLASE[ticket.estado]">
                 {{ ESTADO_ASESORIA_LABEL[ticket.estado] }}
               </span>

@@ -8,17 +8,18 @@ export function numeroNivelDe(planId: string): number {
   return planes.find((p) => p.id === planId)?.numeroNivel ?? 1;
 }
 
-export function esPlanEntrenamiento(planId: string): boolean {
-  return numeroNivelDe(planId) === 0;
+export function esPlanEntrenamiento(_planId: string): boolean {
+  // Ya no hay plan pedagógico: los 3 niveles son membresías mensuales (Profesional /
+  // Consultora-Empresa / Gobierno). Se deja la función para no romper las pantallas que
+  // todavía mencionan el modo entrenamiento; nunca aplica.
+  return false;
 }
 
-// Cupo de fichas simultáneas: ejercicios de práctica en Nivel 0, proyectos reales en Nivel 1+.
-// El add-on "Plantilla adicional" (nivelesDisponibles: [1,2]) solo aplica fuera del Nivel 0 —
-// el plan de entrenamiento no vende cupos extra, ver features de `planes.ts`.
+// Cupo de fichas simultáneas del plan + add-on "Plantilla adicional".
 export function limiteFichasSimultaneas(facturacion: FacturacionMock): number {
   const plan = planes.find((p) => p.id === facturacion.planId);
   const base = plan?.limiteFichasBase ?? 3;
-  const extra = esPlanEntrenamiento(facturacion.planId) ? 0 : (facturacion.addons?.['plantilla-adicional'] ?? 0);
+  const extra = facturacion.addons?.['plantilla-adicional'] ?? 0;
   return base + extra;
 }
 
@@ -49,7 +50,7 @@ export function diasRestantesEntrenamiento(facturacion: FacturacionMock): number
   return Math.max(0, Math.ceil(restante / (1000 * 60 * 60 * 24)));
 }
 
-// Histórico de cambios en fichas llenadas: ventaja exclusiva del plan Nivel 2 (Premium).
+// Histórico de cambios en fichas llenadas: ventaja del Nivel 2 (Gobierno Regional / Local).
 export const NIVEL_HISTORIAL = 2;
 export function puedeVerHistorial(numeroNivel: number): boolean {
   return numeroNivel >= NIVEL_HISTORIAL;

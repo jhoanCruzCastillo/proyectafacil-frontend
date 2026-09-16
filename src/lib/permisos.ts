@@ -23,13 +23,17 @@ export function puedeAccederGestionUsuarios(rol: RolUsuario): boolean {
   return rol === 'superusuario' || rol === 'administrador';
 }
 
-// "Proyectos de Inversión con IA" (Formatos/Fichas técnicas/IOARR/Perfiles) es de pago o solo para
-// alumnos vigentes — pedido explícito del cliente: quien solo quiere asesoría puntual ve la opción
-// pero bloqueada. "ILPIIE Live" (asesorías chat/video) queda libre para cualquier cliente, sin
-// regla propia — no cambia. Función única para que router (guard), Sidebar (candado) y la portada
-// de entrada consulten exactamente la misma condición.
+// "Proyectos de Inversión con IA" (Formatos/Fichas técnicas/IOARR/Perfiles) se "adquiere" con plan
+// o alumno vigente. Quien no lo tiene ve candado, pero SÍ puede entrar (el candado es visual).
+// Función única para router, Sidebar y portada. "ILPIIE Live" se adquiere al tener al menos una
+// ficha de chat/video — ver tieneServicioIlpiieLive.
 export function puedeAccederProyectosIA(sesion: Sesion): boolean {
   return sesion.tienePlan || sesion.alumnoVigente;
+}
+
+/** Ya compró o recibió al menos una ficha de chat/video (plan o consultoría 1 a 1). */
+export function tieneServicioIlpiieLive(tickets: Array<{ id: string }> | undefined): boolean {
+  return (tickets ?? []).length > 0;
 }
 
 // La "cuenta" bajo la que se guardan/ven las fichas de un cliente: si el usuario en sesión es un

@@ -483,7 +483,7 @@ export interface FacturaMock {
   estado: EstadoFactura;
 }
 
-// Catálogo de planes por nivel (Nivel 0 Pedagógico, Nivel 1 Profesional, Nivel 2 Premium).
+// Catálogo de planes por nivel (0 Profesional, 1 Consultora/Empresa, 2 Gobierno Regional/Local).
 export interface Plan {
   id: string;
   numeroNivel: number;
@@ -491,14 +491,13 @@ export interface Plan {
   precio: number;
   periodicidad: string;
   features: string[];
-  /** Cantidad base de fichas simultáneas permitidas (ejercicios en Nivel 0, proyectos reales en Nivel 1+),
-   * antes de sumar el add-on "Plantilla adicional". */
+  /** Cantidad base de fichas simultáneas permitidas, antes de sumar el add-on "Plantilla adicional". */
   limiteFichasBase: number;
   /** Cantidad base de consultas de asesoría 1:1 con un docente incluidas en el plan, antes de sumar
    * el add-on "Consultoría 1 a 1" (cada unidad comprada = 1 consulta extra). */
   limiteConsultasBase: number;
   /** Cantidad de usuarios (titular + colaboradores) incluidos en el plan, antes de sumar el add-on
-   * "Usuario adicional". Nivel 0 y 1 solo incluyen al titular (1); Nivel 2 incluye hasta 3. */
+   * "Usuario adicional". */
   limiteUsuariosBase: number;
 }
 

@@ -7,7 +7,9 @@ import UserMenu from '@/features/settings/UserMenu.vue';
 import MejorarPlanCard from '@/features/settings/MejorarPlanCard.vue';
 import NotificacionesBell from '@/features/asesoria/NotificacionesBell.vue';
 import { useSessionStore } from '@/stores/session';
-import { puedeAccederGestionUsuarios, puedeAccederProyectosIA } from '@/lib/permisos';
+import { cuentaEfectivaDe, puedeAccederGestionUsuarios, puedeAccederProyectosIA, tieneServicioIlpiieLive } from '@/lib/permisos';
+import { useUsuariosQuery } from '@/composables/useUsuarios';
+import { useTicketsConsultaQuery } from '@/composables/useTicketsConsulta';
 import { useIsDesktop, SIDEBAR_WIDTH, SIDEBAR_WIDTH_COLLAPSED } from '@/composables/useViewport';
 import logoIcono from '@/assets/logo-icono.png';
 
@@ -15,6 +17,15 @@ const session = useSessionStore();
 const route = useRoute();
 const esCliente = computed(() => session.sesion?.rol === 'cliente');
 const esAsesor = computed(() => session.sesion?.rol === 'asesor');
+
+const { data: usuariosData } = useUsuariosQuery();
+const cuentaIdTickets = computed(() => {
+  if (!session.sesion || session.sesion.rol !== 'cliente') return '';
+  return cuentaEfectivaDe(usuariosData.value ?? [], session.sesion);
+});
+const { data: ticketsConsulta } = useTicketsConsultaQuery(cuentaIdTickets);
+const tieneIlpiieLive = computed(() => tieneServicioIlpiieLive(ticketsConsulta.value));
+const tieneProyectosIA = computed(() => !!(session.sesion && puedeAccederProyectosIA(session.sesion)));
 
 interface NavLink { to: string; label: string; icon: typeof faHouse; locked?: boolean }
 // Un ítem del menú es un link directo (trae `to`) o un grupo desplegable (trae `children`,
@@ -24,7 +35,7 @@ interface NavLink { to: string; label: string; icon: typeof faHouse; locked?: bo
 // lo hace visible de entrada en vez de un rebote silencioso). `accent`: identidad visual del grupo
 // desplegable (fondo, borde, título, indicadores de los hijos) — pedido explícito del cliente para
 // distinguir "ILPIIE Live" (rojo) de "Proyectos de Inversión con IA" (verde).
-interface NavItem { to?: string; label: string; icon: typeof faHouse; children?: NavLink[]; locked?: boolean; accent?: 'red' | 'green' }
+interface NavItem { to?: string; label: string; icon: typeof faHouse; children?: NavLink[]; locked?: boolean; showLock?: boolean; accent?: 'red' | 'green' | 'gray' }
 
 // "Gestión de fichas": agrupa Formatos/Fichas técnicas/IOARR/Perfiles bajo un solo desplegable —
 // mismos 4 instrumentos, dos ubicaciones distintas (cliente en la raíz, catálogo del superusuario
@@ -46,18 +57,16 @@ function grupoGestionFichas(prefijo: string): NavItem {
 const navItems = computed(() => {
   let items: NavItem[];
   if (esCliente.value) {
-    // "Proyectos de Inversión con IA" es de pago o solo para alumnos vigentes — pedido explícito
-    // del cliente: quien no tiene ninguna de las dos cosas lo ve bloqueado acá (candado, sin
-    // navegación) en vez de un rebote silencioso al hacer clic. "ILPIIE Live" (antes "Asesorías en
-    // vivo") queda libre para cualquier cliente, sin cambios — ver RUTAS_SIN_PLAN en
-    // router/index.ts y puedeAccederProyectosIA en lib/permisos.ts (misma regla en los tres lados).
+    // Candado + gris hasta que el cliente compre el servicio; el color de marca (verde / rojo)
+    // aparece recién al adquirirlo. El grupo se abre y se puede entrar igual.
     items = [
       { to: '/inicio', label: 'Inicio', icon: faHouse },
-      { ...grupoGestionFichas(''), locked: !(session.sesion && puedeAccederProyectosIA(session.sesion)) },
+      { ...grupoGestionFichas(''), showLock: !tieneProyectosIA.value, accent: tieneProyectosIA.value ? 'green' : 'gray' },
       {
         label: 'ILPIIE Live',
         icon: faHeadset,
-        accent: 'red',
+        accent: tieneIlpiieLive.value ? 'red' : 'gray',
+        showLock: !tieneIlpiieLive.value,
         children: [
           { to: '/asesorias/chat', label: 'Por chat', icon: faComments },
           { to: '/asesorias/videollamada', label: 'Por videollamada', icon: faVideo },
@@ -119,6 +128,71 @@ function grupoActivo(item: NavItem): boolean {
 
 function hijoActivo(to: string): boolean {
   return route.path === to || route.path.startsWith(`${to}/`);
+}
+
+function claseBotonGrupo(item: NavItem): string {
+  const activo = grupoActivo(item);
+  if (item.accent === 'red') {
+    return activo
+      ? 'border-red-500 bg-red-600/35 hover:bg-red-600/40'
+      : 'border-red-500 bg-red-500/[0.08] hover:bg-red-500/15';
+  }
+  if (item.accent === 'green') {
+    return activo
+      ? 'border-brand-500 bg-brand-600/35 hover:bg-brand-600/40'
+      : 'border-brand-500 bg-brand-500/[0.08] hover:bg-brand-500/15';
+  }
+  return activo
+    ? 'border-slate-500 bg-white/10 hover:bg-white/12'
+    : 'border-slate-600 bg-white/[0.04] hover:bg-white/[0.07]';
+}
+
+function claseTituloGrupo(item: NavItem): string {
+  const activo = grupoActivo(item);
+  if (item.accent === 'red') return activo ? 'font-bold text-red-200' : 'font-bold text-red-300';
+  if (item.accent === 'green') return activo ? 'font-semibold text-text-primary' : 'font-semibold text-brand-300';
+  return activo ? 'font-semibold text-slate-200' : 'font-semibold text-slate-400';
+}
+
+function claseChevronGrupo(item: NavItem): string {
+  if (item.accent === 'red') return 'text-red-300';
+  if (item.accent === 'green') return 'text-brand-300';
+  return 'text-slate-500';
+}
+
+function strokeIconoGrupo(item: NavItem): string {
+  if (item.accent === 'red') return '#ef4444';
+  if (item.accent === 'green') return '#22c55e';
+  return '#94a3b8';
+}
+
+function strokeCandadoPi(item: NavItem): string {
+  return item.accent === 'green' ? '#4ade80' : '#94a3b8';
+}
+
+function fillCandadoPi(item: NavItem): string {
+  return item.accent === 'green' ? '#22c55e' : '#94a3b8';
+}
+
+function claseHijo(item: NavItem, to: string): string {
+  if (!hijoActivo(to)) return 'border-slate-600 text-slate-400 hover:text-slate-200';
+  if (item.accent === 'red') return 'border-red-500 bg-red-600/45 text-red-50 font-semibold';
+  if (item.accent === 'green') return 'border-brand-500 bg-brand-600/45 text-white font-semibold';
+  return 'border-slate-400 bg-white/10 text-slate-200 font-semibold';
+}
+
+function claseNodoHijo(item: NavItem, to: string): string {
+  if (!hijoActivo(to)) return 'bg-slate-600';
+  if (item.accent === 'red') return 'bg-red-500';
+  if (item.accent === 'green') return 'bg-brand-500';
+  return 'bg-slate-400';
+}
+
+function strokeHijo(item: NavItem, to: string): string {
+  if (!hijoActivo(to)) return '#94a3b8';
+  if (item.accent === 'red') return '#fca5a5';
+  if (item.accent === 'green') return '#86efac';
+  return '#cbd5e1';
 }
 
 const props = defineProps<{
@@ -228,50 +302,53 @@ const colapsadoEfectivo = computed(() => isDesktop.value && !!props.collapsed);
                 @click="toggleGrupo(item.label)"
                 type="button"
                 class="flex items-center gap-3 px-4 py-2.5 text-[13.5px] transition-colors border-l-[3px] rounded-none -mx-3 w-[calc(100%+1.5rem)]"
-                :class="item.accent === 'red'
-                  ? (grupoActivo(item)
-                    ? 'border-red-500 bg-red-600/35 hover:bg-red-600/40'
-                    : 'border-red-500 bg-red-500/[0.08] hover:bg-red-500/15')
-                  : (grupoActivo(item)
-                    ? 'border-brand-500 bg-brand-600/35 hover:bg-brand-600/40'
-                    : 'border-brand-500 bg-brand-500/[0.08] hover:bg-brand-500/15')"
+                :class="claseBotonGrupo(item)"
               >
                 <!-- Íconos del mock ILPIIE LIVE (HTML Kimi): candado-en-documento / auriculares. -->
-                <span v-if="item.accent === 'red'" class="relative shrink-0 inline-flex">
-                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <span v-if="item.label === 'ILPIIE Live'" class="relative shrink-0 inline-flex">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" :stroke="strokeIconoGrupo(item)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M3 18v-6a9 9 0 0118 0v6" />
                     <path d="M21 19a2 2 0 01-2 2h-1a2 2 0 01-2-2v-3a2 2 0 012-2h3zM3 19a2 2 0 002 2h1a2 2 0 002-2v-3a2 2 0 00-2-2H3z" />
                   </svg>
-                  <span class="live-pulse-dot absolute -top-0.5 -right-1 w-2 h-2 bg-red-500 rounded-full" />
+                  <span
+                    class="absolute -top-0.5 -right-1 w-2 h-2 rounded-full"
+                    :class="item.accent === 'red' ? 'bg-red-500 live-pulse-dot' : 'bg-slate-500'"
+                  />
                 </span>
-                <svg v-else width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0">
+                <svg v-else width="22" height="22" viewBox="0 0 24 24" fill="none" :stroke="strokeIconoGrupo(item)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0">
                   <path d="M14.5 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V7.5L14.5 2z" />
                   <polyline points="14 2 14 8 20 8" />
-                  <rect x="8" y="13" width="8" height="5" rx="1" stroke="#4ade80" stroke-width="1.5" />
-                  <path d="M10 13v-1a2 2 0 014 0v1" stroke="#4ade80" stroke-width="1.5" />
-                  <circle cx="12" cy="15.5" r="0.8" fill="#22c55e" stroke="none" />
+                  <rect x="8" y="13" width="8" height="5" rx="1" :stroke="strokeCandadoPi(item)" stroke-width="1.5" />
+                  <path d="M10 13v-1a2 2 0 014 0v1" :stroke="strokeCandadoPi(item)" stroke-width="1.5" />
+                  <circle cx="12" cy="15.5" r="0.8" :fill="fillCandadoPi(item)" stroke="none" />
                 </svg>
 
                 <span
                   class="flex-1 text-left leading-snug"
-                  :class="item.accent === 'red'
-                    ? (grupoActivo(item) ? 'font-bold text-red-200' : 'font-bold text-red-300')
-                    : (grupoActivo(item) ? 'font-semibold text-text-primary' : 'font-semibold text-brand-300')"
+                  :class="claseTituloGrupo(item)"
                 >
                   {{ item.label }}
                 </span>
 
                 <span
-                  v-if="item.accent === 'red'"
-                  class="text-[9px] font-bold tracking-wide bg-red-500 text-white px-1.5 py-0.5 rounded shrink-0"
+                  v-if="item.label === 'ILPIIE Live'"
+                  class="text-[9px] font-bold tracking-wide px-1.5 py-0.5 rounded shrink-0"
+                  :class="item.accent === 'red' ? 'bg-red-500 text-white' : 'bg-slate-600 text-slate-300'"
                 >
                   LIVE
                 </span>
 
                 <FontAwesomeIcon
+                  v-if="item.showLock"
+                  :icon="faLock"
+                  class="w-3 h-3 text-white/35 shrink-0"
+                  title="Aún no has adquirido este beneficio"
+                />
+
+                <FontAwesomeIcon
                   :icon="gruposAbiertos.has(item.label) ? faChevronUp : faChevronDown"
                   class="w-3 h-3 shrink-0"
-                  :class="item.accent === 'red' ? 'text-red-300' : 'text-brand-300'"
+                  :class="claseChevronGrupo(item)"
                 />
               </button>
 
@@ -287,38 +364,30 @@ const colapsadoEfectivo = computed(() => isDesktop.value && !!props.collapsed);
                   <a
                     :href="href"
                     class="relative flex items-center gap-2.5 py-[7px] pl-3.5 border-l-[1.5px] text-[12.5px] transition-colors"
-                    :class="[
-                      hijoActivo(child.to)
-                        ? (item.accent === 'red'
-                          ? 'border-red-500 bg-red-600/45 text-red-50 font-semibold'
-                          : 'border-brand-500 bg-brand-600/45 text-white font-semibold')
-                        : 'border-slate-600 text-slate-400 hover:text-slate-200',
-                    ]"
+                    :class="claseHijo(item, child.to)"
                     @click="navigate"
                   >
                     <span
                       class="absolute -left-[3.5px] top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full shrink-0"
-                      :class="hijoActivo(child.to)
-                        ? (item.accent === 'red' ? 'bg-red-500' : 'bg-brand-500')
-                        : 'bg-slate-600'"
+                      :class="claseNodoHijo(item, child.to)"
                     />
-                    <!-- Íconos hijos del mock (stroke slate; más claros si selected) -->
-                    <svg v-if="child.label === 'Formatos'" width="16" height="16" viewBox="0 0 24 24" fill="none" :stroke="hijoActivo(child.to) ? '#86efac' : '#94a3b8'" stroke-width="2" stroke-linecap="round" class="shrink-0">
+                    <!-- Íconos hijos del mock (stroke slate; más claros si selected). -->
+                    <svg v-if="child.label === 'Formatos'" width="16" height="16" viewBox="0 0 24 24" fill="none" :stroke="strokeHijo(item, child.to)" stroke-width="2" stroke-linecap="round" class="shrink-0">
                       <path d="M14.5 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V7.5L14.5 2z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><line x1="10" y1="9" x2="8" y2="9" />
                     </svg>
-                    <svg v-else-if="child.label === 'Fichas técnicas'" width="16" height="16" viewBox="0 0 24 24" fill="none" :stroke="hijoActivo(child.to) ? '#86efac' : '#94a3b8'" stroke-width="2" stroke-linecap="round" class="shrink-0">
+                    <svg v-else-if="child.label === 'Fichas técnicas'" width="16" height="16" viewBox="0 0 24 24" fill="none" :stroke="strokeHijo(item, child.to)" stroke-width="2" stroke-linecap="round" class="shrink-0">
                       <path d="M14.5 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V7.5L14.5 2z" /><polyline points="14 2 14 8 20 8" /><path d="M8 13h2l1-2 2 4 1-2h2" />
                     </svg>
-                    <svg v-else-if="child.label === 'IOARR'" width="16" height="16" viewBox="0 0 24 24" fill="none" :stroke="hijoActivo(child.to) ? '#86efac' : '#94a3b8'" stroke-width="2" stroke-linecap="round" class="shrink-0">
+                    <svg v-else-if="child.label === 'IOARR'" width="16" height="16" viewBox="0 0 24 24" fill="none" :stroke="strokeHijo(item, child.to)" stroke-width="2" stroke-linecap="round" class="shrink-0">
                       <circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z" />
                     </svg>
-                    <svg v-else-if="child.label === 'Perfiles'" width="16" height="16" viewBox="0 0 24 24" fill="none" :stroke="hijoActivo(child.to) ? '#86efac' : '#94a3b8'" stroke-width="2" stroke-linecap="round" class="shrink-0">
+                    <svg v-else-if="child.label === 'Perfiles'" width="16" height="16" viewBox="0 0 24 24" fill="none" :stroke="strokeHijo(item, child.to)" stroke-width="2" stroke-linecap="round" class="shrink-0">
                       <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" /><circle cx="12" cy="7" r="4" />
                     </svg>
-                    <svg v-else-if="child.label === 'Por chat'" width="16" height="16" viewBox="0 0 24 24" fill="none" :stroke="hijoActivo(child.to) ? '#fca5a5' : '#94a3b8'" stroke-width="2" stroke-linecap="round" class="shrink-0">
+                    <svg v-else-if="child.label === 'Por chat'" width="16" height="16" viewBox="0 0 24 24" fill="none" :stroke="strokeHijo(item, child.to)" stroke-width="2" stroke-linecap="round" class="shrink-0">
                       <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
                     </svg>
-                    <svg v-else-if="child.label === 'Por videollamada'" width="16" height="16" viewBox="0 0 24 24" fill="none" :stroke="hijoActivo(child.to) ? '#fca5a5' : '#94a3b8'" stroke-width="2" stroke-linecap="round" class="shrink-0">
+                    <svg v-else-if="child.label === 'Por videollamada'" width="16" height="16" viewBox="0 0 24 24" fill="none" :stroke="strokeHijo(item, child.to)" stroke-width="2" stroke-linecap="round" class="shrink-0">
                       <path d="M23 7l-7 5 7 5V7z" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
                     </svg>
                     <FontAwesomeIcon v-else :icon="child.icon" class="w-3.5 text-center shrink-0 text-slate-400" />

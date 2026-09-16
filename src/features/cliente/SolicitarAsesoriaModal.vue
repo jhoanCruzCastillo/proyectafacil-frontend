@@ -55,6 +55,7 @@ const temasExpandidos = ref<Set<string>>(new Set());
 const busqueda = ref('');
 const duda = ref('');
 const enviando = ref(false);
+const errorEnvio = ref('');
 // `loteOffset` pagina de a 7 días (0 = el lote que arranca hoy, 1 = los 7 siguientes, …) — no
 // puede ir negativo, esas fechas ya pasaron y no se pueden agendar. `diaOffset` es la pestaña
 // seleccionada DENTRO del lote visible (0-6).
@@ -70,6 +71,7 @@ function reset() {
   temasExpandidos.value = new Set();
   busqueda.value = '';
   duda.value = '';
+  errorEnvio.value = '';
   loteOffset.value = 0;
   diaOffset.value = 0;
   horarioElegido.value = null;
@@ -187,6 +189,7 @@ async function enviarSolicitud(horario?: { fecha: string; horaInicio: string; ho
   const ids = Array.from(subtemaIdsSeleccionados.value);
   if (!session.sesion || !tipo.value || ids.length === 0) return;
   enviando.value = true;
+  errorEnvio.value = '';
   try {
     const solicitud = await crearSolicitud.mutateAsync({
       clienteId: session.sesion.usuarioId,
@@ -200,6 +203,8 @@ async function enviarSolicitud(horario?: { fecha: string; horaInicio: string; ho
     });
     reset();
     emit('creada', solicitud);
+  } catch (e) {
+    errorEnvio.value = e instanceof Error ? e.message : 'No se pudo enviar la consulta. Inténtalo de nuevo.';
   } finally {
     enviando.value = false;
   }
@@ -378,12 +383,12 @@ function confirmarHorario() {
                 :title="fichasVideo.length === 0 ? 'No tienes fichas de videoconferencia disponibles' : undefined"
                 class="p-5 rounded-xl border border-gray-200 hover:border-brand-500 hover:bg-brand-50/50 transition-colors text-center disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-gray-200 disabled:hover:bg-transparent"
               >
-                <div class="w-12 h-12 mx-auto rounded-full bg-violet-100 text-violet-600 flex items-center justify-center mb-3">
+                <div class="w-12 h-12 mx-auto rounded-full bg-red-100 text-red-600 flex items-center justify-center mb-3">
                   <FontAwesomeIcon :icon="faVideo" class="w-5 h-5" />
                 </div>
                 <p class="font-semibold text-heading text-sm">Por videollamada</p>
                 <p class="text-xs text-muted mt-1">Agenda un horario y conéctate en vivo con un asesor.</p>
-                <p class="text-[11px] font-medium mt-2" :class="fichasVideo.length > 0 ? 'text-violet-600' : 'text-red-500'">
+                <p class="text-[11px] font-medium mt-2" :class="fichasVideo.length > 0 ? 'text-red-600' : 'text-red-500'">
                   {{ fichasVideo.length }} ficha{{ fichasVideo.length === 1 ? '' : 's' }} disponible{{ fichasVideo.length === 1 ? '' : 's' }}<template v-if="duracionVideo"> · {{ duracionVideo }} min</template>
                 </p>
               </button>
@@ -527,6 +532,7 @@ function confirmarHorario() {
                     placeholder="Explica qué necesitas, en qué parte estás atascado y cualquier dato que le sirva al asesor..."
                     class="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 resize-none"
                   />
+                  <p v-if="errorEnvio" class="text-xs text-red-600">{{ errorEnvio }}</p>
                 </div>
               </div>
 
@@ -597,6 +603,7 @@ function confirmarHorario() {
                 </button>
               </div>
 
+              <p v-if="errorEnvio" class="text-xs text-red-600">{{ errorEnvio }}</p>
               <button
                 @click="confirmarHorario"
                 :disabled="!horarioElegido || enviando"

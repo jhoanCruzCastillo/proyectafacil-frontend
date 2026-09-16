@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faTriangleExclamation, faSpinner } from '@/lib/icons';
+import { codigoTicket } from '@/lib/consultaAsesorUI';
 
 // Fricción intencional para una acción destructiva poco frecuente (docs/proyectafacil-asesorias.md
 // §4 Fase 4): el admin debe escribir literalmente "CANCELAR-{ticketId}" antes de poder confirmar.
@@ -36,7 +37,7 @@ function handleCancel() {
               <FontAwesomeIcon :icon="faTriangleExclamation" class="w-4 h-4" />
             </div>
             <div class="flex-1">
-              <h2 class="text-lg font-bold text-heading mb-1">Cancelar ticket #{{ ticketId }}</h2>
+              <h2 class="text-lg font-bold text-heading mb-1">Cancelar ticket {{ codigoTicket({ id: ticketId }) }}</h2>
               <p class="text-sm text-muted leading-relaxed">
                 Esta acción cancela la solicitud y libera la consulta del alumno de vuelta a su saldo disponible. No se puede deshacer.
               </p>

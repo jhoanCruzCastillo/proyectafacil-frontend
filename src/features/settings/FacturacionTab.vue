@@ -92,7 +92,7 @@ async function handleEliminarColaborador() {
       <div class="flex items-center justify-between">
         <div>
           <p class="text-sm font-medium text-heading">{{ facturacionData.plan }}</p>
-          <p class="text-xs text-muted">${{ plan.precio }} · {{ facturacionData.periodicidad }}</p>
+          <p class="text-xs text-muted">S/ {{ plan.precio }} · {{ facturacionData.periodicidad }}</p>
         </div>
         <button @click="showPlanes = true" type="button" class="px-4 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors duration-75">
           Ajustar plan
@@ -101,15 +101,15 @@ async function handleEliminarColaborador() {
       <div v-if="totalMensual !== plan.precio" class="mt-3 px-3 py-2 rounded-lg bg-gray-50 text-xs text-gray-600 space-y-1">
         <div class="flex justify-between">
           <span>{{ plan.nombre }} (base)</span>
-          <span>${{ plan.precio }}</span>
+          <span>S/ {{ plan.precio }}</span>
         </div>
         <div v-for="a in addOns.filter((x) => x.recurrente && (facturacionData!.addons?.[x.id] ?? 0) > 0)" :key="a.id" class="flex justify-between">
           <span>{{ facturacionData!.addons![a.id] }} × {{ a.nombre }}</span>
-          <span>${{ facturacionData!.addons![a.id] * a.precio }}</span>
+          <span>S/ {{ facturacionData!.addons![a.id] * a.precio }}</span>
         </div>
         <div class="flex justify-between font-semibold text-heading pt-1 border-t border-gray-200">
           <span>Total por periodo</span>
-          <span>${{ totalMensual }}</span>
+          <span>S/ {{ totalMensual }}</span>
         </div>
       </div>
     </div>

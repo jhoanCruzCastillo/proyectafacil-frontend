@@ -33,6 +33,13 @@ export function etiquetaCategoriaConsulta(s: {
   return s.subtemaNombre ?? s.temaNombre ?? s.sectorNombre ?? '—';
 }
 
+/** Código público del ticket: el id real de la solicitud, no un número inventado. */
+export function codigoTicket(s: { id: string; creadoEn?: string | null }): string {
+  const parsed = s.creadoEn ? new Date(s.creadoEn).getFullYear() : NaN;
+  const year = Number.isFinite(parsed) ? parsed : new Date().getFullYear();
+  return `TKT-${year}-${String(s.id).padStart(4, '0')}`;
+}
+
 export function horaAmPm(hhmm: string): string {
   const [h, m] = hhmm.split(':').map(Number);
   const periodo = h >= 12 ? 'pm' : 'am';

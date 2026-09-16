@@ -7,7 +7,7 @@ import DetalleSesionAsesoria from '@/features/asesoria/DetalleSesionAsesoria.vue
 import { useTicketDetalleQuery, useHistorialConexionQuery, useGrabacionesQuery } from '@/composables/useTicketsAsesoria';
 import { useMensajesQuery } from '@/composables/useAsesoria';
 import { ESTADO_ASESORIA_LABEL } from '@/lib/estadoAsesoria';
-import { codigoTicketFalso } from '@/lib/ticketsDemoFake';
+import { codigoTicket } from '@/lib/consultaAsesorUI';
 
 // Modal de detalle para tickets completados u observados (ambos ya tuvieron una sesión real) —
 // diseño aparte del genérico (TicketDetalleModal) porque acá sí hay contenido real de la sesión
@@ -49,7 +49,7 @@ const { data: grabaciones } = useGrabacionesQuery(() => (esVideo.value ? props.t
               <div class="w-9 h-9 rounded-lg bg-white/15 text-white flex items-center justify-center shrink-0">
                 <FontAwesomeIcon :icon="faListCheck" class="w-4 h-4" />
               </div>
-              <h2 class="text-lg font-bold text-white">{{ ticketId ? codigoTicketFalso(ticketId) : '' }}</h2>
+              <h2 class="text-lg font-bold text-white">{{ ticket ? codigoTicket(ticket) : ticketId ? codigoTicket({ id: ticketId }) : '' }}</h2>
               <span v-if="ticket" class="px-2.5 py-1 rounded-full text-[11px] font-medium bg-emerald-400/20 text-emerald-50">
                 {{ ESTADO_ASESORIA_LABEL[ticket.estado] }}
               </span>

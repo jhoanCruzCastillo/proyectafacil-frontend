@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faComments, faVideo, faCalendarDays } from '@/lib/icons';
-import { colorCategoria, formatFechaHoraVideo, etiquetaCategoriaConsulta } from '@/lib/consultaAsesorUI';
+import { colorCategoria, formatFechaHoraVideo, etiquetaCategoriaConsulta, codigoTicket } from '@/lib/consultaAsesorUI';
 import { ESTADO_ASESORIA_LABEL as ESTADO_LABEL, ESTADO_ASESORIA_CLASE as ESTADO_CLASE } from '@/lib/estadoAsesoria';
 import type { SolicitudAsesoria } from '@/types';
 
@@ -21,7 +21,7 @@ defineProps<{ solicitud: SolicitudAsesoria }>();
         </div>
         <div>
           <p class="text-xs text-muted">Ticket N.°</p>
-          <p class="font-semibold text-heading text-sm">#{{ solicitud.id }}</p>
+          <p class="font-semibold text-heading text-sm font-mono">{{ codigoTicket(solicitud) }}</p>
         </div>
       </div>
       <div>

@@ -7,7 +7,7 @@ import Avatar from '@/components/Avatar.vue';
 import LoadingSpinner from '@/components/LoadingSpinner.vue';
 import { useDocentesDisponiblesQuery, useAsignarTicket, useMarcarEnEspera, useReabrirHorario, useCancelarTicketAdmin } from '@/composables/useTicketsAsesoria';
 import { useUiStore } from '@/stores/ui';
-import { colorCategoria } from '@/lib/consultaAsesorUI';
+import { colorCategoria, codigoTicket } from '@/lib/consultaAsesorUI';
 import type { SolicitudAsesoria } from '@/types';
 
 const props = defineProps<{ isOpen: boolean; ticket: SolicitudAsesoria | null }>();
@@ -80,7 +80,7 @@ async function confirmarCancelar() {
                     El horario <span class="font-semibold text-heading">{{ horarioLegible }}</span> venció sin respuesta.
                   </template>
                   <template v-else>
-                    El ticket <span class="font-semibold text-heading">#{{ ticket.id }}</span> venció sin respuesta.
+                    El ticket <span class="font-semibold text-heading">{{ codigoTicket(ticket) }}</span> venció sin respuesta.
                   </template>
                   <br />
                   Asigna manualmente un docente disponible.
