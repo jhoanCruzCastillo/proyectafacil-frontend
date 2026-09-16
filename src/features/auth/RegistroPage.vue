@@ -3,11 +3,13 @@ import { computed, onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import {
-  faUser, faLock, faEye, faEyeSlash, faCircleExclamation, faCheck,
+  faUser, faLock, faEye, faEyeSlash, faCircleExclamation, faCheck, faXmark,
   faChevronLeft, faChevronRight, faShieldHalved, faEnvelope, faUserPlus,
+  faGraduationCap, faBriefcase, faBook, faGlobe,
 } from '@/lib/icons';
 import { sectorIcons } from '@/lib/icons';
 import { authApi } from '@/api/auth';
+import logo from '@/assets/logo.png';
 
 interface SectorPublico {
   id: string;
@@ -26,6 +28,9 @@ const PREFERENCIAS = [
   'Alumno de otro curso',
   'Público en general',
 ];
+// Manual de diseño v1.0, Figura 6: "tarjetas-radio con icono ilustrado (birrete, maletín, libro,
+// globo)" — un ícono por cada una de las 4 preferencias reales de arriba, en el mismo orden.
+const PREFERENCIA_ICONOS = [faGraduationCap, faBriefcase, faBook, faGlobe];
 
 const paso = ref<1 | 2 | 3>(1);
 const nombre = ref('');
@@ -51,6 +56,31 @@ onMounted(async () => {
   }
 });
 
+// Manual de diseño v1.0, Figura 6: validación en línea por campo (borde + check/X + mensaje) en
+// vez de un único banner de error arriba. `*Tocado` evita marcar en rojo un campo vacío que el
+// usuario todavía no llegó a escribir.
+const nombreTocado = ref(false);
+const correoTocado = ref(false);
+const passwordTocado = ref(false);
+const confirmarTocado = ref(false);
+
+const nombreValido = computed(() => nombre.value.trim().length > 0);
+const correoValido = computed(() => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(correo.value.trim()));
+const passwordValida = computed(() => password.value.length >= 8);
+const confirmarValida = computed(() => confirmarPassword.value.length > 0 && confirmarPassword.value === password.value);
+
+// Fortaleza real de la contraseña — 4 criterios concretos (no una estimación inventada): cada
+// segmento del indicador corresponde a uno que sí se cumple o no.
+const criteriosPassword = computed(() => [
+  password.value.length >= 8,
+  /[A-Z]/.test(password.value),
+  /[0-9]/.test(password.value),
+  /[^A-Za-z0-9]/.test(password.value),
+]);
+const fortalezaNivel = computed(() => criteriosPassword.value.filter(Boolean).length);
+const FORTALEZA_LABEL = ['Muy débil', 'Débil', 'Regular', 'Buena', 'Fuerte'];
+const fortalezaTexto = computed(() => FORTALEZA_LABEL[fortalezaNivel.value]);
+
 function toggleSector(id: string) {
   const next = new Set(sectorIdsSeleccionados.value);
   if (next.has(id)) next.delete(id);
@@ -69,6 +99,10 @@ function validarPaso1(): string {
 }
 
 function irAPaso2() {
+  nombreTocado.value = true;
+  correoTocado.value = true;
+  passwordTocado.value = true;
+  confirmarTocado.value = true;
   const msg = validarPaso1();
   if (msg) {
     error.value = msg;
@@ -119,21 +153,33 @@ async function crearCuenta() {
       <div class="absolute inset-0 bg-black/5 pointer-events-none" />
 
       <div class="relative flex items-center gap-3">
-        <div class="w-10 h-10 rounded-lg bg-brand-600 flex items-center justify-center font-bold">P</div>
+        <img :src="logo" alt="" class="w-10 h-10 object-contain shrink-0" />
         <div>
-          <div class="font-bold leading-tight">Proyecta Fácil</div>
+          <div class="font-heading font-semibold leading-tight"><span class="text-white">Proyecta</span><span class="text-brand-400">Fácil</span></div>
           <div class="text-xs text-white/60 leading-tight">Editor de plantillas</div>
         </div>
       </div>
 
       <div class="relative">
-        <h1 class="text-3xl font-bold leading-snug mb-4">
+        <h1 class="font-heading font-semibold text-3xl leading-snug mb-4">
           Únete a Proyecta Fácil y empieza a transformar tus proyectos
         </h1>
-        <p class="text-white/70 text-sm leading-relaxed max-w-md">
+        <p class="text-white/70 text-sm leading-relaxed max-w-md mb-6">
           Crea tu cuenta para acceder a plantillas, fichas técnicas e IOARR diseñadas para la
           inversión pública.
         </p>
+        <ul class="space-y-3 max-w-md">
+          <li v-for="beneficio in [
+            'Plantillas oficiales listas para llenar con ayuda de IA',
+            'Asesoría en vivo con especialistas del ILPIIE',
+            'Sigue el progreso de todos tus proyectos en un solo lugar',
+          ]" :key="beneficio" class="flex items-start gap-2.5 text-sm text-white/80">
+            <span class="w-5 h-5 rounded-full bg-brand-600 flex items-center justify-center shrink-0 mt-0.5">
+              <FontAwesomeIcon :icon="faCheck" class="w-2.5 h-2.5 text-white" />
+            </span>
+            {{ beneficio }}
+          </li>
+        </ul>
       </div>
 
       <p class="relative text-[11px] text-white/40">
@@ -163,14 +209,14 @@ async function crearCuenta() {
             <div class="flex items-center gap-2">
               <div
                 class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold"
-                :class="paso > i + 1 ? 'bg-brand-600 text-white' : paso === i + 1 ? 'bg-brand-600 text-white' : 'bg-gray-200 text-gray-500'"
+                :class="paso > i + 1 ? 'bg-brand-600 text-white' : paso === i + 1 ? 'bg-brand-600 text-white' : 'bg-gray-300 text-gray-500'"
               >
                 <FontAwesomeIcon v-if="paso > i + 1" :icon="faCheck" class="w-2.5 h-2.5" />
                 <template v-else>{{ i + 1 }}</template>
               </div>
               <span class="text-xs font-medium" :class="paso === i + 1 ? 'text-heading' : 'text-muted'">{{ etiqueta }}</span>
             </div>
-            <div v-if="i < 2" class="w-8 h-px" :class="paso > i + 1 ? 'bg-brand-600' : 'bg-gray-200'" />
+            <div v-if="i < 2" class="w-8 h-px" :class="paso > i + 1 ? 'bg-brand-600' : 'bg-gray-300'" />
           </template>
         </div>
 
@@ -186,26 +232,44 @@ async function crearCuenta() {
             <p class="text-sm text-muted mb-6">Completa la información para comenzar</p>
 
             <label class="block text-sm font-medium text-heading mb-1.5">Nombre completo</label>
-            <div class="relative mb-4">
+            <div class="relative mb-1">
               <FontAwesomeIcon :icon="faUser" class="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-              <input v-model="nombre" type="text" placeholder="Ej. Juan Carlos Pérez López" autofocus
-                class="w-full pl-10 pr-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500" />
+              <input
+                v-model="nombre" type="text" placeholder="Ej. Juan Carlos Pérez López" autofocus
+                @blur="nombreTocado = true"
+                class="w-full pl-10 pr-9 py-2.5 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+                :class="nombreTocado ? (nombreValido ? 'border-brand-600' : 'border-red-500') : 'border-gray-200 focus:border-brand-500'"
+              />
+              <FontAwesomeIcon v-if="nombreTocado" :icon="nombreValido ? faCheck : faXmark" class="absolute right-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5" :class="nombreValido ? 'text-brand-600' : 'text-red-500'" />
             </div>
+            <p v-if="nombreTocado && !nombreValido" class="text-sm text-red-600 mb-3">Escribe tu nombre completo.</p>
+            <div v-else class="mb-3" />
 
             <label class="block text-sm font-medium text-heading mb-1.5">Correo electrónico</label>
-            <div class="relative mb-4">
+            <div class="relative mb-1">
               <FontAwesomeIcon :icon="faEnvelope" class="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-              <input v-model="correo" type="email" placeholder="ejemplo@correo.com"
-                class="w-full pl-10 pr-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500" />
+              <input
+                v-model="correo" type="email" placeholder="ejemplo@correo.com"
+                @blur="correoTocado = true"
+                class="w-full pl-10 pr-9 py-2.5 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+                :class="correoTocado ? (correoValido ? 'border-brand-600' : 'border-red-500') : 'border-gray-200 focus:border-brand-500'"
+              />
+              <FontAwesomeIcon v-if="correoTocado" :icon="correoValido ? faCheck : faXmark" class="absolute right-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5" :class="correoValido ? 'text-brand-600' : 'text-red-500'" />
             </div>
+            <p v-if="correoTocado && !correoValido" class="text-sm text-red-600 mb-3">Ingresa un correo válido.</p>
+            <div v-else class="mb-3" />
 
-            <div class="grid grid-cols-2 gap-3 mb-4">
+            <div class="grid grid-cols-2 gap-3 mb-1">
               <div>
                 <label class="block text-sm font-medium text-heading mb-1.5">Contraseña</label>
                 <div class="relative">
                   <FontAwesomeIcon :icon="faLock" class="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                  <input v-model="password" :type="mostrarPassword ? 'text' : 'password'" placeholder="Mínimo 8 caracteres"
-                    class="w-full pl-10 pr-9 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500" />
+                  <input
+                    v-model="password" :type="mostrarPassword ? 'text' : 'password'" placeholder="Mínimo 8 caracteres"
+                    @blur="passwordTocado = true"
+                    class="w-full pl-10 pr-9 py-2.5 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+                    :class="passwordTocado ? (passwordValida ? 'border-brand-600' : 'border-red-500') : 'border-gray-200 focus:border-brand-500'"
+                  />
                   <button type="button" @click="mostrarPassword = !mostrarPassword" class="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-md flex items-center justify-center text-gray-400 hover:text-gray-600">
                     <FontAwesomeIcon :icon="mostrarPassword ? faEyeSlash : faEye" class="w-3.5 h-3.5" />
                   </button>
@@ -215,20 +279,43 @@ async function crearCuenta() {
                 <label class="block text-sm font-medium text-heading mb-1.5">Confirmar contraseña</label>
                 <div class="relative">
                   <FontAwesomeIcon :icon="faLock" class="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                  <input v-model="confirmarPassword" :type="mostrarConfirmar ? 'text' : 'password'" placeholder="Repite tu contraseña"
-                    class="w-full pl-10 pr-9 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500" />
+                  <input
+                    v-model="confirmarPassword" :type="mostrarConfirmar ? 'text' : 'password'" placeholder="Repite tu contraseña"
+                    @blur="confirmarTocado = true"
+                    class="w-full pl-10 pr-9 py-2.5 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+                    :class="confirmarTocado ? (confirmarValida ? 'border-brand-600' : 'border-red-500') : 'border-gray-200 focus:border-brand-500'"
+                  />
                   <button type="button" @click="mostrarConfirmar = !mostrarConfirmar" class="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-md flex items-center justify-center text-gray-400 hover:text-gray-600">
                     <FontAwesomeIcon :icon="mostrarConfirmar ? faEyeSlash : faEye" class="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>
             </div>
+            <div class="grid grid-cols-2 gap-3 mb-1">
+              <p v-if="passwordTocado && !passwordValida" class="text-sm text-red-600">Mínimo 8 caracteres.</p>
+              <p v-else-if="password" class="text-xs text-muted">Fortaleza: {{ fortalezaTexto }}</p>
+              <p v-else />
+              <p v-if="confirmarTocado && !confirmarValida" class="text-sm text-red-600">Las contraseñas no coinciden.</p>
+            </div>
+            <!-- Indicador de fortaleza — 4 segmentos, uno por criterio real cumplido (longitud,
+                 mayúscula, número, símbolo), no una estimación inventada. -->
+            <div v-if="password" class="flex gap-1 mb-6">
+              <span v-for="n in 4" :key="n" class="h-1 flex-1 rounded-full" :class="n <= fortalezaNivel ? (fortalezaNivel >= 3 ? 'bg-brand-500' : 'bg-red-400') : 'bg-gray-200'" />
+            </div>
+            <div v-else class="mb-6" />
 
             <label class="block text-sm font-medium text-heading mb-2">¿Cuál de estas te describe mejor?</label>
-            <div class="space-y-2 mb-6">
-              <label v-for="p in PREFERENCIAS" :key="p" class="flex items-center gap-2.5 px-3 py-2 rounded-lg border border-gray-200 cursor-pointer hover:bg-gray-50 has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50/50">
-                <input v-model="preferencia" type="radio" :value="p" class="text-brand-600 focus:ring-brand-300" />
-                <span class="text-sm text-heading">{{ p }}</span>
+            <div class="grid grid-cols-2 gap-2 mb-6">
+              <label
+                v-for="(p, i) in PREFERENCIAS" :key="p"
+                class="flex flex-col gap-1.5 p-3 rounded-xl border cursor-pointer transition-colors duration-75"
+                :class="preferencia === p ? 'border-brand-600 bg-brand-50' : 'border-gray-200 hover:bg-gray-50'"
+              >
+                <input v-model="preferencia" type="radio" :value="p" class="sr-only" />
+                <div class="w-7 h-7 rounded-full flex items-center justify-center" :class="preferencia === p ? 'bg-brand-100 text-brand-600' : 'bg-gray-100 text-gray-500'">
+                  <FontAwesomeIcon :icon="PREFERENCIA_ICONOS[i]" class="w-3.5 h-3.5" />
+                </div>
+                <span class="text-xs font-medium text-heading leading-tight">{{ p }}</span>
               </label>
             </div>
 
@@ -237,7 +324,7 @@ async function crearCuenta() {
               <FontAwesomeIcon :icon="faChevronRight" class="w-3.5 h-3.5" />
             </button>
             <p class="text-sm text-center text-muted mt-4">
-              ¿Ya tienes una cuenta? <RouterLink :to="{ name: 'login' }" class="font-medium text-brand-600 hover:text-brand-700">Iniciar sesión</RouterLink>
+              ¿Ya tienes una cuenta? <RouterLink :to="{ name: 'login' }" class="font-medium text-primary-hover hover:text-brand-700">Iniciar sesión</RouterLink>
             </p>
           </form>
 
@@ -343,7 +430,7 @@ async function crearCuenta() {
 
         <div class="flex items-start gap-2.5 mt-4 px-1">
           <FontAwesomeIcon :icon="faShieldHalved" class="w-4 h-4 text-muted mt-0.5 shrink-0" />
-          <p class="text-[11px] text-muted leading-relaxed">
+          <p class="text-[13px] text-muted leading-relaxed">
             Tu información está protegida. Usamos cifrado y buenas prácticas de seguridad para
             proteger tus datos personales.
           </p>

@@ -7,7 +7,7 @@ import MejorarPlanCard from '@/features/settings/MejorarPlanCard.vue';
 import NotificacionesBell from '@/features/asesoria/NotificacionesBell.vue';
 import { useSessionStore } from '@/stores/session';
 import { puedeAccederGestionUsuarios, puedeAccederProyectosIA } from '@/lib/permisos';
-import logo from '@/assets/logo.png';
+import logoIcono from '@/assets/logo-icono.png';
 
 const session = useSessionStore();
 const esCliente = computed(() => session.sesion?.rol === 'cliente');
@@ -113,7 +113,7 @@ const emit = defineEmits<{ toggle: [] }>();
 <template>
   <aside
     class="fixed left-0 top-0 bottom-0 bg-sidebar text-white flex flex-col z-40 transition-[width] duration-150 ease-out overflow-x-hidden"
-    :class="collapsed ? 'w-16' : 'w-56'"
+    :class="collapsed ? 'w-16' : 'w-[300px]'"
   >
     <div
       class="flex items-center border-b border-white/10"
@@ -122,23 +122,23 @@ const emit = defineEmits<{ toggle: [] }>();
       <!-- Colapsado: el botón de expandir vive superpuesto sobre el logo, oculto hasta el hover
            del mismo hueco — así el header no gana una fila extra ni empuja la navegación hacia
            abajo (antes el botón se apilaba debajo del logo). -->
-      <div v-if="collapsed" class="relative w-9 h-9 shrink-0 group">
-        <img :src="logo" alt="" class="w-9 h-9 object-contain absolute inset-0 transition-opacity duration-100 group-hover:opacity-0" />
+      <div v-if="collapsed" class="relative w-[60px] h-[60px] shrink-0 group">
+        <img :src="logoIcono" alt="" class="w-[60px] h-[60px] object-contain absolute inset-0 transition-opacity duration-100 group-hover:opacity-0" />
         <button
           @click="emit('toggle')"
-          class="absolute inset-0 w-9 h-9 rounded-md flex items-center justify-center text-white/50 hover:text-white hover:bg-sidebar-hover transition-opacity duration-100 opacity-0 group-hover:opacity-100"
+          class="absolute inset-0 w-[60px] h-[60px] rounded-md flex items-center justify-center text-white/50 hover:text-white hover:bg-sidebar-hover transition-opacity duration-100 opacity-0 group-hover:opacity-100"
           title="Expandir menú"
         >
           <FontAwesomeIcon :icon="faAnglesRight" class="w-3.5 h-3.5" />
         </button>
       </div>
       <template v-else>
-        <img :src="logo" alt="" class="w-9 h-9 object-contain shrink-0" />
+        <img :src="logoIcono" alt="" class="w-[60px] h-[60px] object-contain shrink-0" />
         <div class="flex-1 min-w-0">
-          <div class="font-bold text-sm leading-tight">
+          <div class="font-heading font-semibold text-2xl leading-tight">
             <span class="text-white">Proyecta</span><span class="text-brand-400">Fácil</span>
           </div>
-          <div class="text-[11px] text-white/50 leading-tight">Editor de plantillas</div>
+          <div class="text-xs text-dark-muted leading-tight line-clamp-2" title="Proyectos de Inversión y Asesorías -by ILPIIE">Proyectos de Inversión y Asesorías -by ILPIIE</div>
         </div>
         <button
           @click="emit('toggle')"
@@ -229,10 +229,10 @@ const emit = defineEmits<{ toggle: [] }>();
                     @click="navigate"
                     class="relative flex items-center gap-2.5 pl-4 pr-3 py-2 rounded-lg text-sm transition-colors"
                     :class="isExactActive
-                      ? (item.accent === 'red' ? 'bg-gradient-to-r from-red-600/15 to-red-600 text-white shadow-card font-semibold' : 'bg-gradient-to-r from-brand-600/15 to-brand-600 text-white shadow-card font-semibold')
+                      ? (item.accent === 'red' ? 'bg-danger-dim text-text-primary font-semibold' : 'bg-primary-dim text-text-primary font-semibold')
                       : 'text-white/60 hover:bg-sidebar-hover hover:text-white'"
                   >
-                    <span v-if="isExactActive" class="absolute left-0 top-1 bottom-1 w-1 rounded-full" :class="item.accent === 'red' ? 'bg-red-300' : 'bg-brand-300'" />
+                    <span v-if="isExactActive" class="absolute left-0 top-1 bottom-1 w-1 rounded-full" :class="item.accent === 'red' ? 'bg-red-400' : 'bg-brand-400'" />
                     <span v-else class="absolute left-0 -translate-x-1/2 w-1.5 h-1.5 rounded-full shrink-0" :class="item.accent === 'red' ? 'bg-red-500' : 'bg-brand-500'" />
                     <FontAwesomeIcon :icon="child.icon" class="w-3.5 text-center shrink-0" />
                     <span class="flex-1">{{ child.label }}</span>
@@ -264,11 +264,11 @@ const emit = defineEmits<{ toggle: [] }>();
                 :title="collapsed ? item.label : undefined"
                 class="relative flex items-center px-3 py-2.5 rounded-lg text-sm font-medium transition-colors"
                 :class="[
-                  isExactActive ? 'bg-gradient-to-r from-brand-600/15 to-brand-600 text-white shadow-card font-semibold' : 'text-white/65 hover:bg-sidebar-hover hover:text-white',
+                  isExactActive ? 'bg-primary-dim text-text-primary font-semibold' : 'text-white/65 hover:bg-sidebar-hover hover:text-white',
                   collapsed ? 'justify-center px-0' : 'gap-3',
                 ]"
               >
-                <span v-if="isExactActive && !collapsed" class="absolute left-0 top-1 bottom-1 w-1 rounded-full bg-brand-300" />
+                <span v-if="isExactActive && !collapsed" class="absolute left-0 top-1 bottom-1 w-1 rounded-full bg-brand-400" />
                 <FontAwesomeIcon :icon="item.icon" class="w-4 text-center shrink-0" />
                 <span v-if="!collapsed" class="flex-1">{{ item.label }}</span>
               </a>

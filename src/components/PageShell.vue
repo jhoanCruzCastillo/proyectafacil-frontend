@@ -55,7 +55,7 @@ withDefaults(
         class="relative overflow-hidden"
         :class="headerFullBleed
           ? ['-mx-6 sm:-mx-8 -mt-6 sm:-mt-8', headerClass]
-          : ['rounded-2xl', headerClass ?? ['bg-glass border border-glass-border', compact ? 'p-4 sm:p-5' : 'p-6 sm:p-8']]"
+          : ['rounded-2xl', headerClass ?? ['bg-sidebar border border-navy-700 shadow-dark', compact ? 'p-4 sm:p-5' : 'p-6 sm:p-8']]"
       >
         <!-- Decoración opcional (íconos flotantes, ilustraciones) detrás del contenido — una
              página la usa cuando quiere una cabecera más vistosa; sin este slot, PageShell se ve
@@ -77,9 +77,9 @@ withDefaults(
                   <FontAwesomeIcon :icon="icon!" :class="compact ? 'w-4 h-4' : 'w-5 h-5'" />
                 </slot>
               </div>
-              <h1 class="font-bold text-white" :class="titleClass ?? (compact ? 'text-lg sm:text-xl' : 'text-2xl sm:text-3xl')">{{ title }}</h1>
+              <h1 class="font-heading font-semibold text-text-primary" :class="titleClass ?? (compact ? 'text-lg sm:text-xl' : 'text-3xl sm:text-4xl')">{{ title }}</h1>
             </div>
-            <p v-if="description" class="text-white/60 max-w-xl" :class="descriptionClass ?? (compact ? 'mt-1 text-xs' : 'mt-2 text-sm')">{{ description }}</p>
+            <p v-if="description" class="text-dark-muted max-w-xl" :class="descriptionClass ?? (compact ? 'mt-1 text-xs' : 'mt-2 text-sm')">{{ description }}</p>
             <div class="rounded-full bg-brand-500" :class="compact ? 'mt-2 h-0.5 w-8' : 'mt-3 h-1 w-10'" />
           </div>
           <div v-if="$slots.actions" class="flex items-center gap-3 shrink-0">

@@ -6,6 +6,7 @@ import { faUser, faLock, faEye, faEyeSlash, faRightToBracket, faCircleExclamatio
 import { useSessionStore } from '@/stores/session';
 import { useUiStore } from '@/stores/ui';
 import { rolUsuarioLabels } from '@/lib/icons';
+import logo from '@/assets/logo.png';
 
 const session = useSessionStore();
 const ui = useUiStore();
@@ -74,15 +75,15 @@ async function handleSubmit() {
       <div class="absolute inset-0 bg-black/5 pointer-events-none" />
 
       <div class="relative flex items-center gap-3">
-        <div class="w-10 h-10 rounded-lg bg-brand-600 flex items-center justify-center font-bold">P</div>
+        <img :src="logo" alt="" class="w-10 h-10 object-contain shrink-0" />
         <div>
-          <div class="font-bold leading-tight">Proyecta Fácil</div>
+          <div class="font-heading font-semibold leading-tight"><span class="text-white">Proyecta</span><span class="text-brand-400">Fácil</span></div>
           <div class="text-xs text-white/60 leading-tight">Editor de plantillas</div>
         </div>
       </div>
 
       <div class="relative">
-        <h1 class="text-3xl font-bold leading-snug mb-4">
+        <h1 class="font-heading font-semibold text-3xl leading-snug mb-4">
           Plantillas digitales para la inversión pública
         </h1>
         <p class="text-white/70 text-sm leading-relaxed max-w-md">
@@ -99,10 +100,8 @@ async function handleSubmit() {
 
     <div class="flex-1 flex items-center justify-center p-6">
       <form @submit.prevent="handleSubmit" class="w-full max-w-sm bg-surface-card rounded-2xl shadow-card p-8">
-        <div class="lg:hidden w-10 h-10 rounded-lg bg-brand-600 flex items-center justify-center font-bold text-white mb-4">
-          P
-        </div>
-        <h2 class="text-xl font-bold text-heading mb-1">Iniciar sesión</h2>
+        <img :src="logo" alt="" class="lg:hidden w-10 h-10 object-contain mb-4" />
+        <h2 class="font-heading font-semibold text-xl text-heading mb-1">Iniciar sesión</h2>
         <p class="text-sm text-muted mb-6">Ingresa tus credenciales. Tu rol se detecta automáticamente.</p>
 
         <div v-if="esDev" class="mb-5">

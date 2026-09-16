@@ -101,7 +101,7 @@ onMounted(async () => {
 
     <main
       class="min-h-screen transition-[margin-left] duration-150 ease-out"
-      :class="ui.sidebarCollapsed ? 'ml-16' : 'ml-56'"
+      :class="ui.sidebarCollapsed ? 'ml-16' : 'ml-[300px]'"
     >
       <RouterView />
     </main>
@@ -111,7 +111,7 @@ onMounted(async () => {
     <div
       v-if="chatsEnCursoSinAbrir.length > 0"
       class="fixed bottom-6 z-30 flex flex-col-reverse gap-3 transition-[left] duration-150 ease-out"
-      :class="ui.sidebarCollapsed ? 'left-[76px]' : 'left-[236px]'"
+      :class="ui.sidebarCollapsed ? 'left-[76px]' : 'left-[312px]'"
     >
       <button
         v-for="s in chatsEnCursoSinAbrir"
