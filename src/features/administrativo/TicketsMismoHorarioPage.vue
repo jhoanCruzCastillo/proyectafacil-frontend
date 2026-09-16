@@ -4,11 +4,12 @@ import { useRoute } from 'vue-router';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faArrowLeft, faClock, faVideo, faUserGear } from '@/lib/icons';
 import PageShell from '@/components/PageShell.vue';
+import LoadingSpinner from '@/components/LoadingSpinner.vue';
 import IntervencionManualModal from './IntervencionManualModal.vue';
 import Avatar from '@/components/Avatar.vue';
 import { useTicketsMismoHorarioQuery } from '@/composables/useTicketsAsesoria';
 import { tiempoHastaVencer, tiempoRelativo } from '@/lib/tiempoRelativo';
-import { colorCategoria } from '@/lib/consultaAsesorUI';
+import { colorCategoria, etiquetaCategoriaConsulta } from '@/lib/consultaAsesorUI';
 import type { SolicitudAsesoria } from '@/types';
 
 // Fase 2 "caso especial" (docs/proyectafacil-asesorias.md §4): varios alumnos esperando el mismo
@@ -57,7 +58,7 @@ const fechaLegible = computed(() => {
       </span>
     </div>
 
-    <p v-if="isLoading" class="text-sm text-muted">Cargando…</p>
+    <LoadingSpinner v-if="isLoading" />
     <p v-else-if="(tickets ?? []).length === 0" class="text-sm text-muted py-8 text-center">No hay solicitudes pendientes para este horario.</p>
     <div v-else class="space-y-3">
       <div
@@ -70,7 +71,7 @@ const fechaLegible = computed(() => {
           <div class="min-w-0">
             <p class="font-semibold text-heading text-sm truncate">{{ t.clienteNombre }}</p>
             <div class="flex items-center gap-2 mt-1 flex-wrap">
-              <span v-if="t.sectorNombre" class="px-2 py-0.5 rounded-full text-[11px] font-medium" :class="colorCategoria(t.sectorNombre)">{{ t.sectorNombre }}</span>
+              <span v-if="etiquetaCategoriaConsulta(t) !== '—'" class="px-2 py-0.5 rounded-full text-[11px] font-medium" :class="colorCategoria(etiquetaCategoriaConsulta(t))">{{ etiquetaCategoriaConsulta(t) }}</span>
               <span class="text-[11px] text-muted">Solicitado {{ tiempoRelativo(t.creadoEn) }}</span>
             </div>
           </div>

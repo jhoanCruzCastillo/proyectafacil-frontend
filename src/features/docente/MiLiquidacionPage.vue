@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import { faMoneyBillTransfer } from '@/lib/icons';
 import PageShell from '@/components/PageShell.vue';
+import LoadingSpinner from '@/components/LoadingSpinner.vue';
 import LiquidacionKpis from './LiquidacionKpis.vue';
 import LiquidacionHistoricoTab from './LiquidacionHistoricoTab.vue';
 import LiquidacionPendienteTab from './LiquidacionPendienteTab.vue';
@@ -125,7 +126,7 @@ function moverMes(meses: number) {
       </div>
 
       <template v-if="tabActiva === 'historico'">
-        <p v-if="cargandoHistorico || !historico" class="text-sm text-muted py-10 text-center">Cargando…</p>
+        <LoadingSpinner v-if="cargandoHistorico || !historico" wrapper-class="py-10" />
         <LiquidacionHistoricoTab
           v-else
           :datos="historico"
@@ -136,12 +137,12 @@ function moverMes(meses: number) {
       </template>
 
       <template v-else-if="tabActiva === 'pendiente'">
-        <p v-if="cargandoPendiente || !pendiente" class="text-sm text-muted py-10 text-center">Cargando…</p>
+        <LoadingSpinner v-if="cargandoPendiente || !pendiente" wrapper-class="py-10" />
         <LiquidacionPendienteTab v-else :datos="pendiente" />
       </template>
 
       <template v-else>
-        <p v-if="cargandoMes || !mes" class="text-sm text-muted py-10 text-center">Cargando…</p>
+        <LoadingSpinner v-if="cargandoMes || !mes" wrapper-class="py-10" />
         <LiquidacionMesTab v-else :datos="mes" @mover="moverMes" />
       </template>
     </div>

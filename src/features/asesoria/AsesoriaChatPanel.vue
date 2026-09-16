@@ -200,16 +200,18 @@ function handleEnter(e: KeyboardEvent) {
   if (e.key === 'Enter') enviar();
 }
 
-async function handleFinalizar() {
-  finalizando.value = true;
-  await finalizarSolicitud.mutateAsync(solicitudId.value);
-  finalizando.value = false;
-  emit('finalizada');
-}
-
 async function confirmarFinalizar() {
-  mostrarConfirmarFinalizar.value = false;
-  await handleFinalizar();
+  if (finalizando.value) return;
+  finalizando.value = true;
+  try {
+    await finalizarSolicitud.mutateAsync(solicitudId.value);
+    mostrarConfirmarFinalizar.value = false;
+    emit('finalizada');
+  } catch {
+    // Mantener el modal abierto si falla la mutación.
+  } finally {
+    finalizando.value = false;
+  }
 }
 
 function adjuntarPendiente(file: File) {
@@ -503,6 +505,8 @@ const mensajesConDivisor = computed(() => {
     title="¿Finalizar esta asesoría?"
     message="Se marcará la consulta como completada y ya no podrán seguir escribiéndose por este chat. Esta acción no se puede deshacer."
     confirm-label="Sí, finalizar"
+    :loading="finalizando"
+    loading-label="Finalizando…"
     @confirm="confirmarFinalizar"
     @close="mostrarConfirmarFinalizar = false"
   />

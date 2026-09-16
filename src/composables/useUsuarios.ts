@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
+import { type MaybeRefOrGetter, toValue } from 'vue';
 import { usuariosApi } from '@/api/usuarios';
-import type { Usuario } from '@/types';
+import type { AsignarBeneficiosPayload, Usuario } from '@/types';
 
 export function useUsuariosQuery() {
   return useQuery({
@@ -43,5 +44,27 @@ export function useEnviarAccesosDirecto() {
   return useMutation({
     mutationFn: ({ id, password }: { id: string; password: string }) =>
       usuariosApi.enviarAccesosDirecto(id, password),
+  });
+}
+
+export function useBeneficiosAsignadosQuery(usuarioId: MaybeRefOrGetter<string>) {
+  return useQuery({
+    queryKey: ['usuarios', 'beneficios-asignados', usuarioId],
+    queryFn: () => usuariosApi.beneficiosAsignados(toValue(usuarioId)),
+    enabled: () => !!toValue(usuarioId),
+    refetchOnWindowFocus: false,
+  });
+}
+
+export function useAsignarBeneficios() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: AsignarBeneficiosPayload }) =>
+      usuariosApi.asignarBeneficios(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['usuarios', 'beneficios-asignados'] });
+      queryClient.invalidateQueries({ queryKey: ['facturacion'] });
+      queryClient.invalidateQueries({ queryKey: ['tickets-consulta'] });
+    },
   });
 }

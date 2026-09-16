@@ -63,7 +63,7 @@ function ejeCorto(v: number): string {
     No atendiste consultas en este periodo.
   </p>
 
-  <div v-else class="rounded-xl border border-gray-200 overflow-hidden">
+  <div v-else class="rounded-xl border border-gray-200 overflow-hidden overflow-x-auto">
     <table class="w-full text-sm border-collapse">
       <thead>
         <tr class="text-left text-xs font-semibold text-gray-600 bg-gray-50 border-b border-gray-200">

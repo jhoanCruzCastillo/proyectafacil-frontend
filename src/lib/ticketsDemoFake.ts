@@ -4,6 +4,7 @@
 // valores mientras dure la sesión del navegador), salvo el conteo regresivo del SLA que sí avanza
 // de verdad con el reloj.
 import { planes } from '@/data/planes';
+import { codigoTicket } from '@/lib/consultaAsesorUI';
 
 function hashSeed(texto: string): number {
   let h = 0;
@@ -34,12 +35,9 @@ const ETIQUETAS_DOCENTE = [
   'Cancelado por alumno',
 ];
 
-// Código de ticket con formato "TKT-2026-1045", estable por ticket, para mostrar en vez del id
-// interno de la BD — cosmético, no se guarda en ningún lado.
+/** @deprecated Usar `codigoTicket()` — el código ya no se inventa, sale del id real. */
 export function codigoTicketFalso(ticketId: string): string {
-  const rnd = crearPseudoAleatorio(hashSeed(ticketId) + 2);
-  const numero = 1000 + Math.floor(rnd() * 9000);
-  return `TKT-${new Date().getFullYear()}-${numero}`;
+  return codigoTicket({ id: ticketId });
 }
 
 export function etiquetaDocenteFalsa(ticketId: string): string {

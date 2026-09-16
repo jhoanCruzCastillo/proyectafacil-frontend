@@ -1,21 +1,21 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faChevronDown, faChevronUp, faXmark, faCircleInfo, sectorIcons } from '@/lib/icons';
+import { faChevronDown, faChevronUp, faXmark, faCircleInfo, faSave, sectorIcons } from '@/lib/icons';
 import type { TemaEspecialidad, SubtemaEspecialidad } from '@/types';
 
-// Panel derecho "Tu selección" del bloque "2. Temas de especialidad" — un grupo colapsable por tema
-// con subtemas (sus subtemas marcados como chips removibles) y una fila simple por tema sin
-// subtemas (removible de una). Puramente de presentación: toda la lógica de qué está marcado vive
-// en la página, este componente solo dispara los mismos toggle que ya usa la lista de la izquierda
-// para que ambos paneles queden siempre sincronizados.
+// Panel derecho "Tu selección" — presentación + botón Guardar abajo (pedido: fuera del header
+// de la página, al pie de este panel).
 const props = defineProps<{
   grupos: { sector: TemaEspecialidad; subtemas: SubtemaEspecialidad[] }[];
+  puedeGuardar?: boolean;
+  guardando?: boolean;
 }>();
 
 defineEmits<{
   quitarSector: [sectorId: string];
   quitarSubtema: [subtemaId: string];
+  guardar: [];
 }>();
 
 const colapsados = ref<Set<string>>(new Set());
@@ -110,9 +110,20 @@ function toggleColapsar(sectorId: string) {
       </div>
     </div>
 
-    <div v-if="grupos.length > 0" class="flex items-start gap-2 px-4 py-3 border-t border-gray-100 bg-gray-50/60 rounded-b-xl">
-      <FontAwesomeIcon :icon="faCircleInfo" class="w-3 h-3 text-gray-400 mt-0.5 shrink-0" />
-      <p class="text-[11px] text-muted">Puedes modificar tu selección en cualquier momento.</p>
+    <div class="px-4 py-3 border-t border-gray-100 space-y-3 rounded-b-xl bg-white">
+      <div v-if="grupos.length > 0" class="flex items-start gap-2">
+        <FontAwesomeIcon :icon="faCircleInfo" class="w-3 h-3 text-gray-400 mt-0.5 shrink-0" />
+        <p class="text-[11px] text-muted">Puedes modificar tu selección en cualquier momento.</p>
+      </div>
+      <button
+        type="button"
+        :disabled="!puedeGuardar || guardando"
+        class="w-full px-5 py-2.5 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 disabled:opacity-40 transition-colors flex items-center justify-center gap-2"
+        @click="$emit('guardar')"
+      >
+        <FontAwesomeIcon :icon="faSave" class="w-3.5 h-3.5" />
+        {{ guardando ? 'Guardando...' : 'Guardar cambios' }}
+      </button>
     </div>
   </div>
 </template>

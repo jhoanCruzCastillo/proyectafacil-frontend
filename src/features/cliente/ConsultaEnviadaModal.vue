@@ -2,6 +2,7 @@
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faCheck, faComments, faChevronRight, faXmark } from '@/lib/icons';
 import ResumenSolicitudCard from './ResumenSolicitudCard.vue';
+import { etiquetaCategoriaConsulta } from '@/lib/consultaAsesorUI';
 import type { SolicitudAsesoria } from '@/types';
 
 // Confirmación al enviar una consulta (mockup de referencia del usuario) — reemplaza el cierre
@@ -39,7 +40,7 @@ const emit = defineEmits<{ close: []; verConsultas: [] }>();
 
             <h2 class="text-xl font-bold text-heading">¡Tu consulta fue enviada!</h2>
             <p class="text-sm text-muted mt-1.5 leading-relaxed">
-              Un docente especializado en <span class="text-brand-700 font-semibold">{{ solicitud.sectorNombre ?? 'tu categoría' }}</span>
+              Un docente especializado en <span class="text-brand-700 font-semibold">{{ etiquetaCategoriaConsulta(solicitud) === '—' ? 'tu consulta' : etiquetaCategoriaConsulta(solicitud) }}</span>
               te responderá pronto por {{ solicitud.tipo === 'video' ? 'videollamada' : 'chat' }}.
             </p>
           </div>

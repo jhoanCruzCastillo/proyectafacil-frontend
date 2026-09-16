@@ -1,7 +1,7 @@
 export interface PagosApi {
   /** Arma una Stripe Checkout Session y devuelve la URL a la que hay que redirigir. */
   checkout(usuarioId: string, beneficioId: string): Promise<{ url: string }>;
-  /** Igual que checkout(), para la primera compra de un plan (Nivel 0 pago único, Nivel 1/2 suscripción). */
+  /** Igual que checkout(), para la primera compra de un plan (los 3 niveles son suscripción mensual). */
   checkoutPlan(usuarioId: string, planId: string): Promise<{ url: string }>;
   /** Cambia el plan de una suscripción YA activa (Nivel 1↔2) — instantáneo, sin redirección. */
   cambiarPlan(usuarioId: string, planId: string): Promise<{ ok: true }>;

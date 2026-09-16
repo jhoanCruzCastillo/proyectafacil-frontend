@@ -26,7 +26,7 @@ const tituloAsientos = 'Compra más asientos de "Usuario adicional" para agregar
       Personas que acceden con tu cuenta. Tu plan {{ plan.nombre }} incluye {{ plan.limiteUsuariosBase }}
       <template v-if="asientosComprados > 0"> + {{ asientosComprados }} de "Usuario adicional" comprados</template>.
     </p>
-    <div class="rounded-lg border border-gray-200 overflow-hidden">
+    <div class="rounded-lg border border-gray-200 overflow-hidden overflow-x-auto">
       <table class="w-full text-sm">
         <thead>
           <tr class="bg-gray-50 border-b border-gray-200">

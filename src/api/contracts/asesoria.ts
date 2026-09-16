@@ -3,8 +3,13 @@ import type { SolicitudAsesoria, MensajeAsesoria, TipoAsesoria, TipoDocumento, N
 export interface CrearSolicitudAsesoriaData {
   clienteId: string;
   tipo: TipoAsesoria;
-  sectorId: string;
-  tipoDocumento: TipoDocumento;
+  /** Subtemas ILPIIE elegidos en el selector (uno o varios). */
+  subtemaIds: string[];
+  /** Legacy: un solo subtema. El backend aún lo acepta si no viene `subtemaIds`. */
+  subtemaId?: string;
+  /** Legacy: sector MEF. Las solicitudes nuevas ya no lo envían. */
+  sectorId?: string;
+  tipoDocumento?: TipoDocumento;
   mensajeInicial: string;
   ejemploId?: string;
   /** Solo para tipo 'video' — horario elegido en la grilla agregada */

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
@@ -7,13 +7,14 @@ import {
   faPlus, faPen, faTrash, faShieldHalved, faTags, faUserGear, faUserGroup, faGlobe,
   faGraduationCap, faSearch, faBuilding, faLayerGroup, faHeadset, faEllipsisVertical,
   faIdCard, faClockRotateLeft, faDesktop, faXmark, faEnvelope, faPhone, faCalendarDays,
-  faCheck, faGear, faMobileScreen, faCreditCard, faCalendarCheck, faStar, faComments,
-  faRotate, faGem, faCrown, faBolt, rolUsuarioLabels,
+  faCheck, faGear, faMobileScreen, faCreditCard, faCalendarCheck, faStar, faComments, faVideo,
+  faFileLines, faRotate, faGem, faCrown, faBolt, faChevronLeft, faChevronRight, faAnglesLeft, faAnglesRight,
+  rolUsuarioLabels,
 } from '@/lib/icons';
 import { rolesGestionablesPor } from '@/lib/permisos';
 import { catalogoPermisos, permisosDefaultPorRol } from '@/lib/permisosCatalogo';
 import { useSessionStore } from '@/stores/session';
-import { useUsuariosQuery, useEliminarUsuario, useActualizarUsuario } from '@/composables/useUsuarios';
+import { useUsuariosQuery, useEliminarUsuario, useActualizarUsuario, useBeneficiosAsignadosQuery, useAsignarBeneficios } from '@/composables/useUsuarios';
 import { useTiposUsuarioQuery } from '@/composables/useTiposUsuario';
 import { usePushActividad, useActividadPorActorQuery, useUltimaModificacionPerfilQuery } from '@/composables/useActividad';
 import { useFacturacionQuery, useResumenNivelesQuery } from '@/composables/useFacturacion';
@@ -134,6 +135,52 @@ const lista = computed(() => {
   if (tabActiva.value === 'alumnos') return listaBase.value.filter((u) => u.rol === 'cliente' && u.origen === 'alumno');
   if (tabActiva.value === 'externos') return listaBase.value.filter((u) => u.rol === 'cliente' && u.origen === 'externo');
   return listaBase.value;
+});
+
+// Paginación client-side — mismo patrón que TicketsAsesoria / MisConsultas.
+const PORCIONES = [10, 25, 50];
+const porPagina = ref(10);
+const paginaActual = ref(1);
+
+watch([tabActiva, busqueda], () => {
+  paginaActual.value = 1;
+});
+
+const totalPaginas = computed(() => Math.max(1, Math.ceil(lista.value.length / porPagina.value)));
+
+const listaPaginada = computed(() => {
+  const inicio = (paginaActual.value - 1) * porPagina.value;
+  return lista.value.slice(inicio, inicio + porPagina.value);
+});
+
+const rangoDesde = computed(() => (lista.value.length === 0 ? 0 : (paginaActual.value - 1) * porPagina.value + 1));
+const rangoHasta = computed(() => Math.min(paginaActual.value * porPagina.value, lista.value.length));
+
+const paginasVisibles = computed<(number | '…')[]>(() => {
+  const total = totalPaginas.value;
+  const actual = paginaActual.value;
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+
+  const paginas: (number | '…')[] = [1];
+  if (actual > 3) paginas.push('…');
+  for (let p = Math.max(2, actual - 1); p <= Math.min(total - 1, actual + 1); p++) paginas.push(p);
+  if (actual < total - 2) paginas.push('…');
+  paginas.push(total);
+  return paginas;
+});
+
+function irAPagina(p: number) {
+  paginaActual.value = Math.min(Math.max(1, p), totalPaginas.value);
+}
+
+function cambiarPorPagina(valor: number) {
+  porPagina.value = valor;
+  paginaActual.value = 1;
+}
+
+// Si el filtro deja menos páginas que la actual, volver a una válida.
+watch(totalPaginas, (total) => {
+  if (paginaActual.value > total) paginaActual.value = total;
 });
 
 // Selección — pedido explícito: al entrar a la sección, el primer usuario de la tabla queda
@@ -321,10 +368,77 @@ const diasComoMiembro = computed(() => {
 // titular (mismo criterio que cuentaIdPermisos más arriba) — nunca tiene su propia fila. ---
 const cuentaIdMembresia = computed(() => {
   const u = usuarioSeleccionado.value;
-  return u && u.rol === 'cliente' ? (u.cuentaClienteId ?? u.id) : '';
+  if (!u || u.rol !== 'cliente' || tabDetalleActiva.value !== 'membresia') return '';
+  return u.cuentaClienteId ?? u.id;
 });
 const { data: facturacionMembresia } = useFacturacionQuery(cuentaIdMembresia);
 const planMembresia = computed(() => planes.find((p) => p.id === facturacionMembresia.value?.planId) ?? null);
+
+const clienteIdBeneficios = computed(() => {
+  const u = usuarioSeleccionado.value;
+  return u && u.rol === 'cliente' ? u.id : '';
+});
+const { data: beneficiosAsignados } = useBeneficiosAsignadosQuery(clienteIdBeneficios);
+const asignarBeneficios = useAsignarBeneficios();
+const planForm = ref('');
+const chatForm = ref(0);
+const videoForm = ref(0);
+const plantillasForm = ref(0);
+const guardandoBeneficios = ref(false);
+
+watch(clienteIdBeneficios, () => {
+  chatForm.value = 0;
+  videoForm.value = 0;
+});
+
+watch(beneficiosAsignados, (b) => {
+  if (chatForm.value > 0 || videoForm.value > 0) return;
+  planForm.value = b?.planId ?? '';
+  plantillasForm.value = b?.limitePlantillas ?? 0;
+}, { immediate: true });
+
+function onPlanFormChange() {
+  const p = planes.find((x) => x.id === planForm.value);
+  if (p && plantillasForm.value < p.limiteFichasBase) {
+    plantillasForm.value = p.limiteFichasBase;
+  }
+}
+
+const hayCambiosBeneficios = computed(() => {
+  const b = beneficiosAsignados.value;
+  const planCambio = planForm.value !== '' && planForm.value !== (b?.planId ?? '');
+  const hayPlan = !!(planForm.value || b?.planId);
+  const plantillasCambio = hayPlan && plantillasForm.value !== (b?.limitePlantillas ?? 0);
+  return planCambio || chatForm.value > 0 || videoForm.value > 0 || plantillasCambio;
+});
+
+async function guardarBeneficios() {
+  if (!usuarioSeleccionado.value || !hayCambiosBeneficios.value) return;
+  const b = beneficiosAsignados.value;
+  if (plantillasForm.value !== (b?.limitePlantillas ?? 0) && !planForm.value && !b?.planId) {
+    ui.toast('Elige un plan para poder definir plantillas simultáneas.', 'error');
+    return;
+  }
+  guardandoBeneficios.value = true;
+  try {
+    await asignarBeneficios.mutateAsync({
+      id: usuarioSeleccionado.value.id,
+      data: {
+        planId: planForm.value || undefined,
+        agregarFichasChat: Math.max(0, Number(chatForm.value) || 0),
+        agregarFichasVideo: Math.max(0, Number(videoForm.value) || 0),
+        limitePlantillas: (planForm.value || b?.planId) ? Math.max(0, Number(plantillasForm.value) || 0) : undefined,
+      },
+    });
+    chatForm.value = 0;
+    videoForm.value = 0;
+    ui.toast('Beneficios asignados');
+  } catch (e) {
+    ui.toast(e instanceof Error ? e.message : 'No se pudieron asignar los beneficios', 'error');
+  } finally {
+    guardandoBeneficios.value = false;
+  }
+}
 
 // Sin campo de ícono en el modelo de plan — se asigna uno de un set fijo según el nivel (pedido
 // explícito: "por ahora el ícono será random", sin que cambie en cada refresco/reactividad).
@@ -371,9 +485,40 @@ function formatFechaFactura(fecha: string): string {
 }
 
 const menuAccionAbierto = ref<string | null>(null);
-function toggleMenuAccion(id: string) {
-  menuAccionAbierto.value = menuAccionAbierto.value === id ? null : id;
+const menuAccionUsuario = computed(() => lista.value.find((u) => u.id === menuAccionAbierto.value) ?? null);
+const menuAccionStyle = ref<Record<string, string>>({});
+const menuAccionEl = ref<HTMLElement | null>(null);
+
+// El menú se teletransporta a <body>: el contenedor de la tabla tiene overflow-hidden (para que
+// las esquinas redondeadas recorten los bordes rectos de <table>), así que un dropdown posicionado
+// dentro de él quedaba recortado en vez de flotar por encima. Al vivir fuera, hay que calcular su
+// posición a mano a partir del botón que lo abre.
+function toggleMenuAccion(u: Usuario, event: MouseEvent) {
+  if (menuAccionAbierto.value === u.id) {
+    menuAccionAbierto.value = null;
+    return;
+  }
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+  // Filas cerca del final de la tabla (o de la ventana) no tienen espacio debajo para las 3
+  // opciones del menú — ahí se abre hacia arriba, apoyado en el borde superior del botón, en vez
+  // de hacia abajo donde quedaría fuera de la pantalla sin forma de hacerle scroll.
+  const ALTO_MENU_ESTIMADO = 112;
+  const abrirHaciaArriba = window.innerHeight - rect.bottom < ALTO_MENU_ESTIMADO + 8;
+  menuAccionStyle.value = abrirHaciaArriba
+    ? { bottom: `${window.innerHeight - rect.top + 4}px`, right: `${window.innerWidth - rect.right}px` }
+    : { top: `${rect.bottom + 4}px`, right: `${window.innerWidth - rect.right}px` };
+  menuAccionAbierto.value = u.id;
 }
+function handleClickFueraMenuAccion(e: MouseEvent) {
+  const target = e.target as HTMLElement;
+  if (menuAccionEl.value?.contains(target)) return;
+  // Los botones de 3 puntos de cada fila no son descendientes del menú (viven en la tabla) — sin
+  // esto, hacer clic en uno para abrirlo lo cerraría de inmediato antes de reabrirlo en otra fila.
+  if (target.closest('[data-menu-accion-trigger]')) return;
+  menuAccionAbierto.value = null;
+}
+onMounted(() => document.addEventListener('mousedown', handleClickFueraMenuAccion));
+onUnmounted(() => document.removeEventListener('mousedown', handleClickFueraMenuAccion));
 
 const showModal = ref(false);
 const showRolesModal = ref(false);
@@ -388,7 +533,10 @@ const cuentaIdPermisos = computed(() => {
   return u && u.rol === 'cliente' ? (u.cuentaClienteId ?? u.id) : '';
 });
 const { data: facturacionPermisos } = useFacturacionQuery(cuentaIdPermisos);
-const numeroNivelPermisos = computed(() => (cuentaIdPermisos.value ? numeroNivelDe(facturacionPermisos.value?.planId ?? 'nivel-1') : 0));
+const numeroNivelPermisos = computed(() => {
+  const planId = facturacionPermisos.value?.planId;
+  return planId ? numeroNivelDe(planId) : 0;
+});
 
 function handleNuevo() {
   editTarget.value = null;
@@ -534,7 +682,7 @@ async function handleDelete() {
 
     <!-- Tabla + panel de detalles -->
     <div class="flex items-start gap-5 px-6 pb-6">
-      <div class="flex-1 min-w-0 rounded-xl border border-gray-200 overflow-hidden">
+      <div class="flex-1 min-w-0 rounded-xl border border-gray-200 overflow-hidden overflow-x-auto">
         <table class="w-full">
           <thead>
             <tr class="border-b border-gray-100 bg-gray-50">
@@ -548,7 +696,7 @@ async function handleDelete() {
           </thead>
           <tbody>
             <tr
-              v-for="u in lista"
+              v-for="u in listaPaginada"
               :key="u.id"
               @click="seleccionar(u)"
               class="border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors cursor-pointer"
@@ -588,36 +736,15 @@ async function handleDelete() {
               </td>
               <td class="px-4 py-3 text-sm text-gray-600">{{ accesoDe(u.rol) }}</td>
               <td class="px-4 py-3">
-                <div class="relative flex items-center justify-center" @click.stop>
+                <div class="flex items-center justify-center" @click.stop>
                   <button
-                    @click="toggleMenuAccion(u.id)"
+                    @click="toggleMenuAccion(u, $event)"
                     type="button"
+                    data-menu-accion-trigger
                     class="w-8 h-8 rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-600 flex items-center justify-center transition-colors"
                   >
                     <FontAwesomeIcon :icon="faEllipsisVertical" class="w-3.5 h-3.5" />
                   </button>
-                  <div
-                    v-if="menuAccionAbierto === u.id"
-                    class="absolute top-full right-0 mt-1 z-20 bg-white rounded-lg shadow-modal border border-gray-200 py-1 w-36"
-                  >
-                    <button @click="handlePermisos(u)" type="button" class="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2">
-                      <FontAwesomeIcon :icon="faShieldHalved" class="w-3 h-3" />
-                      Permisos
-                    </button>
-                    <button @click="handleEditar(u)" type="button" class="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2">
-                      <FontAwesomeIcon :icon="faPen" class="w-3 h-3" />
-                      Editar
-                    </button>
-                    <button
-                      @click="handlePedirEliminar(u)"
-                      :disabled="u.id === session.sesion?.usuarioId"
-                      type="button"
-                      class="w-full text-left px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 flex items-center gap-2 disabled:opacity-40 disabled:hover:bg-transparent"
-                    >
-                      <FontAwesomeIcon :icon="faTrash" class="w-3 h-3" />
-                      Eliminar
-                    </button>
-                  </div>
                 </div>
               </td>
             </tr>
@@ -626,7 +753,102 @@ async function handleDelete() {
             </tr>
           </tbody>
         </table>
+
+        <div
+          v-if="lista.length > 0"
+          class="flex flex-wrap items-center justify-between gap-4 px-4 py-3 border-t border-gray-100 bg-gray-50/60"
+        >
+          <p class="text-xs text-muted">Mostrando {{ rangoDesde }} a {{ rangoHasta }} de {{ lista.length }} usuarios</p>
+
+          <div class="flex items-center gap-1">
+            <button
+              type="button"
+              :disabled="paginaActual === 1"
+              class="w-8 h-8 rounded-lg border border-gray-200 text-gray-500 flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors duration-75"
+              @click="irAPagina(1)"
+            >
+              <FontAwesomeIcon :icon="faAnglesLeft" class="w-3 h-3" />
+            </button>
+            <button
+              type="button"
+              :disabled="paginaActual === 1"
+              class="w-8 h-8 rounded-lg border border-gray-200 text-gray-500 flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors duration-75"
+              @click="irAPagina(paginaActual - 1)"
+            >
+              <FontAwesomeIcon :icon="faChevronLeft" class="w-3 h-3" />
+            </button>
+
+            <template v-for="(p, i) in paginasVisibles" :key="i">
+              <span v-if="p === '…'" class="w-8 h-8 flex items-center justify-center text-gray-400 text-sm">…</span>
+              <button
+                v-else
+                type="button"
+                class="w-8 h-8 rounded-lg text-sm font-medium flex items-center justify-center transition-colors duration-75"
+                :class="p === paginaActual ? 'border-2 border-brand-600 text-brand-700' : 'border border-gray-200 text-gray-600 hover:bg-gray-50'"
+                @click="irAPagina(p)"
+              >
+                {{ p }}
+              </button>
+            </template>
+
+            <button
+              type="button"
+              :disabled="paginaActual === totalPaginas"
+              class="w-8 h-8 rounded-lg border border-gray-200 text-gray-500 flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors duration-75"
+              @click="irAPagina(paginaActual + 1)"
+            >
+              <FontAwesomeIcon :icon="faChevronRight" class="w-3 h-3" />
+            </button>
+            <button
+              type="button"
+              :disabled="paginaActual === totalPaginas"
+              class="w-8 h-8 rounded-lg border border-gray-200 text-gray-500 flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors duration-75"
+              @click="irAPagina(totalPaginas)"
+            >
+              <FontAwesomeIcon :icon="faAnglesRight" class="w-3 h-3" />
+            </button>
+          </div>
+
+          <label class="flex items-center gap-2 text-xs text-muted">
+            Mostrar:
+            <select
+              :value="porPagina"
+              class="rounded-lg border border-gray-200 text-sm text-heading px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500"
+              @change="cambiarPorPagina(Number(($event.target as HTMLSelectElement).value))"
+            >
+              <option v-for="n in PORCIONES" :key="n" :value="n">{{ n }} por página</option>
+            </select>
+          </label>
+        </div>
       </div>
+
+      <Teleport to="body">
+        <div
+          v-if="menuAccionUsuario"
+          ref="menuAccionEl"
+          :style="menuAccionStyle"
+          class="fixed z-50 bg-white rounded-lg shadow-modal border border-gray-200 py-1 w-36"
+          @click.stop
+        >
+          <button @click="handlePermisos(menuAccionUsuario)" type="button" class="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+            <FontAwesomeIcon :icon="faShieldHalved" class="w-3 h-3" />
+            Permisos
+          </button>
+          <button @click="handleEditar(menuAccionUsuario)" type="button" class="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+            <FontAwesomeIcon :icon="faPen" class="w-3 h-3" />
+            Editar
+          </button>
+          <button
+            @click="handlePedirEliminar(menuAccionUsuario)"
+            :disabled="menuAccionUsuario.id === session.sesion?.usuarioId"
+            type="button"
+            class="w-full text-left px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 flex items-center gap-2 disabled:opacity-40 disabled:hover:bg-transparent"
+          >
+            <FontAwesomeIcon :icon="faTrash" class="w-3 h-3" />
+            Eliminar
+          </button>
+        </div>
+      </Teleport>
 
       <!-- Panel de detalles -->
       <div class="w-[480px] shrink-0 rounded-xl border border-gray-200 p-5">
@@ -778,6 +1000,81 @@ async function handleDelete() {
 
           <!-- Tab: Membresía y pagos (cliente) -->
           <div v-else-if="tabDetalleActiva === 'membresia' && tieneDetalleCompleto" class="space-y-4">
+            <div>
+              <h4 class="text-[11px] font-semibold text-heading uppercase tracking-wide mb-1">Asignar beneficios</h4>
+              <p class="text-[11px] text-muted mb-3">Otorga cupos sin cobro. Las fichas de chat y videollamada se suman a las que ya tiene.</p>
+
+              <div class="space-y-3 rounded-lg border border-gray-200 p-3">
+                <label class="block">
+                  <span class="text-[11px] font-medium text-gray-600">Plan</span>
+                  <select
+                    v-model="planForm"
+                    class="mt-1 w-full text-xs border border-gray-200 rounded-md px-2.5 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500/30 bg-white"
+                    @change="onPlanFormChange"
+                  >
+                    <option value="">Sin plan / no cambiar</option>
+                    <option v-for="p in planes" :key="p.id" :value="p.id">
+                      Nivel {{ p.numeroNivel }} — {{ p.nombre }} (S/ {{ p.precio }}/mes)
+                    </option>
+                  </select>
+                </label>
+
+                <div class="grid grid-cols-2 gap-2">
+                  <label class="block">
+                    <span class="flex items-center gap-1 text-[11px] font-medium text-gray-600">
+                      <FontAwesomeIcon :icon="faComments" class="w-3 h-3 text-brand-600" />
+                      Fichas de chat
+                    </span>
+                    <input
+                      v-model.number="chatForm"
+                      type="number"
+                      min="0"
+                      class="mt-1 w-full text-xs border border-gray-200 rounded-md px-2.5 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+                    />
+                    <span class="text-[10px] text-muted">Disponibles: {{ beneficiosAsignados?.fichasChatDisponibles ?? 0 }} · este valor se suma</span>
+                  </label>
+                  <label class="block">
+                    <span class="flex items-center gap-1 text-[11px] font-medium text-gray-600">
+                      <FontAwesomeIcon :icon="faVideo" class="w-3 h-3 text-rose-600" />
+                      Fichas de videollamada
+                    </span>
+                    <input
+                      v-model.number="videoForm"
+                      type="number"
+                      min="0"
+                      class="mt-1 w-full text-xs border border-gray-200 rounded-md px-2.5 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+                    />
+                    <span class="text-[10px] text-muted">Disponibles: {{ beneficiosAsignados?.fichasVideoDisponibles ?? 0 }} · este valor se suma</span>
+                  </label>
+                </div>
+
+                <label class="block">
+                  <span class="flex items-center gap-1 text-[11px] font-medium text-gray-600">
+                    <FontAwesomeIcon :icon="faFileLines" class="w-3 h-3 text-sky-600" />
+                    Plantillas simultáneas
+                  </span>
+                  <input
+                    v-model.number="plantillasForm"
+                    type="number"
+                    min="0"
+                    class="mt-1 w-full text-xs border border-gray-200 rounded-md px-2.5 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+                  />
+                  <span class="text-[10px] text-muted">
+                    Total (no se suma). Base del plan: {{ beneficiosAsignados?.limitePlantillasBase ?? 0 }}
+                  </span>
+                </label>
+
+                <button
+                  type="button"
+                  :disabled="!hayCambiosBeneficios || guardandoBeneficios"
+                  class="w-full py-2.5 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 disabled:opacity-50 transition-colors"
+                  @click="guardarBeneficios"
+                >
+                  {{ guardandoBeneficios ? 'Asignando…' : 'Asignar beneficios' }}
+                </button>
+              </div>
+            </div>
+
             <template v-if="facturacionMembresia && planMembresia">
               <div>
                 <h4 class="text-[11px] font-semibold text-heading uppercase tracking-wide mb-2">Plan actual</h4>
@@ -804,11 +1101,14 @@ async function handleDelete() {
                   </div>
 
                   <div class="flex items-center justify-between text-[11px] text-gray-600 flex-wrap gap-1">
-                    <span>
-                      Renovación automática:
-                      <strong :class="facturacionMembresia.cancelada ? 'text-amber-600' : 'text-green-600'">{{ facturacionMembresia.cancelada ? 'Desactivada' : 'Activada' }}</strong>
-                    </span>
-                    <span>Próximo cobro: {{ formatFechaLarga(cicloFin) }}</span>
+                    <template v-if="facturacionMembresia.stripeSubscriptionId">
+                      <span>
+                        Renovación automática:
+                        <strong :class="facturacionMembresia.cancelada ? 'text-amber-600' : 'text-green-600'">{{ facturacionMembresia.cancelada ? 'Desactivada' : 'Activada' }}</strong>
+                      </span>
+                      <span>Próximo cobro: {{ formatFechaLarga(cicloFin) }}</span>
+                    </template>
+                    <span v-else>Asignado por administración · sin cobro automático</span>
                   </div>
 
                   <div v-if="cicloInicio && cicloFin">
@@ -850,7 +1150,6 @@ async function handleDelete() {
                 </ul>
               </div>
             </template>
-            <p v-else class="text-xs text-muted text-center py-8">Este cliente todavía no tiene un plan asignado.</p>
           </div>
 
           <!-- Tab: Actividad -->
@@ -973,6 +1272,8 @@ async function handleDelete() {
       :is-open="!!deleteTarget"
       title="Eliminar usuario"
       :message="`¿Seguro que deseas eliminar a &quot;${deleteTarget?.nombre}&quot;? Esta acción no se puede deshacer.`"
+      :loading="eliminarUsuario.isPending.value"
+      loading-label="Eliminando…"
       @confirm="handleDelete"
       @close="deleteTarget = null"
     />

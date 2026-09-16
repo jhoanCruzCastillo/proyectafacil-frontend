@@ -21,8 +21,7 @@ type Tab = 'general' | 'cuenta' | 'facturacion';
 
 // Un cliente sin plan todavía (recién registrado, ver ElegirPlanPage.vue) no tiene nada que
 // gestionar en Facturación — esa pestaña asume una suscripción existente (cancelar, add-ons,
-// colaboradores) y consultarla auto-asignaría un plan de muestra
-// (FacturacionController::crearDefault()). Se oculta hasta que elija un plan de verdad.
+// colaboradores). Se oculta hasta que compre o un admin le asigne un plan.
 const mostrarFacturacion = computed(() => session.sesion?.tienePlan !== false);
 
 const tabs = computed<{ id: Tab; label: string; icon: IconDefinition }[]>(() => [

@@ -3,6 +3,7 @@ import { computed, ref } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faPlus, faSearch, faLayerGroup, faFileAlt, faFolderOpen, faClockRotateLeft } from '@/lib/icons';
 import PageShell from '@/components/PageShell.vue';
+import LoadingSpinner from '@/components/LoadingSpinner.vue';
 import StatCard from '@/components/StatCard.vue';
 import SectorCard from './SectorCard.vue';
 import NuevoSectorModal from './NuevoSectorModal.vue';
@@ -41,13 +42,13 @@ const mostrarStats = false;
     description="Cada sector agrupa las plantillas del ámbito del Estado correspondiente."
   >
     <template #actions>
-      <div class="relative">
+      <div class="relative w-full sm:w-56">
         <FontAwesomeIcon :icon="faSearch" class="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/40" />
         <input
           v-model="busqueda"
           type="text"
           placeholder="Buscar sector..."
-          class="w-56 pl-10 pr-3 py-2.5 rounded-lg bg-white/[0.06] border border-white/10 text-sm text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-400/60"
+          class="w-full pl-10 pr-3 py-2.5 rounded-lg bg-white/[0.06] border border-white/10 text-sm text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-400/60"
         />
       </div>
       <button
@@ -66,7 +67,7 @@ const mostrarStats = false;
       <StatCard :icon="faClockRotateLeft" :value="ultimaActualizacion" label="Última actualización" color="#7c3aed" />
     </template>
 
-    <p v-if="isLoading" class="text-sm text-muted">Cargando sectores…</p>
+    <LoadingSpinner v-if="isLoading" />
     <template v-else>
       <p v-if="sectoresFiltrados.length === 0" class="text-sm text-muted">No se encontraron sectores para "{{ busqueda }}".</p>
       <div v-else class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">

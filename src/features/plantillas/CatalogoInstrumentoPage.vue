@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import PageShell from '@/components/PageShell.vue';
+import LoadingSpinner from '@/components/LoadingSpinner.vue';
 import PlantillasAgrupadas from './PlantillasAgrupadas.vue';
 import { instrumentoIcons, instrumentoLabelsPlural } from '@/lib/icons';
 import { usePlantillasQuery } from '@/composables/usePlantillas';
@@ -41,7 +42,7 @@ const DESCRIPCION: Record<TipoInstrumento, string> = {
       </span>
     </template>
 
-    <p v-if="cargando" class="text-sm text-muted p-8 text-center">Cargando…</p>
+    <LoadingSpinner v-if="cargando" wrapper-class="p-8" />
     <!-- `key` por instrumento: las 4 rutas comparten este componente, así que sin esto Vue reusa
          la instancia y el buscador/filtro de la sección anterior se arrastran a la siguiente —
          se llega a "Formatos" con un texto tecleado en "Fichas técnicas" y parece que está vacío. -->

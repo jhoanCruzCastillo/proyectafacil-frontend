@@ -4,9 +4,10 @@ import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import {
   faHouse, faCheck, faComments, faVideo, faCalendarWeek, faToggleOn, faToggleOff,
   faFilter, faChevronDown, faChevronLeft, faChevronRight, faAnglesLeft, faAnglesRight,
-  faFileLines, faCalendarDays, faCircleInfo,
+  faFileLines, faCalendarDays, faCircleInfo, faCircleCheck, faClock,
 } from '@/lib/icons';
 import PageShell from '@/components/PageShell.vue';
+import LoadingSpinner from '@/components/LoadingSpinner.vue';
 import Avatar from '@/components/Avatar.vue';
 import ResumenConsultaModal from './ResumenConsultaModal.vue';
 import { useSessionStore } from '@/stores/session';
@@ -16,7 +17,7 @@ import { useMisSolicitudesQuery, useAceptarSolicitud, useCompletarVideo } from '
 import { useUsuariosQuery, useActualizarUsuario } from '@/composables/useUsuarios';
 import { tiempoHastaVencer, tiempoRelativo } from '@/lib/tiempoRelativo';
 import { ESTADO_ASESORIA_LABEL as ESTADO_LABEL, ESTADO_ASESORIA_CLASE as ESTADO_CLASE } from '@/lib/estadoAsesoria';
-import { colorCategoria, formatFechaHoraVideo, ventanaDeLlamada, unirseALlamada, puedeCompletarAsesoria } from '@/lib/consultaAsesorUI';
+import { colorCategoria, formatFechaHoraVideo, ventanaDeLlamada, unirseALlamada, puedeCompletarAsesoria, etiquetaCategoriaConsulta } from '@/lib/consultaAsesorUI';
 import type { SolicitudAsesoria } from '@/types';
 
 const session = useSessionStore();
@@ -88,6 +89,19 @@ const tabActiva = ref<Tab>('por_agendar');
 // pendientes sin entrar al tab. Mismo criterio de filtro que usa la pestaña (asignado/agendado),
 // sin aplicar el filtro de modalidad (el conteo es del total, no de lo que se esté viendo ahora).
 const conteoAgendadas = computed(() => (solicitudes.value ?? []).filter((s) => s.estado === 'asignado' || s.estado === 'agendado').length);
+
+// Barra fija "Alumnos esperando atención" (manual de diseño v1.0, Figura 4) — mismo criterio de
+// "por agendar" de arriba (sin asignar, SLA todavía no vencido), ordenados por más antiguo primero
+// para que "Atender ahora" siempre tome al que más tiempo lleva esperando.
+const alumnosEsperando = computed(() =>
+  (solicitudes.value ?? [])
+    .filter((s) => {
+      if (s.estado === 'en_espera') return true;
+      if (s.estado !== 'pendiente') return false;
+      return !s.slaVenceEn || !tiempoHastaVencer(s.slaVenceEn).vencido;
+    })
+    .sort((a, b) => new Date(a.creadoEn).getTime() - new Date(b.creadoEn).getTime()),
+);
 
 const mostrarFiltros = ref(false);
 const filtroModalidad = ref<'todas' | 'chat' | 'video'>('todas');
@@ -170,15 +184,35 @@ function cambiarPorPagina(valor: number) {
 <template>
   <PageShell :icon="faHouse" title="Mis consultas" description="Gestiona todas las consultas asignadas por los alumnos." content-class="py-5">
     <template #actions>
-      <button
-        @click="toggleDisponible"
-        type="button"
-        class="px-5 py-2.5 rounded-lg border text-sm font-medium flex items-center gap-2 transition-colors"
-        :class="disponible ? 'bg-brand-600/15 border-brand-500/30 text-brand-300' : 'bg-white/[0.06] border-white/10 text-white/60'"
+      <!-- Manual de diseño v1.0, Figura 4: tarjeta de disponibilidad con anillo pulsante en el
+           avatar propio. "N alumnos en línea" del mockup no tiene una fuente real de datos (no
+           existe presencia en vivo por asesor) — se reemplazó por el conteo real de consultas
+           agendadas, que sí es cierto. -->
+      <div
+        class="flex items-center gap-3 pl-2.5 pr-4 py-2 rounded-xl border transition-colors"
+        :class="disponible ? 'border-primary-hover bg-brand-600/10' : 'border-white/10 bg-white/[0.04]'"
       >
-        <FontAwesomeIcon :icon="disponible ? faToggleOn : faToggleOff" class="w-4 h-4" />
-        {{ disponible ? 'Disponible' : 'No disponible' }}
-      </button>
+        <div class="relative shrink-0">
+          <span v-if="disponible" class="absolute inset-0 rounded-full ring-2 ring-brand-400 animate-ping opacity-60" />
+          <span v-if="disponible" class="absolute inset-0 rounded-full ring-2 ring-brand-400" />
+          <Avatar :nombre="yoMismo?.nombre ?? ''" :foto-url="yoMismo?.fotoUrl" size="w-9 h-9" />
+        </div>
+        <div class="min-w-0">
+          <p class="text-sm font-semibold" :class="disponible ? 'text-brand-300' : 'text-white/60'">
+            {{ disponible ? 'Disponible' : 'No disponible' }}
+          </p>
+          <p class="text-[11px] text-dark-muted">{{ conteoAgendadas }} consulta{{ conteoAgendadas === 1 ? '' : 's' }} agendada{{ conteoAgendadas === 1 ? '' : 's' }}</p>
+        </div>
+        <button
+          @click="toggleDisponible"
+          type="button"
+          class="ml-1 w-9 h-9 rounded-lg flex items-center justify-center shrink-0 transition-colors"
+          :class="disponible ? 'text-brand-400 hover:bg-brand-500/15' : 'text-white/40 hover:bg-white/10'"
+          :title="disponible ? 'Marcarme como no disponible' : 'Marcarme como disponible'"
+        >
+          <FontAwesomeIcon :icon="disponible ? faToggleOn : faToggleOff" class="w-5 h-5" />
+        </button>
+      </div>
       <RouterLink
         :to="{ name: 'docente-horario' }"
         class="px-5 py-2.5 rounded-lg bg-white/[0.06] border border-white/10 text-sm font-medium text-white/80 hover:bg-white/10 hover:text-white transition-colors flex items-center gap-2"
@@ -195,8 +229,8 @@ function cambiarPorPagina(valor: number) {
           :key="tab.value"
           @click="cambiarTab(tab.value)"
           type="button"
-          class="px-4 py-2.5 text-sm font-medium border-b-2 transition-colors duration-75 flex items-center gap-2"
-          :class="tabActiva === tab.value ? 'border-brand-600 text-brand-700' : 'border-transparent text-gray-500 hover:text-gray-700'"
+          class="px-4 py-2.5 text-sm font-medium border-b-[3px] transition-colors duration-75 flex items-center gap-2"
+          :class="tabActiva === tab.value ? 'border-brand-400 text-brand-700' : 'border-transparent text-gray-500 hover:text-gray-700'"
         >
           {{ tab.label }}
           <span
@@ -258,11 +292,17 @@ function cambiarPorPagina(valor: number) {
       </div>
     </div>
 
-    <p v-if="isLoading" class="text-sm text-muted px-6 sm:px-8 pb-6">Cargando…</p>
-    <p v-else-if="listaFiltrada.length === 0" class="text-sm text-muted py-10 text-center">No hay consultas en esta categoría.</p>
+    <LoadingSpinner v-if="isLoading" wrapper-class="px-6 sm:px-8 pb-6" />
+    <div v-else-if="listaFiltrada.length === 0" class="flex flex-col items-center justify-center py-16 text-center px-6">
+      <div class="w-16 h-16 rounded-full bg-brand-600 text-white flex items-center justify-center mb-4">
+        <FontAwesomeIcon :icon="faCircleCheck" class="w-7 h-7" />
+      </div>
+      <p class="text-xl font-heading font-semibold text-heading">¡Todo al día!</p>
+      <p class="text-sm text-muted mt-1">No hay consultas en esta categoría por ahora.</p>
+    </div>
     <template v-else>
       <div class="px-6 sm:px-8">
-        <div class="rounded-xl border border-gray-200 overflow-hidden">
+        <div class="rounded-xl border border-gray-200 overflow-hidden overflow-x-auto">
           <table class="w-full text-sm border-collapse">
             <thead>
               <tr class="text-left text-xs font-semibold text-gray-600 bg-gray-50 border-b border-gray-200">
@@ -287,7 +327,7 @@ function cambiarPorPagina(valor: number) {
                   </div>
                 </td>
                 <td class="py-4 px-4">
-                  <span class="px-2.5 py-1 rounded-full text-xs font-medium" :class="colorCategoria(s.sectorNombre)">{{ s.sectorNombre ?? '—' }}</span>
+                  <span class="px-2.5 py-1 rounded-full text-xs font-medium" :class="colorCategoria(s.sectorNombre)">{{ etiquetaCategoriaConsulta(s) }}</span>
                 </td>
                 <td class="py-4 px-4">
                   <div class="flex items-center gap-1.5 text-sm text-gray-600">
@@ -440,6 +480,45 @@ function cambiarPorPagina(valor: number) {
       </div>
     </template>
   </PageShell>
+
+  <!-- Manual de diseño v1.0, Figura 4: barra fija "Alumnos esperando atención" — mismos alumnos
+       que el tab "Por Agendar", ordenados por más antiguo primero. "Atender ahora" acepta
+       directamente al que más tiempo lleva esperando. -->
+  <div
+    v-if="alumnosEsperando.length > 0"
+    class="fixed bottom-0 right-0 z-30 border-t border-navy-700 shadow-dark transition-[left] duration-150 ease-out"
+    :class="ui.sidebarCollapsed ? 'left-16' : 'left-56'"
+    style="background: #260e11"
+  >
+    <div class="flex items-center gap-4 px-6 sm:px-8 py-3 flex-wrap">
+      <p class="text-[10px] font-semibold uppercase tracking-widest text-red-300 shrink-0">Alumnos esperando atención</p>
+      <div class="flex items-center -space-x-2 shrink-0">
+        <Avatar
+          v-for="s in alumnosEsperando.slice(0, 4)"
+          :key="s.id"
+          :nombre="s.clienteNombre ?? '?'"
+          :foto-url="s.clienteFotoUrl"
+          size="w-8 h-8"
+          class="ring-2 ring-brand-400"
+        />
+        <span v-if="alumnosEsperando.length > 4" class="w-8 h-8 rounded-full bg-white/10 text-white text-[11px] font-semibold flex items-center justify-center ring-2 ring-[#260e11]">
+          +{{ alumnosEsperando.length - 4 }}
+        </span>
+      </div>
+      <p class="text-xs text-amber-400 flex items-center gap-1.5 shrink-0">
+        <FontAwesomeIcon :icon="faClock" class="w-3 h-3" />
+        Esperando {{ tiempoRelativo(alumnosEsperando[0].creadoEn) }}
+      </p>
+      <button
+        @click="aceptar(alumnosEsperando[0])"
+        :disabled="generandoLinkPara === alumnosEsperando[0].id"
+        type="button"
+        class="ml-auto px-5 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-60 transition-colors duration-75 flex items-center gap-2 shrink-0"
+      >
+        {{ generandoLinkPara === alumnosEsperando[0].id ? 'Generando enlace…' : 'Atender ahora' }}
+      </button>
+    </div>
+  </div>
 
   <ResumenConsultaModal
     :is-open="!!resumenAbierto"

@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faXmark, faListCheck, faSpinner } from '@/lib/icons';
+import { faXmark, faListCheck } from '@/lib/icons';
+import LoadingSpinner from '@/components/LoadingSpinner.vue';
 import DetalleSesionAsesoria from '@/features/asesoria/DetalleSesionAsesoria.vue';
 import { useTicketDetalleQuery, useHistorialConexionQuery, useGrabacionesQuery } from '@/composables/useTicketsAsesoria';
 import { useMensajesQuery } from '@/composables/useAsesoria';
 import { ESTADO_ASESORIA_LABEL } from '@/lib/estadoAsesoria';
-import { codigoTicketFalso } from '@/lib/ticketsDemoFake';
+import { codigoTicket } from '@/lib/consultaAsesorUI';
 
 // Modal de detalle para tickets completados u observados (ambos ya tuvieron una sesión real) —
 // diseño aparte del genérico (TicketDetalleModal) porque acá sí hay contenido real de la sesión
@@ -48,7 +49,7 @@ const { data: grabaciones } = useGrabacionesQuery(() => (esVideo.value ? props.t
               <div class="w-9 h-9 rounded-lg bg-white/15 text-white flex items-center justify-center shrink-0">
                 <FontAwesomeIcon :icon="faListCheck" class="w-4 h-4" />
               </div>
-              <h2 class="text-lg font-bold text-white">{{ ticketId ? codigoTicketFalso(ticketId) : '' }}</h2>
+              <h2 class="text-lg font-bold text-white">{{ ticket ? codigoTicket(ticket) : ticketId ? codigoTicket({ id: ticketId }) : '' }}</h2>
               <span v-if="ticket" class="px-2.5 py-1 rounded-full text-[11px] font-medium bg-emerald-400/20 text-emerald-50">
                 {{ ESTADO_ASESORIA_LABEL[ticket.estado] }}
               </span>
@@ -58,10 +59,7 @@ const { data: grabaciones } = useGrabacionesQuery(() => (esVideo.value ? props.t
             </button>
           </div>
 
-          <div v-if="isLoading" class="p-14 flex flex-col items-center justify-center gap-3 text-muted">
-            <FontAwesomeIcon :icon="faSpinner" class="w-6 h-6 animate-spin text-brand-600" />
-            <p class="text-sm">Cargando…</p>
-          </div>
+          <LoadingSpinner v-if="isLoading" wrapper-class="p-14" />
           <div v-else-if="ticket" class="p-5">
             <DetalleSesionAsesoria
               :solicitud="ticket"

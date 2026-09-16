@@ -253,6 +253,8 @@ function ultimoCambioDe(ejemploId: string) {
       :is-open="!!eliminarFicha"
       title="Eliminar ficha"
       :message="`¿Seguro que deseas eliminar &quot;${eliminarFicha?.nombre}&quot;? Se perderá todo lo que hayas llenado. Esta acción no se puede deshacer.`"
+      :loading="eliminarEjemplo.isPending.value"
+      loading-label="Eliminando…"
       @confirm="handleEliminar"
       @close="eliminarFicha = null"
     />

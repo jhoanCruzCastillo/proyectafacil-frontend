@@ -14,7 +14,7 @@ import { useMisSolicitudesQuery, useAceptarSolicitud } from '@/composables/useAs
 import { useUsuariosQuery, useActualizarUsuario } from '@/composables/useUsuarios';
 import { tiempoRelativo } from '@/lib/tiempoRelativo';
 import { ESTADO_ASESORIA_LABEL as ESTADO_LABEL, ESTADO_ASESORIA_CLASE as ESTADO_CLASE } from '@/lib/estadoAsesoria';
-import { colorCategoria, horaAmPm, ventanaDeLlamada, unirseALlamada } from '@/lib/consultaAsesorUI';
+import { colorCategoria, horaAmPm, ventanaDeLlamada, unirseALlamada, etiquetaCategoriaConsulta } from '@/lib/consultaAsesorUI';
 import type { SolicitudAsesoria } from '@/types';
 
 // Dashboard de bienvenida del asesor (pedido explícito del usuario, con mockup de referencia) —
@@ -76,9 +76,10 @@ function tituloSolicitud(s: SolicitudAsesoria): string {
     const fecha = new Date(`${s.horarioFecha}T00:00:00`).toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', month: 'long' });
     const fechaCap = fecha.charAt(0).toUpperCase() + fecha.slice(1);
     const rango = s.horarioHoraInicio && s.horarioHoraFin ? `${horaAmPm(s.horarioHoraInicio)} - ${horaAmPm(s.horarioHoraFin)}` : '';
-    return `${fechaCap}${rango ? `, ${rango}` : ''} · ${s.sectorNombre ?? 'Consulta'}`;
+    return `${fechaCap}${rango ? `, ${rango}` : ''} · ${etiquetaCategoriaConsulta(s)}`;
   }
-  return s.sectorNombre ?? 'Nueva consulta';
+  const categoria = etiquetaCategoriaConsulta(s);
+  return categoria === '—' ? 'Nueva consulta' : categoria;
 }
 
 const generandoLinkPara = ref<string | null>(null);
@@ -220,7 +221,7 @@ const resumenClienteCorreo = computed(() => usuarios.value?.find((u) => u.id ===
         </div>
 
         <div class="w-40 shrink-0">
-          <span class="px-2.5 py-1 rounded-full text-xs font-medium" :class="colorCategoria(s.sectorNombre)">{{ s.sectorNombre ?? '—' }}</span>
+          <span class="px-2.5 py-1 rounded-full text-xs font-medium" :class="colorCategoria(s.sectorNombre)">{{ etiquetaCategoriaConsulta(s) }}</span>
         </div>
 
         <div class="w-32 shrink-0 flex items-center gap-1.5 text-sm text-gray-600">

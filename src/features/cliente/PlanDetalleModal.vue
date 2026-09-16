@@ -39,7 +39,7 @@ function elegir() {
               v-if="esRecomendado"
               class="absolute top-5 right-14 px-3 py-1 rounded-full bg-white/20 text-white text-[10px] font-bold uppercase tracking-wide"
             >
-              Más elegido
+              Recomendado
             </span>
             <button
               @click="emit('close')"

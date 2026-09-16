@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faXmark, faVideo, faComments, faCheck, faUserGear, faTrash, faEnvelope, faListCheck, faWandMagicSparkles, faSpinner } from '@/lib/icons';
+import { faXmark, faVideo, faComments, faCheck, faUserGear, faTrash, faEnvelope, faListCheck, faWandMagicSparkles } from '@/lib/icons';
 import IntervencionManualModal from './IntervencionManualModal.vue';
 import CancelarTicketModal from './CancelarTicketModal.vue';
 import Avatar from '@/components/Avatar.vue';
+import LoadingSpinner from '@/components/LoadingSpinner.vue';
 import { useTicketDetalleQuery, useCancelarTicketAdmin, useCompletarVideoAdmin } from '@/composables/useTicketsAsesoria';
 import { useUiStore } from '@/stores/ui';
 import { ESTADO_ASESORIA_LABEL, ESTADO_ASESORIA_CLASE } from '@/lib/estadoAsesoria';
-import { codigoTicketFalso, nivelFalso, estadoNotificacionFalso } from '@/lib/ticketsDemoFake';
-import { puedeCompletarAsesoria } from '@/lib/consultaAsesorUI';
+import { nivelFalso, estadoNotificacionFalso } from '@/lib/ticketsDemoFake';
+import { puedeCompletarAsesoria, etiquetaCategoriaConsulta, codigoTicket } from '@/lib/consultaAsesorUI';
 
 const props = defineProps<{ isOpen: boolean; ticketId: string | null }>();
 const emit = defineEmits<{ close: [] }>();
@@ -103,7 +104,7 @@ async function confirmarCancelar() {
               <div class="w-9 h-9 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center shrink-0">
                 <FontAwesomeIcon :icon="faListCheck" class="w-4 h-4" />
               </div>
-              <h2 class="text-lg font-bold text-heading">{{ ticketId ? codigoTicketFalso(ticketId) : '' }}</h2>
+              <h2 class="text-lg font-bold text-heading">{{ ticket ? codigoTicket(ticket) : ticketId ? codigoTicket({ id: ticketId }) : '' }}</h2>
               <span v-if="ticket" class="px-2.5 py-1 rounded-full text-[11px] font-medium" :class="ESTADO_ASESORIA_CLASE[ticket.estado]">
                 {{ ESTADO_ASESORIA_LABEL[ticket.estado] }}
               </span>
@@ -113,10 +114,7 @@ async function confirmarCancelar() {
             </button>
           </div>
 
-          <div v-if="isLoading" class="px-6 pb-14 pt-8 flex flex-col items-center justify-center gap-3 text-muted">
-            <FontAwesomeIcon :icon="faSpinner" class="w-6 h-6 animate-spin text-brand-600" />
-            <p class="text-sm">Cargando…</p>
-          </div>
+          <LoadingSpinner v-if="isLoading" wrapper-class="px-6 pb-14 pt-8" />
           <div v-else-if="ticket" class="px-6 pb-6">
           <div class="rounded-xl border border-gray-200 overflow-hidden">
           <div class="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-gray-200">
@@ -138,7 +136,7 @@ async function confirmarCancelar() {
 
               <div>
                 <h3 class="text-sm font-bold text-heading mb-2">Categoría de la consulta</h3>
-                <span class="inline-block px-2.5 py-1 rounded-full text-xs font-medium bg-brand-50 text-brand-700">{{ ticket.sectorNombre ?? '—' }}</span>
+                <span class="inline-block px-2.5 py-1 rounded-full text-xs font-medium bg-brand-50 text-brand-700">{{ etiquetaCategoriaConsulta(ticket) }}</span>
               </div>
 
               <div v-if="ticket.mensajeInicial">
@@ -258,7 +256,7 @@ async function confirmarCancelar() {
   </Transition>
 
   <IntervencionManualModal :is-open="showIntervencion" :ticket="ticket ?? null" @close="showIntervencion = false; emit('close')" />
-  <CancelarTicketModal :is-open="showCancelar" :ticket-id="ticketId ?? ''" @close="showCancelar = false" @confirm="confirmarCancelar" />
+  <CancelarTicketModal :is-open="showCancelar" :ticket-id="ticketId ?? ''" :loading="cancelarTicket.isPending.value" @close="showCancelar = false" @confirm="confirmarCancelar" />
 </template>
 
 <style scoped>

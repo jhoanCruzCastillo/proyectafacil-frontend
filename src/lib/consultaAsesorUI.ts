@@ -16,6 +16,30 @@ export function colorCategoria(nombre: string | null | undefined): string {
   return PALETA_CATEGORIA[Math.abs(hash) % PALETA_CATEGORIA.length];
 }
 
+export function etiquetaCategoriaConsulta(s: {
+  subtemas?: Array<{ nombre: string; temaNombre?: string | null }>;
+  subtemaNombre?: string | null;
+  temaNombre?: string | null;
+  sectorNombre?: string | null;
+}): string {
+  if (s.subtemas && s.subtemas.length > 1) {
+    return s.subtemas.map((st) => st.nombre).join(', ');
+  }
+  if (s.subtemas && s.subtemas.length === 1) {
+    const st = s.subtemas[0];
+    return st.temaNombre ? `${st.temaNombre} · ${st.nombre}` : st.nombre;
+  }
+  if (s.temaNombre && s.subtemaNombre) return `${s.temaNombre} · ${s.subtemaNombre}`;
+  return s.subtemaNombre ?? s.temaNombre ?? s.sectorNombre ?? '—';
+}
+
+/** Código público del ticket: el id real de la solicitud, no un número inventado. */
+export function codigoTicket(s: { id: string; creadoEn?: string | null }): string {
+  const parsed = s.creadoEn ? new Date(s.creadoEn).getFullYear() : NaN;
+  const year = Number.isFinite(parsed) ? parsed : new Date().getFullYear();
+  return `TKT-${year}-${String(s.id).padStart(4, '0')}`;
+}
+
 export function horaAmPm(hhmm: string): string {
   const [h, m] = hhmm.split(':').map(Number);
   const periodo = h >= 12 ? 'pm' : 'am';

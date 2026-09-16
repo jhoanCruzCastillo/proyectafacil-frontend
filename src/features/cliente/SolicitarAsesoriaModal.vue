@@ -3,34 +3,28 @@ import { computed, ref, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import {
   faXmark, faComments, faVideo, faPaperPlane, faTriangleExclamation,
-  faWandMagicSparkles, faCheck, faChevronLeft, faChevronRight, faCalendarCheck,
+  faWandMagicSparkles, faCheck, faChevronLeft, faChevronRight, faChevronDown, faChevronUp,
+  faCalendarCheck, faSearch, sectorIcons,
 } from '@/lib/icons';
-import { useSectoresQuery } from '@/composables/useSectores';
 import { useUsuariosQuery } from '@/composables/useUsuarios';
 import { useTicketsConsultaQuery } from '@/composables/useTicketsConsulta';
 import { useDisponibilidadHorariosQuery } from '@/composables/useDisponibilidadHorarios';
 import { ocurrenciasEnRango } from '@/lib/horarioRecurrencia';
 import { useCrearSolicitudAsesoria, useAgendadosPorRangoQuery } from '@/composables/useAsesoria';
+import { useTemasEspecialidadCatalogoQuery } from '@/composables/useTemasEspecialidad';
+import { useSubtemasCatalogoQuery } from '@/composables/useSubtemasEspecialidad';
 import { useSessionStore } from '@/stores/session';
 import { cuentaEfectivaDe } from '@/lib/permisos';
-import { sectorIcons } from '@/lib/icons';
 import { addOns } from '@/data/planes';
 import ComprarAddOnModal from '@/features/settings/ComprarAddOnModal.vue';
-import type { TipoAsesoria, TipoDocumento, SolicitudAsesoria } from '@/types';
+import type { TipoAsesoria, SolicitudAsesoria, TemaEspecialidad, SubtemaEspecialidad } from '@/types';
 
 const props = defineProps<{ isOpen: boolean; ejemploId?: string }>();
 const emit = defineEmits<{ close: []; creada: [solicitud: SolicitudAsesoria] }>();
 
-const TIPOS_DOCUMENTO: { value: TipoDocumento; label: string }[] = [
-  { value: 'formatos', label: 'Formatos' },
-  { value: 'ioarr', label: 'IOARR' },
-  { value: 'fichas_tecnicas', label: 'Fichas Técnicas' },
-  { value: 'perfiles', label: 'Perfiles' },
-];
 const DIAS_LARGO = ['', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 const DIAS_CORTO = ['', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 const ADDON_CONSULTA = addOns.find((a) => a.id === 'consultoria-1a1') ?? null;
-const UMBRAL_DUDA = 15;
 
 const session = useSessionStore();
 const { data: usuariosData } = useUsuariosQuery();
@@ -45,19 +39,23 @@ const duracionChat = computed(() => fichasChat.value[0]?.duracionMinutos ?? null
 const duracionVideo = computed(() => fichasVideo.value[0]?.duracionMinutos ?? null);
 const showComprarAddon = ref(false);
 
-const { data: sectores } = useSectoresQuery();
+const { data: temas } = useTemasEspecialidadCatalogoQuery();
+const { data: subtemas } = useSubtemasCatalogoQuery();
 const crearSolicitud = useCrearSolicitudAsesoria();
 
 type Paso = 'modalidad' | 'chatbot' | 'horario';
+type TemaConSubtemas = TemaEspecialidad & { subtemas: SubtemaEspecialidad[] };
+
 const paso = ref<Paso>('modalidad');
 const subPaso = ref(1);
+const enSelectorTemas = computed(() => paso.value === 'chatbot' && subPaso.value === 1);
 const tipo = ref<TipoAsesoria | null>(null);
-const sectorId = ref<string | null>(null);
-const tipoDocumento = ref<TipoDocumento | null>(null);
+const subtemaIdsSeleccionados = ref<Set<string>>(new Set());
+const temasExpandidos = ref<Set<string>>(new Set());
+const busqueda = ref('');
 const duda = ref('');
-const pidioAclaracion = ref(false);
-const analizando = ref(false);
 const enviando = ref(false);
+const errorEnvio = ref('');
 // `loteOffset` pagina de a 7 días (0 = el lote que arranca hoy, 1 = los 7 siguientes, …) — no
 // puede ir negativo, esas fechas ya pasaron y no se pueden agendar. `diaOffset` es la pestaña
 // seleccionada DENTRO del lote visible (0-6).
@@ -69,11 +67,11 @@ function reset() {
   paso.value = 'modalidad';
   subPaso.value = 1;
   tipo.value = null;
-  sectorId.value = null;
-  tipoDocumento.value = null;
+  subtemaIdsSeleccionados.value = new Set();
+  temasExpandidos.value = new Set();
+  busqueda.value = '';
   duda.value = '';
-  pidioAclaracion.value = false;
-  analizando.value = false;
+  errorEnvio.value = '';
   loteOffset.value = 0;
   diaOffset.value = 0;
   horarioElegido.value = null;
@@ -87,59 +85,129 @@ function handleClose() {
 function elegirModalidad(t: TipoAsesoria) {
   tipo.value = t;
   paso.value = 'chatbot';
+  subPaso.value = 1;
+  const primero = temasConSubtemas.value.find((tema) => tema.subtemas.length > 0);
+  temasExpandidos.value = primero ? new Set([primero.id]) : new Set();
 }
 
-function elegirSector(id: string) {
-  sectorId.value = id;
+const temasConSubtemas = computed<TemaConSubtemas[]>(() =>
+  (temas.value ?? []).map((t) => ({
+    ...t,
+    subtemas: (subtemas.value ?? []).filter((s) => s.temaId === t.id),
+  })),
+);
+
+const temasFiltrados = computed<TemaConSubtemas[]>(() => {
+  const q = busqueda.value.trim().toLowerCase();
+  if (!q) return temasConSubtemas.value;
+  return temasConSubtemas.value
+    .map((t) => {
+      const temaMatch = t.nombre.toLowerCase().includes(q);
+      return {
+        ...t,
+        subtemas: temaMatch ? t.subtemas : t.subtemas.filter((s) => s.nombre.toLowerCase().includes(q)),
+      };
+    })
+    .filter((t) => t.nombre.toLowerCase().includes(q) || t.subtemas.length > 0);
+});
+
+const cantidadSeleccionados = computed(() => subtemaIdsSeleccionados.value.size);
+
+const subtemasElegidos = computed(() => {
+  const map = new Map((subtemas.value ?? []).map((s) => [s.id, s]));
+  const temaMap = new Map((temas.value ?? []).map((t) => [t.id, t.nombre]));
+  return Array.from(subtemaIdsSeleccionados.value)
+    .map((id) => {
+      const st = map.get(id);
+      if (!st) return null;
+      return { id, nombre: st.nombre, temaNombre: temaMap.get(st.temaId) ?? null };
+    })
+    .filter((x): x is { id: string; nombre: string; temaNombre: string | null } => x !== null);
+});
+
+function estaExpandido(temaId: string): boolean {
+  if (busqueda.value.trim()) return true;
+  return temasExpandidos.value.has(temaId);
+}
+
+function toggleTemaExpandido(temaId: string) {
+  const next = new Set(temasExpandidos.value);
+  if (next.has(temaId)) next.delete(temaId);
+  else next.add(temaId);
+  temasExpandidos.value = next;
+}
+
+function toggleSubtema(id: string) {
+  const next = new Set(subtemaIdsSeleccionados.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  subtemaIdsSeleccionados.value = next;
+}
+
+function seleccionadosEnTema(tema: TemaConSubtemas): number {
+  return tema.subtemas.filter((s) => subtemaIdsSeleccionados.value.has(s.id)).length;
+}
+
+function temaMarcado(tema: TemaConSubtemas): boolean {
+  return seleccionadosEnTema(tema) > 0;
+}
+
+function toggleTemaCompleto(tema: TemaConSubtemas, event: Event) {
+  event.stopPropagation();
+  const next = new Set(subtemaIdsSeleccionados.value);
+  const ids = tema.subtemas.map((s) => s.id);
+  if (temaMarcado(tema)) {
+    for (const id of ids) next.delete(id);
+  } else {
+    for (const id of ids) next.add(id);
+    const exp = new Set(temasExpandidos.value);
+    exp.add(tema.id);
+    temasExpandidos.value = exp;
+  }
+  subtemaIdsSeleccionados.value = next;
+}
+
+function limpiarSeleccion() {
+  subtemaIdsSeleccionados.value = new Set();
+}
+
+function continuarTemas() {
+  if (cantidadSeleccionados.value === 0) return;
   subPaso.value = 2;
 }
 
-function elegirTipoDocumento(v: TipoDocumento) {
-  tipoDocumento.value = v;
-  subPaso.value = 3;
-}
-
 function enviarDuda() {
-  const texto = duda.value.trim();
-  if (!texto) return;
-
-  if (!pidioAclaracion.value && texto.length < UMBRAL_DUDA) {
-    analizando.value = true;
-    setTimeout(() => {
-      analizando.value = false;
-      pidioAclaracion.value = true;
-    }, 600);
-    return;
+  if (!duda.value.trim()) return;
+  if (tipo.value === 'video') {
+    paso.value = 'horario';
+  } else {
+    void enviarSolicitud();
   }
-
-  analizando.value = true;
-  setTimeout(() => {
-    analizando.value = false;
-    if (tipo.value === 'video') {
-      paso.value = 'horario';
-    } else {
-      void enviarSolicitud();
-    }
-  }, 600);
 }
 
 async function enviarSolicitud(horario?: { fecha: string; horaInicio: string; horaFin: string }) {
-  if (!session.sesion || !tipo.value || !sectorId.value || !tipoDocumento.value) return;
+  const ids = Array.from(subtemaIdsSeleccionados.value);
+  if (!session.sesion || !tipo.value || ids.length === 0) return;
   enviando.value = true;
-  const solicitud = await crearSolicitud.mutateAsync({
-    clienteId: session.sesion.usuarioId,
-    tipo: tipo.value,
-    sectorId: sectorId.value,
-    tipoDocumento: tipoDocumento.value,
-    mensajeInicial: duda.value.trim(),
-    ejemploId: props.ejemploId,
-    horarioFecha: horario?.fecha,
-    horarioHoraInicio: horario?.horaInicio,
-    horarioHoraFin: horario?.horaFin,
-  });
-  enviando.value = false;
-  reset();
-  emit('creada', solicitud);
+  errorEnvio.value = '';
+  try {
+    const solicitud = await crearSolicitud.mutateAsync({
+      clienteId: session.sesion.usuarioId,
+      tipo: tipo.value,
+      subtemaIds: ids,
+      mensajeInicial: duda.value.trim(),
+      ejemploId: props.ejemploId,
+      horarioFecha: horario?.fecha,
+      horarioHoraInicio: horario?.horaInicio,
+      horarioHoraFin: horario?.horaFin,
+    });
+    reset();
+    emit('creada', solicitud);
+  } catch (e) {
+    errorEnvio.value = e instanceof Error ? e.message : 'No se pudo enviar la consulta. Inténtalo de nuevo.';
+  } finally {
+    enviando.value = false;
+  }
 }
 
 // --- Ruta video: grilla de horarios agregados de todos los asesores, próximos 7 días ---
@@ -257,22 +325,28 @@ function confirmarHorario() {
   <Transition name="fade">
     <div v-if="isOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" @click="handleClose">
       <Transition name="pop" appear>
-        <div v-if="isOpen" class="bg-white rounded-2xl shadow-modal w-full max-w-lg max-h-[85vh] overflow-y-auto" @click.stop>
-          <div class="flex items-start justify-between p-6 pb-4">
-            <div>
+        <div
+          v-if="isOpen"
+          class="bg-white rounded-2xl shadow-modal w-full max-h-[90vh] flex flex-col"
+          :class="enSelectorTemas ? 'max-w-xl' : 'max-w-lg'"
+          @click.stop
+        >
+          <div class="flex items-start justify-between p-6 pb-3 shrink-0" :class="enSelectorTemas ? 'pb-2' : 'pb-4'">
+            <div v-if="!enSelectorTemas">
               <h2 class="text-lg font-bold text-heading">
                 {{ paso === 'modalidad' ? '¿Cómo prefieres tu asesoría?' : paso === 'horario' ? 'Elige un horario para tu videollamada' : 'Cuéntanos tu consulta' }}
               </h2>
               <p class="text-sm text-muted mt-0.5">
-                {{ paso === 'modalidad' ? 'Elige la modalidad que más te acomode.' : paso === 'horario' ? 'No verás qué asesor te atenderá hasta que se confirme tu cita.' : 'Te haremos algunas preguntas para entender mejor tu duda.' }}
+                {{ paso === 'modalidad' ? 'Elige la modalidad que más te acomode.' : paso === 'horario' ? 'No verás qué asesor te atenderá hasta que se confirme tu cita.' : 'Un poco de contexto nos ayuda a asignarte mejor.' }}
               </p>
             </div>
+            <div v-else />
             <button @click="handleClose" class="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400 hover:text-gray-600 transition-colors duration-100 shrink-0">
               <FontAwesomeIcon :icon="faXmark" />
             </button>
           </div>
 
-          <div class="px-6 pb-6">
+          <div class="px-6 pb-6 overflow-y-auto flex-1 min-h-0">
             <!-- Sin saldo -->
             <div v-if="sinSaldo" class="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs">
               <FontAwesomeIcon :icon="faTriangleExclamation" class="w-3.5 h-3.5 mt-0.5 shrink-0" />
@@ -309,96 +383,162 @@ function confirmarHorario() {
                 :title="fichasVideo.length === 0 ? 'No tienes fichas de videoconferencia disponibles' : undefined"
                 class="p-5 rounded-xl border border-gray-200 hover:border-brand-500 hover:bg-brand-50/50 transition-colors text-center disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-gray-200 disabled:hover:bg-transparent"
               >
-                <div class="w-12 h-12 mx-auto rounded-full bg-violet-100 text-violet-600 flex items-center justify-center mb-3">
+                <div class="w-12 h-12 mx-auto rounded-full bg-red-100 text-red-600 flex items-center justify-center mb-3">
                   <FontAwesomeIcon :icon="faVideo" class="w-5 h-5" />
                 </div>
                 <p class="font-semibold text-heading text-sm">Por videollamada</p>
                 <p class="text-xs text-muted mt-1">Agenda un horario y conéctate en vivo con un asesor.</p>
-                <p class="text-[11px] font-medium mt-2" :class="fichasVideo.length > 0 ? 'text-violet-600' : 'text-red-500'">
+                <p class="text-[11px] font-medium mt-2" :class="fichasVideo.length > 0 ? 'text-red-600' : 'text-red-500'">
                   {{ fichasVideo.length }} ficha{{ fichasVideo.length === 1 ? '' : 's' }} disponible{{ fichasVideo.length === 1 ? '' : 's' }}<template v-if="duracionVideo"> · {{ duracionVideo }} min</template>
                 </p>
               </button>
             </div>
 
-            <!-- Pasos 1-3: chatbot guiado -->
+            <!-- Pasos: temas/subtemas (multi-select) → duda -->
+            <div v-else-if="paso === 'chatbot' && subPaso === 1" class="space-y-4">
+              <div class="flex items-start gap-2.5">
+                <div class="w-8 h-8 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center shrink-0">
+                  <FontAwesomeIcon :icon="faWandMagicSparkles" class="w-3.5 h-3.5" />
+                </div>
+                <div>
+                  <h3 class="text-base font-bold text-heading leading-snug">¿Sobre qué tema es tu consulta?</h3>
+                  <p class="text-sm text-muted mt-0.5">Selecciona uno o varios temas y subtemas que se relacionen con tu consulta.</p>
+                </div>
+              </div>
+
+              <div class="relative">
+                <FontAwesomeIcon :icon="faSearch" class="w-3.5 h-3.5 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  v-model="busqueda"
+                  type="text"
+                  placeholder="Buscar temas o subtemas..."
+                  class="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-400"
+                />
+              </div>
+
+              <p v-if="temasFiltrados.length === 0" class="text-sm text-muted py-6 text-center">
+                No hay temas ni subtemas que coincidan con "{{ busqueda }}".
+              </p>
+
+              <div v-else class="space-y-2 max-h-[42vh] overflow-y-auto pr-0.5">
+                <div
+                  v-for="tema in temasFiltrados"
+                  :key="tema.id"
+                  class="rounded-xl border overflow-hidden transition-colors duration-75"
+                  :class="temaMarcado(tema) ? 'border-brand-400 bg-brand-50/70' : 'border-gray-200 bg-white'"
+                >
+                  <div
+                    class="flex items-center gap-2.5 px-3.5 py-3 cursor-pointer select-none"
+                    role="button"
+                    tabindex="0"
+                    @click="toggleTemaExpandido(tema.id)"
+                    @keydown.enter.prevent="toggleTemaExpandido(tema.id)"
+                    @keydown.space.prevent="toggleTemaExpandido(tema.id)"
+                  >
+                    <div
+                      class="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+                      :style="{ backgroundColor: tema.colorAccent + '18', color: tema.colorAccent }"
+                    >
+                      <FontAwesomeIcon v-if="sectorIcons[tema.icono]" :icon="sectorIcons[tema.icono]" class="w-3.5 h-3.5" />
+                    </div>
+                    <input
+                      type="checkbox"
+                      class="rounded border-gray-300 text-brand-600 focus:ring-brand-300 shrink-0 w-4 h-4"
+                      :checked="temaMarcado(tema)"
+                      :aria-label="`Seleccionar ${tema.nombre}`"
+                      @click.prevent.stop="toggleTemaCompleto(tema, $event)"
+                    />
+                    <span class="flex-1 min-w-0 text-sm font-semibold text-heading leading-snug">{{ tema.nombre }}</span>
+                    <span class="px-2 py-0.5 rounded-full text-[11px] font-medium bg-white/80 text-muted border border-gray-200/80 shrink-0 whitespace-nowrap">
+                      {{ tema.subtemas.length }} subtema{{ tema.subtemas.length === 1 ? '' : 's' }}
+                    </span>
+                    <FontAwesomeIcon
+                      :icon="estaExpandido(tema.id) ? faChevronUp : faChevronDown"
+                      class="w-3 h-3 text-gray-400 shrink-0"
+                    />
+                  </div>
+
+                  <div v-if="estaExpandido(tema.id)" class="px-2 pb-2">
+                    <label
+                      v-for="sub in tema.subtemas"
+                      :key="sub.id"
+                      class="flex items-center gap-2.5 px-3 py-2 rounded-lg cursor-pointer"
+                      :class="subtemaIdsSeleccionados.has(sub.id) ? 'bg-brand-100/70' : 'hover:bg-white/70'"
+                    >
+                      <input
+                        type="checkbox"
+                        class="rounded border-gray-300 text-brand-600 focus:ring-brand-300 w-4 h-4"
+                        :checked="subtemaIdsSeleccionados.has(sub.id)"
+                        @change="toggleSubtema(sub.id)"
+                      />
+                      <span class="text-sm text-heading leading-snug">{{ sub.nombre }}</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <div class="flex items-center justify-between pt-1">
+                <p class="text-sm font-medium" :class="cantidadSeleccionados > 0 ? 'text-brand-600' : 'text-muted'">
+                  {{ cantidadSeleccionados }} subtema{{ cantidadSeleccionados === 1 ? '' : 's' }} seleccionado{{ cantidadSeleccionados === 1 ? '' : 's' }}
+                </p>
+                <button
+                  v-if="cantidadSeleccionados > 0"
+                  type="button"
+                  class="text-sm text-muted hover:text-heading"
+                  @click="limpiarSeleccion"
+                >
+                  Limpiar selección
+                </button>
+              </div>
+
+              <div class="flex justify-end">
+                <button
+                  type="button"
+                  :disabled="cantidadSeleccionados === 0"
+                  class="px-5 py-2.5 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-75 flex items-center gap-2"
+                  @click="continuarTemas"
+                >
+                  Continuar
+                  <FontAwesomeIcon :icon="faChevronRight" class="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+
             <div v-else-if="paso === 'chatbot'" class="space-y-4">
-              <p class="text-xs font-semibold text-brand-600">Paso {{ subPaso }} de 3</p>
+              <p class="text-xs font-semibold text-brand-600">Paso 2 de {{ tipo === 'video' ? 3 : 2 }}</p>
 
               <div class="flex items-start gap-2">
                 <div class="w-7 h-7 rounded-full bg-gray-100 text-brand-600 flex items-center justify-center shrink-0">
                   <FontAwesomeIcon :icon="faWandMagicSparkles" class="w-3 h-3" />
                 </div>
-                <div class="flex-1">
-                  <div class="bg-gray-50 rounded-xl rounded-tl-none px-3 py-2 text-sm text-heading">¿Sobre qué sector es tu consulta?</div>
-                  <div v-if="!sectorId" class="flex flex-wrap gap-2 mt-2">
-                    <button
-                      v-for="s in sectores"
-                      :key="s.id"
-                      @click="elegirSector(s.id)"
-                      type="button"
-                      class="px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-medium text-gray-600 hover:border-brand-500 hover:bg-brand-50 transition-colors flex items-center gap-1.5"
-                    >
-                      <FontAwesomeIcon v-if="sectorIcons[s.icono]" :icon="sectorIcons[s.icono]" class="w-3 h-3" />
-                      {{ s.nombre }}
-                    </button>
-                  </div>
-                  <div v-else class="mt-1.5 inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-brand-50 border border-brand-200 text-brand-700 text-xs font-medium">
-                    {{ sectores?.find((s) => s.id === sectorId)?.nombre }}
-                    <FontAwesomeIcon :icon="faCheck" class="w-2.5 h-2.5" />
-                  </div>
-                </div>
-              </div>
-
-              <div v-if="sectorId" class="flex items-start gap-2">
-                <div class="w-7 h-7 rounded-full bg-gray-100 text-brand-600 flex items-center justify-center shrink-0">
-                  <FontAwesomeIcon :icon="faWandMagicSparkles" class="w-3 h-3" />
-                </div>
-                <div class="flex-1">
-                  <div class="bg-gray-50 rounded-xl rounded-tl-none px-3 py-2 text-sm text-heading">¿Qué tipo de documento te genera dudas?</div>
-                  <div v-if="!tipoDocumento" class="flex flex-wrap gap-2 mt-2">
-                    <button
-                      v-for="td in TIPOS_DOCUMENTO"
-                      :key="td.value"
-                      @click="elegirTipoDocumento(td.value)"
-                      type="button"
-                      class="px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-medium text-gray-600 hover:border-brand-500 hover:bg-brand-50 transition-colors"
-                    >
-                      {{ td.label }}
-                    </button>
-                  </div>
-                  <div v-else class="mt-1.5 inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-brand-50 border border-brand-200 text-brand-700 text-xs font-medium">
-                    {{ TIPOS_DOCUMENTO.find((td) => td.value === tipoDocumento)?.label }}
-                    <FontAwesomeIcon :icon="faCheck" class="w-2.5 h-2.5" />
-                  </div>
-                </div>
-              </div>
-
-              <div v-if="tipoDocumento" class="flex items-start gap-2">
-                <div class="w-7 h-7 rounded-full bg-gray-100 text-brand-600 flex items-center justify-center shrink-0">
-                  <FontAwesomeIcon :icon="faWandMagicSparkles" class="w-3 h-3" />
-                </div>
                 <div class="flex-1 space-y-2">
-                  <div class="bg-gray-50 rounded-xl rounded-tl-none px-3 py-2 text-sm text-heading">Cuéntame tu duda específica</div>
-                  <div v-if="pidioAclaracion" class="bg-gray-50 rounded-xl rounded-tl-none px-3 py-2 text-sm text-heading">
-                    Cuéntame un poco más — ¿qué parte específica no te queda clara?
+                  <div class="bg-gray-50 rounded-xl rounded-tl-none px-3 py-2 text-sm text-heading">Cuéntame más detalles de tu consulta</div>
+                  <div class="flex flex-wrap items-center gap-1.5">
+                    <span
+                      v-for="st in subtemasElegidos"
+                      :key="st.id"
+                      class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-brand-50 border border-brand-200 text-brand-700 text-xs font-medium"
+                    >
+                      {{ st.nombre }}
+                      <FontAwesomeIcon :icon="faCheck" class="w-2.5 h-2.5" />
+                    </span>
+                    <button type="button" class="text-xs font-medium text-brand-600 hover:text-brand-700" @click="subPaso = 1">
+                      Cambiar
+                    </button>
                   </div>
                   <textarea
                     v-model="duda"
-                    rows="3"
-                    placeholder="Escribe tu duda con el mayor detalle posible..."
+                    rows="4"
+                    placeholder="Explica qué necesitas, en qué parte estás atascado y cualquier dato que le sirva al asesor..."
                     class="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 resize-none"
                   />
-                  <p v-if="analizando" class="text-xs text-muted flex items-center gap-1.5">
-                    <FontAwesomeIcon :icon="faWandMagicSparkles" class="w-3 h-3 animate-pulse" />
-                    Analizando tu consulta...
-                  </p>
+                  <p v-if="errorEnvio" class="text-xs text-red-600">{{ errorEnvio }}</p>
                 </div>
               </div>
 
               <button
-                v-if="tipoDocumento"
                 @click="enviarDuda"
-                :disabled="!duda.trim() || analizando || enviando"
+                :disabled="!duda.trim() || enviando"
                 type="button"
                 class="w-full px-5 py-2.5 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-75 flex items-center justify-center gap-2"
               >
@@ -463,6 +603,7 @@ function confirmarHorario() {
                 </button>
               </div>
 
+              <p v-if="errorEnvio" class="text-xs text-red-600">{{ errorEnvio }}</p>
               <button
                 @click="confirmarHorario"
                 :disabled="!horarioElegido || enviando"

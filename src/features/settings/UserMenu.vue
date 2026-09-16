@@ -70,9 +70,8 @@ const fotoUrl = computed(() => usuariosData.value?.find((u) => u.id === session.
 const cuentaId = computed(() => {
   if (session.sesion?.rol !== 'cliente') return '';
   // Cliente sin plan todavía (recién registrado) — no consultar facturación: ese endpoint
-  // auto-asigna un plan de muestra la primera vez que se lo consulta
-  // (FacturacionController::crearDefault()), y acá justamente no debe tener ninguno hasta que
-  // lo elija de verdad en "Elegir plan".
+  // no crea membresía (GET es solo lectura). Acá no debe tener ninguno hasta que
+  // lo elija de verdad en "Elegir plan" o un admin se lo asigne.
   if (session.sesion.tienePlan === false) return '';
   return cuentaEfectivaDe(usuariosData.value ?? [], session.sesion);
 });

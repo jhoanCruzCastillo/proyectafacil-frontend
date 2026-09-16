@@ -405,9 +405,9 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     ui.toast(`Ejemplo "${nombre}" creado — completa los valores`);
   }
 
-  function handleToggleEjemploEstado(ejemplo: Ejemplo) {
+  async function handleToggleEjemploEstado(ejemplo: Ejemplo) {
     const nuevoEstado = ejemplo.estado === 'publicado' ? 'archivado' : 'publicado';
-    actualizarEjemplo.mutate({ id: ejemplo.id, data: { estado: nuevoEstado } });
+    await actualizarEjemplo.mutateAsync({ id: ejemplo.id, data: { estado: nuevoEstado } });
     if (activeEjemplo.value?.id === ejemplo.id) activeEjemplo.value = { ...ejemplo, estado: nuevoEstado };
     ui.toast(nuevoEstado === 'publicado' ? `Ejemplo "${ejemplo.nombre}" publicado` : `Ejemplo "${ejemplo.nombre}" movido a borrador`);
   }
@@ -1198,5 +1198,6 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     handleVolcarExcel, handleVolcarEstructura, handleConfirmarVolcado, getDefaultValores,
     handleImportEstructura,
     handleSave, handleViewJson, handleViewJsonCampo, handleEditJsonCampo, handleSaveJsonCampo,
+    eliminandoEjemplo: eliminarEjemplo.isPending,
   };
 }

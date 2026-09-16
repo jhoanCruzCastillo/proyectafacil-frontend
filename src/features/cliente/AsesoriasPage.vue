@@ -7,6 +7,7 @@ import {
   faChevronLeft, faChevronRight,
 } from '@/lib/icons';
 import PageShell from '@/components/PageShell.vue';
+import LoadingSpinner from '@/components/LoadingSpinner.vue';
 import ConfirmModal from '@/components/ConfirmModal.vue';
 import Avatar from '@/components/Avatar.vue';
 import SolicitarAsesoriaModal from './SolicitarAsesoriaModal.vue';
@@ -24,6 +25,7 @@ import { useMisSolicitudesQuery, useCancelarSolicitud, useMensajesQuery } from '
 import { useHistorialConexionQuery, useGrabacionesQuery } from '@/composables/useTicketsAsesoria';
 import { cuentaEfectivaDe } from '@/lib/permisos';
 import { ESTADO_ASESORIA_LABEL as ESTADO_LABEL, ESTADO_ASESORIA_CLASE as ESTADO_CLASE } from '@/lib/estadoAsesoria';
+import { etiquetaCategoriaConsulta } from '@/lib/consultaAsesorUI';
 import { addOns } from '@/data/planes';
 import type { SolicitudAsesoria, TipoAsesoria } from '@/types';
 
@@ -110,9 +112,9 @@ function verDetalle(s: SolicitudAsesoria) {
   }
 }
 
-function confirmarCancelar() {
-  if (!detalle.value) return;
-  cancelarSolicitud.mutate(detalle.value.id);
+async function confirmarCancelar() {
+  if (!detalle.value || cancelarSolicitud.isPending.value) return;
+  await cancelarSolicitud.mutateAsync(detalle.value.id);
   showConfirmarCancelar.value = false;
   detalle.value = null;
 }
@@ -184,7 +186,7 @@ function formatFechaHoraAgendada(s: SolicitudAsesoria): string | null {
     <h2 class="text-lg font-bold text-heading mb-1">Mis consultas</h2>
     <p class="text-sm text-muted mb-4">Historial de tus consultas por {{ NOMBRE_FICHA_MODALIDAD[modalidad] }} y su estado actual.</p>
 
-    <p v-if="isLoading" class="text-sm text-muted">Cargando…</p>
+    <LoadingSpinner v-if="isLoading" />
     <p v-else-if="solicitudesFiltradas.length === 0" class="text-sm text-muted py-8 text-center">
       Todavía no has solicitado ninguna asesoría por {{ NOMBRE_FICHA_MODALIDAD[modalidad] }}.
     </p>
@@ -204,7 +206,7 @@ function formatFechaHoraAgendada(s: SolicitudAsesoria): string | null {
             <tr v-for="s in solicitudesPagina" :key="s.id" class="border-b border-gray-100 last:border-0 hover:bg-gray-50/60 transition-colors duration-75">
               <td class="py-3 px-4 text-heading whitespace-nowrap">{{ formatFecha(s.creadoEn) }}</td>
               <td class="py-3 px-4">
-                <span class="px-2.5 py-1 rounded-full text-[11px] font-medium bg-gray-100 text-gray-600">{{ s.sectorNombre ?? '—' }}</span>
+                <span class="px-2.5 py-1 rounded-full text-[11px] font-medium bg-gray-100 text-gray-600">{{ etiquetaCategoriaConsulta(s) }}</span>
               </td>
               <td class="py-3 px-4">
                 <div v-if="s.docenteNombre" class="flex items-center gap-2 whitespace-nowrap">
@@ -364,6 +366,8 @@ function formatFechaHoraAgendada(s: SolicitudAsesoria): string | null {
     title="¿Cancelar esta solicitud?"
     message="Se liberará tu consulta y podrás usarla de nuevo más adelante. Esta acción no se puede deshacer."
     confirm-label="Sí, cancelar"
+    :loading="cancelarSolicitud.isPending.value"
+    loading-label="Cancelando…"
     @confirm="confirmarCancelar"
     @close="showConfirmarCancelar = false"
   />

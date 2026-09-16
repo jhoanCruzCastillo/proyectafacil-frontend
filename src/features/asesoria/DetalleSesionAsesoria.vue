@@ -7,6 +7,7 @@ import VideoSesionCard from './VideoSesionCard.vue';
 import ResumenIaCard from './ResumenIaCard.vue';
 import HistorialChatMensajes from './HistorialChatMensajes.vue';
 import { ESTADO_ASESORIA_CLASE, ESTADO_ASESORIA_LABEL } from '@/lib/estadoAsesoria';
+import { etiquetaCategoriaConsulta } from '@/lib/consultaAsesorUI';
 import type { DocenteNotificado, GrabacionSesion, HistorialConexionParticipante, MensajeAsesoria, SolicitudAsesoria } from '@/types';
 
 // Cuerpo de detalle de una sesión ya atendida (completado u observado) — extraído de
@@ -122,7 +123,7 @@ const pasosTimeline = computed<PasoTimeline[]>(() => {
 
       <div>
         <p class="text-[11px] font-semibold text-muted mb-1.5">Categoría</p>
-        <span class="inline-block px-2.5 py-1 rounded-full text-xs font-medium bg-brand-50 text-brand-700">{{ solicitud.sectorNombre ?? '—' }}</span>
+        <span class="inline-block px-2.5 py-1 rounded-full text-xs font-medium bg-brand-50 text-brand-700">{{ etiquetaCategoriaConsulta(solicitud) }}</span>
       </div>
 
       <div>

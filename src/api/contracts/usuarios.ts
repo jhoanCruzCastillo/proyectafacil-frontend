@@ -1,4 +1,4 @@
-import type { Usuario } from '@/types';
+import type { AsignarBeneficiosPayload, BeneficiosAsignados, Usuario } from '@/types';
 
 export interface UsuariosApi {
   list(): Promise<Usuario[]>;
@@ -10,4 +10,6 @@ export interface UsuariosApi {
   /** Envía por correo una contraseña ya conocida (la que el admin acaba de ver al crear el usuario),
    * sin regenerarla. Usado solo desde el modal de "Usuario creado". */
   enviarAccesosDirecto(id: string, password: string): Promise<void>;
+  beneficiosAsignados(id: string): Promise<BeneficiosAsignados>;
+  asignarBeneficios(id: string, data: AsignarBeneficiosPayload): Promise<BeneficiosAsignados>;
 }

@@ -251,18 +251,12 @@ const router = createRouter({
   ],
 });
 
-// Rutas de cliente siempre libres, sin importar plan/alumno — "ILPIIE Live" (asesorías) es libre
-// para cualquier cliente (con su propio límite de uso gratuito, ver fichas de consulta en esas
-// pantallas), y "elegir-plan"/"inicio-cliente" nunca pueden quedar bloqueadas (serían un callejón
-// sin salida). "home" también va acá — sin esto, un cliente sin plan/alumno nunca llegaba a ver la
-// portada de entrada: el chequeo de plan lo interceptaba en "home" antes de que corriera el
-// redirect a "inicio-cliente" un poco más abajo, mandándolo directo a "elegir-plan" sin pasar por
-// la portada. "Proyectos de Inversión con IA" (formatos/fichas-tecnicas/ioarr-cliente/perfiles/
-// mis-ficha-editar) YA NO está acá — pedido explícito del cliente: solo entra quien tiene plan
-// vigente o es alumno vigente (ver `puedeAccederProyectosIA` en lib/permisos.ts); cualquier otro
-// cliente lo ve bloqueado en la portada/sidebar y rebota a "elegir-plan" si fuerza la URL.
+// Rutas de cliente siempre libres, sin importar plan/alumno. "Proyectos de Inversión con IA"
+// se puede entrar aunque no esté contratado (el candado es solo indicador visual); "ILPIIE Live"
+// igual. "elegir-plan"/"inicio-cliente"/"home" nunca pueden quedar bloqueadas.
 const RUTAS_SIN_PLAN = new Set([
   'elegir-plan', 'inicio-cliente', 'asesorias-chat', 'asesorias-video', 'home',
+  'formatos', 'fichas-tecnicas', 'ioarr-cliente', 'perfiles', 'mis-ficha-editar',
 ]);
 
 router.beforeEach((to) => {

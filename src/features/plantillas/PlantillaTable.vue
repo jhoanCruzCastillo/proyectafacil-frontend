@@ -117,7 +117,8 @@ async function handleActualizarDatos(
       :sectores="todasFichasTecnicas.sectores"
       instrumento="ficha_tecnica"
     />
-    <table v-else class="w-full">
+    <div v-else class="overflow-x-auto">
+    <table class="w-full">
       <thead>
         <tr class="border-b border-gray-100">
           <th class="text-left text-[11px] font-semibold uppercase tracking-wider text-muted px-6 py-4">Código</th>
@@ -199,6 +200,7 @@ async function handleActualizarDatos(
         </tr>
       </tbody>
     </table>
+    </div>
 
     <ExcelCatalogModal
       v-if="excelPlantilla"

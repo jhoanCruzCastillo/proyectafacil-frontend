@@ -1,21 +1,25 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import type { IconDefinition } from '@fortawesome/free-solid-svg-icons';
 import {
   faCrown, faBriefcase, faCheck, faShieldHalved,
   faComments, faPhone, faEnvelope, faArrowRotateLeft, faHeadset, faLockOpen,
+  faFolderOpen, faArrowRight, faLock, faCircleCheck,
 } from '@/lib/icons';
 import PageShell from '@/components/PageShell.vue';
 import PlanIcono from './PlanIcono.vue';
 import PlanDetalleModal from './PlanDetalleModal.vue';
+import ComprarAddOnModal from '@/features/settings/ComprarAddOnModal.vue';
 import { useSessionStore } from '@/stores/session';
 import { useCheckoutPlan } from '@/composables/usePagos';
 import { useFacturacionQuery } from '@/composables/useFacturacion';
 import { useUsuariosQuery } from '@/composables/useUsuarios';
+import { useTicketsConsultaQuery } from '@/composables/useTicketsConsulta';
 import { useUiStore } from '@/stores/ui';
-import { cuentaEfectivaDe } from '@/lib/permisos';
-import { planes } from '@/data/planes';
+import { cuentaEfectivaDe, puedeAccederProyectosIA, tieneServicioIlpiieLive } from '@/lib/permisos';
+import { planes, addOns } from '@/data/planes';
 import type { Plan } from '@/types';
 
 // Sirve tanto para un cliente que todavía no eligió ningún plan (Sesion.tienePlan === false — ver
@@ -23,18 +27,34 @@ import type { Plan } from '@/types';
 // "Planes y servicios") y quiere ver/cambiar su plan.
 const session = useSessionStore();
 const ui = useUiStore();
+const router = useRouter();
 const checkoutPlan = useCheckoutPlan();
+const ADDON_CONSULTA = addOns.find((a) => a.id === 'consultoria-1a1') ?? null;
+const showComprarLive = ref(false);
 
-// Sin plan todavía: NO consultar facturación — ese endpoint auto-asigna Plan Nivel 1 + tarjeta de
-// mentira la primera vez que se consulta (FacturacionController::crearDefault()), lo que le daría
-// un plan "gratis" a cualquiera con solo abrir esta pantalla. Con un plan real ya no hay ese
-// riesgo (la fila ya existe) — mismo guard que UserMenu.vue/useEstadoEntrenamiento.ts.
+// Sin plan todavía: no consultar facturación (no hace falta: no hay fila). El alta de membresía
+// es Checkout o el panel admin; GET /facturacion es solo lectura.
 const { data: usuariosData } = useUsuariosQuery();
 const cuentaIdFacturacion = computed(() => {
   if (!session.sesion || session.sesion.tienePlan === false) return '';
   return cuentaEfectivaDe(usuariosData.value ?? [], session.sesion);
 });
 const { data: facturacion } = useFacturacionQuery(cuentaIdFacturacion);
+
+const cuentaIdTickets = computed(() => {
+  if (!session.sesion) return '';
+  return cuentaEfectivaDe(usuariosData.value ?? [], session.sesion);
+});
+const { data: ticketsConsulta } = useTicketsConsultaQuery(cuentaIdTickets);
+const desbloqueadoProyectosIA = computed(() => (session.sesion ? puedeAccederProyectosIA(session.sesion) : false));
+const tieneIlpiieLive = computed(() => tieneServicioIlpiieLive(ticketsConsulta.value));
+
+function irAProyectosIA() {
+  router.push({ name: 'formatos' });
+}
+function irAIlpiieLive() {
+  router.push({ name: 'asesorias-chat' });
+}
 
 function esPlanActual(p: Plan): boolean {
   return facturacion.value?.planId === p.id;
@@ -49,11 +69,10 @@ async function elegirDesdeModal(p: Plan) {
   planDetalleAbierto.value = null;
 }
 
-const tab = ref<'membresia' | 'adicionales'>('membresia');
+const tab = ref<'membresia' | 'adicionales'>('adicionales');
 
 // Estilo por nivel — no por posición: si el catálogo agrega/reordena planes, sigue enganchando por
-// numeroNivel en vez de romperse. Nivel 1 (Profesional) es el recomendado, igual criterio que
-// cualquier tabla de precios de 3 franjas (entrada / recomendado / premium).
+// numeroNivel en vez de romperse. Nivel 1 (Consultora / Empresa) es el recomendado.
 const ESTILO_POR_NIVEL: Record<number, { iconoClase: string; tarjetaClase: string; oleajeClase: string }> = {
   0: { iconoClase: 'bg-gray-100 text-gray-500', tarjetaClase: 'border-gray-200', oleajeClase: 'text-gray-100' },
   1: { iconoClase: 'bg-brand-100 text-brand-600', tarjetaClase: 'border-brand-300 shadow-lg shadow-brand-100/60', oleajeClase: 'text-brand-100' },
@@ -70,9 +89,9 @@ function esRecomendado(p: Plan): boolean {
 }
 
 function subtitulo(p: Plan): string {
-  if (p.numeroNivel === 0) return 'Para practicar antes de tu proyecto real';
-  if (p.numeroNivel === 1) return 'Para tu proyecto de inversión real';
-  return 'Para equipos con varios proyectos a la vez';
+  if (p.numeroNivel === 0) return 'Para profesionales independientes';
+  if (p.numeroNivel === 1) return 'Para consultoras y empresas';
+  return 'Para gobiernos regionales y locales';
 }
 
 async function elegir(p: Plan) {
@@ -87,6 +106,10 @@ async function elegir(p: Plan) {
 
 function cargando(p: Plan): boolean {
   return checkoutPlan.isPending.value && checkoutPlan.variables.value?.planId === p.id;
+}
+
+function solicitarCotizacionInstitucional() {
+  window.location.href = 'mailto:ventas@proyectafacil.com?subject=' + encodeURIComponent('Cotización institucional — Proyecta Fácil');
 }
 
 // Fila de confianza dentro de la cabecera (pedido explícito del usuario, replica el mockup) —
@@ -213,8 +236,8 @@ const CONFIANZA: { icono: IconDefinition; titulo: string; texto: string }[] = [
     </div>
 
     <div v-if="tab === 'membresia'">
-      <h2 class="text-lg font-bold text-heading mb-1">Elige tu plan ideal</h2>
-      <p class="text-[0.8rem] text-muted mb-6">Accede a más plantillas, asesorías y herramientas según el plan que elijas.</p>
+      <h2 class="text-lg font-bold text-heading mb-1">Membresías mensuales</h2>
+      <p class="text-[0.8rem] text-muted mb-6">Elige el plan que mejor se adapte a tu proyecto y accede a plantillas, asesorías y herramientas ILPIIE.</p>
 
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-5 max-w-[1130px] mx-auto">
         <div
@@ -251,7 +274,7 @@ const CONFIANZA: { icono: IconDefinition; titulo: string; texto: string }[] = [
             v-if="esRecomendado(p)"
             class="absolute -top-3 right-6 px-3 py-1 rounded-full bg-brand-600 text-white text-[10px] font-bold uppercase tracking-wide"
           >
-            Más elegido
+            Recomendado
           </span>
 
           <div class="relative flex flex-col flex-1">
@@ -325,6 +348,12 @@ const CONFIANZA: { icono: IconDefinition; titulo: string; texto: string }[] = [
         @elegir="elegirDesdeModal"
       />
 
+      <div class="max-w-[1130px] mx-auto mt-8 text-center">
+        <p class="text-[0.8rem] text-muted max-w-2xl mx-auto leading-relaxed">
+          Tarifa institucional (+20%) para empresas privadas y gobiernos nacionales. Tarifa preferencial (−30%) para alumnos de posgrado.
+        </p>
+      </div>
+
       <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mt-10">
         <div class="rounded-2xl bg-purple-50 border border-purple-100 p-6 flex items-start gap-4">
           <div class="w-11 h-11 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center shrink-0">
@@ -361,6 +390,7 @@ const CONFIANZA: { icono: IconDefinition; titulo: string; texto: string }[] = [
             </div>
             <button
               type="button"
+              @click="solicitarCotizacionInstitucional"
               class="px-4 py-2 rounded-lg bg-brand-600 text-white text-[0.8rem] font-semibold hover:bg-brand-700 transition-colors duration-75 shrink-0"
             >
               Contactar ventas
@@ -370,12 +400,81 @@ const CONFIANZA: { icono: IconDefinition; titulo: string; texto: string }[] = [
       </div>
     </div>
 
-    <div v-else class="flex flex-col items-center justify-center text-center py-16 text-muted">
-      <div class="w-12 h-12 rounded-xl bg-gray-100 text-gray-400 flex items-center justify-center mb-4">
-        <FontAwesomeIcon :icon="faBriefcase" class="w-5 h-5" />
+    <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl mx-auto py-4">
+      <div class="relative flex flex-col items-center text-center rounded-2xl border border-border-light bg-white p-8 shadow-card">
+        <div class="w-16 h-16 rounded-full flex items-center justify-center mb-4 bg-brand-100 text-brand-600">
+          <FontAwesomeIcon :icon="faFolderOpen" class="w-7 h-7" />
+        </div>
+        <p class="text-lg font-heading font-semibold text-heading">Proyectos de Inversión con IA</p>
+        <p class="text-[0.8rem] mt-1 mb-5 text-muted">
+          Formatos, fichas técnicas, IOARR y perfiles — llena tus documentos de inversión con ayuda de IA.
+        </p>
+        <p
+          class="text-[0.75rem] font-medium mb-5 flex items-center justify-center gap-1.5"
+          :class="desbloqueadoProyectosIA ? 'text-brand-600' : 'text-gray-400'"
+        >
+          <FontAwesomeIcon :icon="desbloqueadoProyectosIA ? faCircleCheck : faLock" class="w-3 h-3" />
+          {{ desbloqueadoProyectosIA ? 'Incluido en tu plan actual' : 'Aún no has adquirido este beneficio' }}
+        </p>
+        <button
+          v-if="desbloqueadoProyectosIA"
+          @click="irAProyectosIA"
+          type="button"
+          class="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-brand-600 text-white text-[0.8rem] font-semibold hover:bg-brand-700 transition-colors duration-75"
+        >
+          Entrar
+          <FontAwesomeIcon :icon="faArrowRight" class="w-3 h-3" />
+        </button>
+        <button
+          v-else
+          @click="tab = 'membresia'"
+          type="button"
+          class="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-brand-600 text-white text-[0.8rem] font-semibold hover:bg-brand-700 transition-colors duration-75"
+        >
+          Ver planes
+        </button>
       </div>
-      <p class="text-[0.8rem] font-medium text-heading">Servicios adicionales</p>
-      <p class="text-[0.8rem] text-muted mt-1 max-w-xs">Muy pronto vas a poder contratar consultoría 1 a 1 y otros servicios adicionales desde aquí.</p>
+
+      <div class="relative flex flex-col items-center text-center rounded-2xl border border-border-light bg-white p-8 shadow-card">
+        <div class="w-16 h-16 rounded-full flex items-center justify-center mb-4 bg-red-100 text-red-600">
+          <FontAwesomeIcon :icon="faHeadset" class="w-7 h-7" />
+        </div>
+        <p class="text-lg font-heading font-semibold text-red-600">ILPIIE Live</p>
+        <p class="text-[0.8rem] mt-1 mb-5 text-muted">
+          Asesoría en vivo por chat o videollamada sobre temas y subtemas puntuales de tu proyecto.
+        </p>
+        <p
+          class="text-[0.75rem] font-medium mb-5 flex items-center justify-center gap-1.5"
+          :class="tieneIlpiieLive ? 'text-red-600' : 'text-gray-400'"
+        >
+          <FontAwesomeIcon :icon="tieneIlpiieLive ? faCircleCheck : faLock" class="w-3 h-3" />
+          {{ tieneIlpiieLive ? 'Siempre disponible' : 'Aún no has adquirido este servicio' }}
+        </p>
+        <button
+          v-if="tieneIlpiieLive"
+          @click="irAIlpiieLive"
+          type="button"
+          class="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-red-600 text-white text-[0.8rem] font-semibold hover:bg-red-700 transition-colors duration-75"
+        >
+          Entrar
+          <FontAwesomeIcon :icon="faArrowRight" class="w-3 h-3" />
+        </button>
+        <button
+          v-else
+          @click="showComprarLive = true"
+          type="button"
+          class="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-red-600 text-white text-[0.8rem] font-semibold hover:bg-red-700 transition-colors duration-75"
+        >
+          Contratar
+        </button>
+      </div>
+
+      <ComprarAddOnModal
+        :is-open="showComprarLive"
+        :usuario-id="cuentaIdTickets"
+        :addon="ADDON_CONSULTA"
+        @close="showComprarLive = false"
+      />
     </div>
   </PageShell>
 </template>

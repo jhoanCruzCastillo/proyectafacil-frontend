@@ -7,7 +7,7 @@ import {
 import Avatar from '@/components/Avatar.vue';
 import HistorialChatMensajes from '@/features/asesoria/HistorialChatMensajes.vue';
 import DetalleSesionAsesoria from '@/features/asesoria/DetalleSesionAsesoria.vue';
-import { colorCategoria, formatFechaHoraVideo } from '@/lib/consultaAsesorUI';
+import { colorCategoria, formatFechaHoraVideo, etiquetaCategoriaConsulta } from '@/lib/consultaAsesorUI';
 import { formatHora } from '@/lib/tiempoRelativo';
 import { useMensajesQuery } from '@/composables/useAsesoria';
 import { useHistorialConexionQuery, useGrabacionesQuery } from '@/composables/useTicketsAsesoria';
@@ -79,7 +79,7 @@ function formatFechaHoraChat(s: SolicitudAsesoria): string {
           <div class="flex items-center gap-6 text-xs shrink-0">
             <div>
               <p class="text-muted font-medium mb-0.5">Categoría</p>
-              <span class="px-2 py-0.5 rounded-full text-[11px] font-medium" :class="colorCategoria(solicitud.sectorNombre)">{{ solicitud.sectorNombre ?? '—' }}</span>
+              <span class="px-2 py-0.5 rounded-full text-[11px] font-medium" :class="colorCategoria(solicitud.sectorNombre)">{{ etiquetaCategoriaConsulta(solicitud) }}</span>
             </div>
             <div>
               <p class="text-muted font-medium mb-0.5">Modalidad</p>
@@ -125,7 +125,7 @@ function formatFechaHoraChat(s: SolicitudAsesoria): string {
             </div>
             <div>
               <p class="text-[11px] font-medium text-muted mb-1">Categoría</p>
-              <span class="px-2.5 py-1 rounded-full text-[11px] font-medium" :class="colorCategoria(solicitud.sectorNombre)">{{ solicitud.sectorNombre ?? '—' }}</span>
+              <span class="px-2.5 py-1 rounded-full text-[11px] font-medium" :class="colorCategoria(solicitud.sectorNombre)">{{ etiquetaCategoriaConsulta(solicitud) }}</span>
             </div>
           </div>
         </div>
@@ -170,7 +170,7 @@ function formatFechaHoraChat(s: SolicitudAsesoria): string {
           <Avatar :nombre="solicitud.clienteNombre ?? '?'" :fotoUrl="solicitud.clienteFotoUrl" size="w-11 h-11" />
           <div class="min-w-0">
             <p class="font-semibold text-heading text-sm truncate">{{ solicitud.clienteNombre }}</p>
-            <span class="px-2 py-0.5 rounded-full text-[11px] font-medium" :class="colorCategoria(solicitud.sectorNombre)">{{ solicitud.sectorNombre ?? '—' }}</span>
+            <span class="px-2 py-0.5 rounded-full text-[11px] font-medium" :class="colorCategoria(solicitud.sectorNombre)">{{ etiquetaCategoriaConsulta(solicitud) }}</span>
           </div>
         </div>
 

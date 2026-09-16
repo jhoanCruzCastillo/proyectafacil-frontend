@@ -120,8 +120,8 @@ const PERMISOS_ADMINISTRATIVO_ASESORIAS: PermisoId[] = [
 ];
 
 // Espeja las features de cada plan en data/planes.ts — un cliente Nivel 2 acumula también lo de
-// Nivel 0 y 1. asesoria.solicitar está disponible desde el Nivel 0 (no es un beneficio de plan
-// pago, es el canal de ayuda base).
+// Nivel 0 y 1. asesoria.solicitar está disponible desde el Nivel 0. La IA asistente avanzada
+// (mejora de texto / asesor) entra desde Nivel 1 (Consultora / Empresa), como en el catálogo.
 function permisosDefaultCliente(numeroNivel: number): PermisoId[] {
   const permisos: PermisoId[] = ['fichas.crear', 'facturacion.gestionar', 'asesoria.solicitar'];
   if (numeroNivel >= 1) permisos.push('ia.mejora_texto', 'ia.asesor');

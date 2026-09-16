@@ -19,16 +19,14 @@ const { data: facturacionData } = useFacturacionQuery(() => props.usuarioId);
 const checkoutPlan = useCheckoutPlan();
 const cambiarPlan = useCambiarPlan();
 
-// Sin suscripción activa todavía (nunca compró, o solo tiene el Nivel 0 de pago único) → Checkout
-// real de Stripe (redirige). Con una suscripción activa (Nivel 1/2) → swap directo del plan,
-// instantáneo, cobrando/prorrateando de verdad — salvo que el destino sea el Nivel 0 (no es un
-// ítem de suscripción, hay que cancelar primero desde el portal).
+// Sin suscripción activa todavía (nunca compró) → Checkout real de Stripe (redirige). Con una
+// suscripción activa (los 3 niveles son mensuales) → swap directo del plan, instantáneo.
 async function handleElegir(p: Plan) {
   const yaSuscrito = !!facturacionData.value?.stripeSubscriptionId;
   const esPagoUnico = p.periodicidad === 'Único';
 
   if (yaSuscrito && esPagoUnico) {
-    ui.toast('Para pasar al Nivel 0 primero cancela tu suscripción actual desde "Actualizar método de pago".', 'error');
+    ui.toast('Para pasar a un plan de pago único primero cancela tu suscripción actual desde "Actualizar método de pago".', 'error');
     return;
   }
 
@@ -73,7 +71,7 @@ function cargando(p: Plan): boolean {
               <p class="text-xs font-semibold uppercase tracking-widest text-brand-600">Nivel {{ p.numeroNivel }}</p>
               <p class="text-base font-bold text-heading mb-1">{{ p.nombre }}</p>
               <p class="text-2xl font-bold text-heading">
-                ${{ p.precio }}
+                S/ {{ p.precio }}
                 <span class="text-xs font-normal text-muted"> · {{ p.periodicidad }}</span>
               </p>
               <ul class="flex-1 space-y-1.5 my-4">

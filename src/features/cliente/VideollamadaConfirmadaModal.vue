@@ -3,6 +3,7 @@ import { computed } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faCheck, faVideo, faCalendarPlus, faUser, faFolderOpen, faCalendarDays, faInfoCircle, faXmark } from '@/lib/icons';
 import Avatar from '@/components/Avatar.vue';
+import { etiquetaCategoriaConsulta } from '@/lib/consultaAsesorUI';
 import type { SolicitudAsesoria } from '@/types';
 
 // Pantalla de confirmación de videollamada agendada (docs de referencia del usuario) — a
@@ -104,7 +105,7 @@ function agregarACalendario() {
               </div>
               <div class="min-w-0 flex items-center gap-2 flex-wrap">
                 <p class="text-xs text-muted shrink-0">Categoría</p>
-                <span v-if="solicitud.sectorNombre" class="px-2.5 py-1 rounded-full text-xs font-medium bg-brand-50 text-brand-700">{{ solicitud.sectorNombre }}</span>
+                <span v-if="etiquetaCategoriaConsulta(solicitud) !== '—'" class="px-2.5 py-1 rounded-full text-xs font-medium bg-brand-50 text-brand-700">{{ etiquetaCategoriaConsulta(solicitud) }}</span>
               </div>
             </div>
 

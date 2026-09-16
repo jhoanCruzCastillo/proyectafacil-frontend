@@ -483,7 +483,7 @@ export interface FacturaMock {
   estado: EstadoFactura;
 }
 
-// Catálogo de planes por nivel (Nivel 0 Pedagógico, Nivel 1 Profesional, Nivel 2 Premium).
+// Catálogo de planes por nivel (0 Profesional, 1 Consultora/Empresa, 2 Gobierno Regional/Local).
 export interface Plan {
   id: string;
   numeroNivel: number;
@@ -491,14 +491,13 @@ export interface Plan {
   precio: number;
   periodicidad: string;
   features: string[];
-  /** Cantidad base de fichas simultáneas permitidas (ejercicios en Nivel 0, proyectos reales en Nivel 1+),
-   * antes de sumar el add-on "Plantilla adicional". */
+  /** Cantidad base de fichas simultáneas permitidas, antes de sumar el add-on "Plantilla adicional". */
   limiteFichasBase: number;
   /** Cantidad base de consultas de asesoría 1:1 con un docente incluidas en el plan, antes de sumar
    * el add-on "Consultoría 1 a 1" (cada unidad comprada = 1 consulta extra). */
   limiteConsultasBase: number;
   /** Cantidad de usuarios (titular + colaboradores) incluidos en el plan, antes de sumar el add-on
-   * "Usuario adicional". Nivel 0 y 1 solo incluyen al titular (1); Nivel 2 incluye hasta 3. */
+   * "Usuario adicional". */
   limiteUsuariosBase: number;
 }
 
@@ -541,6 +540,24 @@ export interface FacturacionMock {
   stripeCustomerId: string | null;
   /** Presente solo si hay una suscripción real activa (Nivel 1/2) — null en Nivel 0 o sin comprar aún. */
   stripeSubscriptionId: string | null;
+}
+
+/** Cupos de un cliente vistos/editados por admin en Usuarios y permisos → Membresía y pagos. */
+export interface BeneficiosAsignados {
+  cuentaId: string;
+  planId: string | null;
+  planNombre: string | null;
+  limitePlantillas: number;
+  limitePlantillasBase: number;
+  fichasChatDisponibles: number;
+  fichasVideoDisponibles: number;
+}
+
+export interface AsignarBeneficiosPayload {
+  planId?: string | null;
+  agregarFichasChat?: number;
+  agregarFichasVideo?: number;
+  limitePlantillas?: number | null;
 }
 
 export interface ActividadReciente {
@@ -727,7 +744,6 @@ export interface LiquidacionDetalle {
   clienteNombre: string;
   clienteFotoUrl?: string | null;
   sectorNombre?: string | null;
-  /** Puede venir vacío: el flujo que crea solicitudes todavía no pide subtema. */
   subtemaNombre?: string | null;
   tipo: TipoAsesoria;
   /** ISO — fecha real de cierre de la asesoría. */
@@ -804,8 +820,8 @@ export interface NoAtendidasAsesor {
   agendadasNoAtendidas: SolicitudAsesoria[];
 }
 
-// Segundo nivel de las especialidades del asesor: dentro de un sector MEF ("tema"), un subtema
-// específico — ej. dentro de Formatos Generales, "Liquidación por contrata".
+// Segundo nivel de las especialidades del asesor: dentro de un tema ILPIIE, un subtema
+// específico — ej. dentro de Inversión Pública / Documentos Técnicos, "IOARR".
 export interface SubtemaEspecialidad {
   id: string;
   temaId: string;
@@ -853,8 +869,8 @@ export type TipoAsesoria = 'chat' | 'video';
 // no una colisión accidental.
 export type EstadoSolicitudAsesoria = 'pendiente' | 'asignado' | 'agendado' | 'completado' | 'cancelado' | 'en_espera' | 'observado' | 'vencido';
 
-// Los 4 tipos de documento del Formato 6A (docs/proyectafacil-asesorias.md §3.3) — paso 2 del
-// chatbot guiado, misma categorización que la asesor autogestiona en Mis especialidades.
+// Legacy: tipos de documento del Formato 6A — el selector de asesoría ya no los pide
+// (el alumno marca uno o varios subtemas ILPIIE). Se conserva porque solicitudes viejas pueden tenerlo guardado.
 export type TipoDocumento = 'formatos' | 'ioarr' | 'fichas_tecnicas' | 'perfiles';
 
 export interface SolicitudAsesoria {
@@ -868,9 +884,15 @@ export interface SolicitudAsesoria {
   docenteFotoUrl?: string | null;
   /** Ficha que el cliente estaba llenando al pedir ayuda, si aplica */
   ejemploId?: string | null;
-  /** Sector MEF elegido en el paso 1 del chatbot guiado */
+  /** Legacy: sector MEF del chatbot viejo. Las solicitudes nuevas usan tema/subtema ILPIIE. */
   sectorId?: string | null;
+  /** Tema ILPIIE, o sector MEF si la solicitud es anterior al catálogo de especialidades. */
   sectorNombre?: string | null;
+  temaNombre?: string | null;
+  subtemaId?: string | null;
+  subtemaIds?: string[];
+  subtemaNombre?: string | null;
+  subtemas?: Array<{ id: string; nombre: string; temaNombre?: string | null }>;
   tipoDocumento?: TipoDocumento | null;
   tipo: TipoAsesoria;
   estado: EstadoSolicitudAsesoria;
