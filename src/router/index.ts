@@ -26,6 +26,11 @@ const router = createRouter({
       props: true,
     },
     {
+      path: '/registro-especialista',
+      name: 'registro-especialista',
+      component: () => import('@/features/auth/RegistroEspecialistaPage.vue'),
+    },
+    {
       path: '/',
       component: () => import('@/layouts/MainLayout.vue'),
       meta: { requiresAuth: true },
@@ -223,8 +228,20 @@ const router = createRouter({
           meta: { soloAdministrativoAsesorias: true },
         },
         {
+          // Reubicado bajo "Especialistas" en el sidebar — se mantiene esta ruta como redirect
+          // (no como alias) para no romper los links existentes (p.ej. DashboardPage.vue).
           path: 'asesoria/docentes',
-          name: 'docentes-admin',
+          redirect: { name: 'especialistas-docentes' },
+        },
+        {
+          path: 'especialistas/candidatos',
+          name: 'especialistas-candidatos',
+          component: () => import('@/features/especialistas/CandidatosPage.vue'),
+          meta: { soloAdministrativoAsesorias: true },
+        },
+        {
+          path: 'especialistas/docentes',
+          name: 'especialistas-docentes',
           component: () => import('@/features/administrativo/DocentesAdminPage.vue'),
           meta: { soloAdministrativoAsesorias: true },
         },
