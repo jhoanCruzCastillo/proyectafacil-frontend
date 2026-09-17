@@ -203,6 +203,7 @@ const paso = ref(1);
 const enviado = ref(false);
 const enviando = ref(false);
 const errorEnvio = ref('');
+const errorCorreo = ref('');
 const mostrarError = ref(false);
 const diaSeleccionado = ref(0);
 const cvInputRef = ref<HTMLInputElement | null>(null);
@@ -360,7 +361,13 @@ async function enviarPostulacion() {
     const res = await fetch('/api/candidatos', { method: 'POST', body: form });
     if (!res.ok) {
       const body = await res.json().catch(() => null);
-      throw new Error(body?.error ?? 'No se pudo enviar la postulación. Intenta de nuevo.');
+      const mensaje = body?.error ?? 'No se pudo enviar la postulación. Intenta de nuevo.';
+      if (res.status === 409 && /correo ya registrado/i.test(mensaje)) {
+        errorCorreo.value = 'Correo ya registrado';
+        paso.value = 1;
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+      throw new Error(mensaje);
     }
 
     enviado.value = true;
@@ -457,7 +464,11 @@ const filasResumen = computed(() => [
           <div class="form-grid">
             <div class="form-group"><label class="form-label">Nombres y apellidos <span class="required">*</span></label><input v-model="campos.nombre" type="text" placeholder="Ej. Juan Carlos Pérez López" /></div>
             <div class="form-group"><label class="form-label">DNI / CE <span class="required">*</span></label><input v-model="campos.dni" type="text" placeholder="Ej. 12345678" maxlength="12" /></div>
-            <div class="form-group"><label class="form-label">Correo electrónico <span class="required">*</span></label><input v-model="campos.correo" type="email" placeholder="ejemplo@correo.com" /></div>
+            <div class="form-group">
+              <label class="form-label">Correo electrónico <span class="required">*</span></label>
+              <input v-model="campos.correo" type="email" placeholder="ejemplo@correo.com" @input="errorCorreo = ''" />
+              <div class="err" :class="{ on: !!errorCorreo }">{{ errorCorreo }}</div>
+            </div>
             <div class="form-group"><label class="form-label">Teléfono / WhatsApp <span class="required">*</span></label><input v-model="campos.telefono" type="tel" placeholder="Ej. 999 888 777" /></div>
             <div class="form-group"><label class="form-label">Contraseña <span class="required">*</span></label><input v-model="campos.password" type="password" placeholder="Mínimo 8 caracteres" /></div>
             <div class="form-group"><label class="form-label">Confirmar contraseña <span class="required">*</span></label><input v-model="campos.password2" type="password" placeholder="Repite tu contraseña" /></div>
