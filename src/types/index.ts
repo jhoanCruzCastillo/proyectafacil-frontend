@@ -1091,6 +1091,58 @@ export interface DocenteAdmin {
   consultasAtendidasMes: number;
 }
 
+export type EstadoCandidato = 'registrado' | 'en_evaluacion' | 'para_entrevista' | 'aprobado' | 'desaprobado';
+
+export interface Candidato {
+  id: string;
+  nombre: string;
+  dni: string;
+  correo: string;
+  telefono: string;
+  profesion: string;
+  nivelAcademico: string;
+  aniosExperiencia: string;
+  temas: EspecialidadDocente[];
+  estado: EstadoCandidato;
+  fechaRegistro: string;
+}
+
+export interface ResumenCandidatos {
+  total: number;
+  porEstado: Record<EstadoCandidato, number>;
+}
+
+export interface CandidatoDetalle {
+  id: string;
+  nombre: string;
+  dni: string;
+  correo: string;
+  telefono: string;
+  profesion: string;
+  nivelAcademico: string;
+  colegiatura: string | null;
+  aniosExperiencia: string;
+  nivelEspecialidad: string;
+  otrosTemas: string | null;
+  actividades: string[];
+  temas: EspecialidadDocente[];
+  disponibilidad: { dia: number; hora: number }[];
+  cvNombreOriginal: string;
+  linkedin: string | null;
+  otrasRedes: string | null;
+  comentarios: string | null;
+  estado: EstadoCandidato;
+  fechaRegistro: string;
+  actualizadoEn: string;
+}
+
+export interface NotaCandidato {
+  id: string;
+  texto: string;
+  autorNombre: string;
+  creadoEn: string;
+}
+
 export type OrigenTicketConsulta = 'plan' | 'addon';
 export type EstadoTicketConsulta = 'disponible' | 'reservado' | 'consumido' | 'liberado' | 'expirado';
 

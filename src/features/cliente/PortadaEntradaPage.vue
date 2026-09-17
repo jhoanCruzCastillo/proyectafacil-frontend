@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import {
@@ -114,7 +114,13 @@ const proximaVideollamada = computed(() => {
     .sort((a, b) => `${a.horarioFecha}T${a.horarioHoraInicio}`.localeCompare(`${b.horarioFecha}T${b.horarioHoraInicio}`));
   return candidatas[0] ?? null;
 });
-const columnaDerecha = computed(() => tieneIlpiieLive.value && (desbloqueadoProyectosIA.value || !!proximaVideollamada.value));
+// "Tu progreso" oculto temporalmente (ver más abajo) — mientras tanto la columna derecha
+// solo depende de si hay una próxima videollamada.
+const columnaDerecha = computed(() => tieneIlpiieLive.value && !!proximaVideollamada.value);
+
+// "Tu progreso" oculto temporalmente a pedido del cliente (no `false` literal, para que
+// vue-tsc no elimine el bloque como código muerto y rompa el narrowing de fichaEnProgreso).
+const mostrarTuProgreso = ref(false);
 function formatoFechaHora(fecha: string, hora: string) {
   const fechaTexto = new Date(fecha + 'T00:00:00').toLocaleDateString('es-PE', { day: 'numeric', month: 'short' });
   return `${fechaTexto} · ${hora}`;
@@ -300,8 +306,8 @@ const asesoresExtra = computed(() => Math.max(0, asesoresDisponibles.value.lengt
       </div>
 
       <div v-if="columnaDerecha" class="flex flex-col gap-6">
-        <!-- Tu progreso -->
-        <div v-if="desbloqueadoProyectosIA" class="rounded-2xl border border-border-light bg-white p-5 shadow-card">
+        <!-- Tu progreso: oculto temporalmente a pedido del cliente. -->
+        <div v-if="mostrarTuProgreso && desbloqueadoProyectosIA" class="rounded-2xl border border-border-light bg-white p-5 shadow-card">
           <p class="text-sm font-heading font-semibold text-heading mb-3">Tu progreso</p>
           <template v-if="fichaEnProgreso">
             <p class="text-sm font-medium text-heading truncate">{{ fichaEnProgreso.ejemplo.nombre }}</p>

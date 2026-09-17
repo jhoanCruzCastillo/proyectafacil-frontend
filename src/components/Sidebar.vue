@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faHouse, faLayerGroup, faAnglesLeft, faAnglesRight, faUserGear, faCalendarWeek, faCalendarCheck, faCircleInfo, faCircleExclamation, faListCheck, faHeadset, faPeopleGroup, faMoneyBillTransfer, faClock, faFolderOpen, faChevronUp, faChevronDown, faLock, faVideo, faComments, faStar, instrumentoIcons } from '@/lib/icons';
+import { faHouse, faLayerGroup, faAnglesLeft, faAnglesRight, faUserGear, faCalendarWeek, faCalendarCheck, faCircleInfo, faCircleExclamation, faListCheck, faHeadset, faPeopleGroup, faUserPlus, faMoneyBillTransfer, faClock, faFolderOpen, faChevronUp, faChevronDown, faLock, faVideo, faComments, faStar, instrumentoIcons } from '@/lib/icons';
 import UserMenu from '@/features/settings/UserMenu.vue';
 import MejorarPlanCard from '@/features/settings/MejorarPlanCard.vue';
 import NotificacionesBell from '@/features/asesoria/NotificacionesBell.vue';
@@ -95,7 +95,14 @@ const navItems = computed(() => {
     if (session.sesion?.rol === 'administrativo_asesorias' || session.sesion?.rol === 'superusuario') {
       items.push({ to: '/asesoria/tickets', label: 'Tickets de asesoría', icon: faListCheck });
       items.push({ to: '/asesoria/cobertura-horarios', label: 'Cobertura de horarios', icon: faCalendarWeek });
-      items.push({ to: '/asesoria/docentes', label: 'Docentes', icon: faPeopleGroup });
+      items.push({
+        label: 'Especialistas',
+        icon: faUserPlus,
+        children: [
+          { to: '/especialistas/candidatos', label: 'Candidatos', icon: faUserPlus },
+          { to: '/especialistas/docentes', label: 'Docentes / Asesores', icon: faPeopleGroup },
+        ],
+      });
       items.push({ to: '/asesoria/liquidaciones', label: 'Liquidaciones', icon: faMoneyBillTransfer });
       items.push({ to: '/asesoria/configuracion-sla', label: 'Configuración de SLA', icon: faClock });
       items.push({ to: '/asesoria/configuracion-videollamadas', label: 'Configuración de videollamadas', icon: faVideo });
@@ -315,13 +322,14 @@ const colapsadoEfectivo = computed(() => isDesktop.value && !!props.collapsed);
                     :class="item.accent === 'red' ? 'bg-red-500 live-pulse-dot' : 'bg-slate-500'"
                   />
                 </span>
-                <svg v-else width="22" height="22" viewBox="0 0 24 24" fill="none" :stroke="strokeIconoGrupo(item)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0">
+                <svg v-else-if="item.label === 'Proyectos de Inversión con IA'" width="22" height="22" viewBox="0 0 24 24" fill="none" :stroke="strokeIconoGrupo(item)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0">
                   <path d="M14.5 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V7.5L14.5 2z" />
                   <polyline points="14 2 14 8 20 8" />
                   <rect x="8" y="13" width="8" height="5" rx="1" :stroke="strokeCandadoPi(item)" stroke-width="1.5" />
                   <path d="M10 13v-1a2 2 0 014 0v1" :stroke="strokeCandadoPi(item)" stroke-width="1.5" />
                   <circle cx="12" cy="15.5" r="0.8" :fill="fillCandadoPi(item)" stroke="none" />
                 </svg>
+                <FontAwesomeIcon v-else :icon="item.icon" class="w-[22px] text-center shrink-0" :class="claseChevronGrupo(item)" />
 
                 <span
                   class="flex-1 text-left leading-snug"
