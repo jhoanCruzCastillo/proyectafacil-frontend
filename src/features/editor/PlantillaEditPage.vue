@@ -19,11 +19,14 @@ import ExcelPreviewModal from './ExcelPreviewModal.vue';
 import VolcarExcelModal from './VolcarExcelModal.vue';
 import ExcelCatalogModal from '@/features/plantillas/ExcelCatalogModal.vue';
 import { usePlantillaEditor } from '@/composables/usePlantillaEditor';
+import { useSectorQuery } from '@/composables/useSectores';
 import type { Ejemplo } from '@/types';
 
 const route = useRoute();
 const sectorId = computed(() => route.params.sectorId as string);
 const plantillaId = computed(() => route.params.plantillaId as string);
+
+const { data: sector } = useSectorQuery(sectorId);
 
 const {
   estadoGuardado,
@@ -122,6 +125,8 @@ async function confirmarToggleEstado() {
           show-edit-hoja
           :show-duplicate-section="!showExamples"
           :show-import-estructura="!showExamples"
+          :plantilla="editData"
+          :sector-nombre="sector?.nombre"
           @select="handleSectionSelect"
           @add-section="handleAddSection"
           @edit-hoja="editingHojaSeccionId = $event"
