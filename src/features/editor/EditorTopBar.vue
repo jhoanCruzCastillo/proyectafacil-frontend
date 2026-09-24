@@ -58,10 +58,8 @@ const colorGuardado = computed(() => (props.estadoGuardado === 'error' ? 'text-r
 <template>
   <div class="relative shrink-0 border-b border-white/10 bg-sidebar bg-[url('/bg-cont.webp')] bg-cover bg-center bg-no-repeat px-6 py-3 overflow-hidden">
     <div class="absolute inset-0 bg-black/55 pointer-events-none" />
-    <!-- overflow-x-auto: en ventanas angostas la suma de título + tabs + acciones no siempre entra;
-         mejor un scroll horizontal que dejar que se superpongan (el título ahora tiene ancho fijo
-         para que los tabs no se desplacen entre sí al cambiar de tab, así que ya no puede encogerse
-         para ceder espacio). -->
+    <!-- overflow-x-auto: en ventanas angostas la suma de código + tabs + acciones no siempre entra;
+         mejor un scroll horizontal que dejar que se superpongan. -->
     <div class="relative flex items-center justify-between gap-3 overflow-x-auto">
       <div class="flex items-center gap-3 shrink-0">
         <RouterLink
@@ -74,13 +72,8 @@ const colorGuardado = computed(() => (props.estadoGuardado === 'error' ? 'text-r
         <span class="inline-flex items-center justify-center w-auto min-w-10 px-2 h-8 rounded-md border border-brand-400/40 text-brand-300 text-sm font-bold bg-brand-500/15 shrink-0">
           {{ plantilla.codigo }}
         </span>
-        <!-- Ancho fijo (no `shrink`): si el título pudiera encogerse, sería el único elemento
-             elástico de este grupo y absorbería el espacio que dejan los botones de la derecha —
-             lo que desplazaría igualmente los tabs que vienen justo después, el mismo problema que
-             se estaba resolviendo al sacarlos del grupo derecho. -->
-        <h1 class="text-lg font-bold text-white truncate w-64 shrink-0" :title="plantilla.nombre">{{ plantilla.nombre }}</h1>
         <!-- Este grupo (tabs + live/confirmar + guardado) va anclado a la izquierda, pegado al
-             título, en vez de vivir en el grupo de la derecha: ahí su posición dependía de cuántos
+             código, en vez de vivir en el grupo de la derecha: ahí su posición dependía de cuántos
              botones de acción hubiera a la derecha (Volcar/Insertar/Vista previa varían por tab), así
              que al cambiar de tab estos elementos se desplazaban — molesto porque son los que el
              usuario usa para navegar entre tabs, no deberían moverse al usarlos. -->

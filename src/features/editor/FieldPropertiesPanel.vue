@@ -6,6 +6,7 @@ import { fieldTypeIcons, fieldTypeLabels, faTriangleExclamation } from '@/lib/ic
 import { parseCampoJson, stringifyCampoJson } from '@/lib/campoJson';
 import { campoFaltaCaptura, columnaExcelFormatoInvalido } from '@/lib/campoValidation';
 import { parseCoords } from '@/lib/coords';
+import { parseDynamicRows, newEmptyRow } from '@/lib/tableRowHelpers';
 import TableColumnsEditor from './TableColumnsEditor.vue';
 import CampoCoordenadasInput from '@/components/CampoCoordenadasInput.vue';
 import type { ModoEdicionEditor } from '@/composables/usePlantillaEditor';
@@ -96,6 +97,23 @@ const isTable = computed(() => vista.value.tipo === 'tabla' || vista.value.tipo 
 const faltaCaptura = computed(() => campoFaltaCaptura(vista.value));
 const columnaInvalida = computed(() => columnaExcelFormatoInvalido(vista.value.captura?.columna));
 const coords = computed(() => parseCoords(vista.value.valorEjemplo));
+
+// --- Alta masiva de filas (solo filas dinámicas) ---
+// El editor de columnas vive en esta columna pero solo conoce `config`; las filas son el VALOR del
+// campo. Por eso cuenta y crea aquí, y allá solo se emite la cantidad pedida.
+const filasTablaActuales = computed(() => {
+  const config = vista.value.configTabla;
+  if (!config || config.subtipo !== 'filas_dinamicas') return 0;
+  return parseDynamicRows(vista.value.valorEjemplo ?? '', config).length;
+});
+
+function agregarFilasTabla(cantidad: number) {
+  const config = vista.value.configTabla;
+  if (!config || cantidad < 1) return;
+  const actuales = parseDynamicRows(vista.value.valorEjemplo ?? '', config);
+  const nuevas = Array.from({ length: cantidad }, () => newEmptyRow(config));
+  update({ valorEjemplo: JSON.stringify([...actuales, ...nuevas]) });
+}
 
 const etiquetaInput = ref<HTMLInputElement | null>(null);
 const notaInput = ref<HTMLTextAreaElement | null>(null);
@@ -405,28 +423,6 @@ function updateCoords(lat: number, lng: number) {
         </div>
       </div>
 
-      <div v-if="vista.editable && !isTable">
-        <label class="block text-xs font-medium text-heading mb-1.5">Obligatorio para el cliente</label>
-        <div class="flex rounded-lg border border-gray-200 overflow-hidden">
-          <button
-            @click="update({ requerido: false })"
-            type="button"
-            class="flex-1 px-4 py-2 text-sm font-medium transition-colors duration-75"
-            :class="!vista.requerido ? 'bg-brand-50 text-brand-600' : 'bg-white text-gray-400'"
-          >
-            No
-          </button>
-          <button
-            @click="update({ requerido: true })"
-            type="button"
-            class="flex-1 px-4 py-2 text-sm font-medium transition-colors duration-75"
-            :class="vista.requerido ? 'bg-brand-50 text-brand-600' : 'bg-white text-gray-400'"
-          >
-            Sí
-          </button>
-        </div>
-      </div>
-
       <div>
         <label class="block text-xs font-medium text-heading mb-1.5">Descripción / ayuda</label>
         <textarea
@@ -514,7 +510,9 @@ function updateCoords(lat: number, lng: number) {
       <div v-if="isTable" class="pt-3 border-t border-gray-100">
         <TableColumnsEditor
           :config="vista.configTabla || defaultTableConfig"
+          :filas-actuales="filasTablaActuales"
           @update="(configTabla) => update({ configTabla })"
+          @agregar-filas="agregarFilasTabla"
         />
       </div>
 

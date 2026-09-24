@@ -2,17 +2,22 @@
 import { computed } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faInfoCircle, faCalendarDays, faGraduationCap, faGlobe, faClockRotateLeft } from '@/lib/icons';
+import { useCursosQuery } from '@/composables/useCursos';
 import type { OrigenCliente } from '@/types';
 
 const props = defineProps<{
   origen: OrigenCliente;
   vigenciaAlumnoHasta: string;
+  cursoId: string | null;
   /** Valor guardado al abrir el modal (para el badge de referencia) — si falta, no se muestra el badge. */
   origenGuardado?: OrigenCliente;
   cambiadoPorNombre?: string | null;
   cambiadoEn?: string | null;
 }>();
-defineEmits<{ 'update:origen': [OrigenCliente]; 'update:vigenciaAlumnoHasta': [string] }>();
+defineEmits<{ 'update:origen': [OrigenCliente]; 'update:vigenciaAlumnoHasta': [string]; 'update:cursoId': [string | null] }>();
+
+const { data: cursosData } = useCursosQuery();
+const cursos = computed(() => cursosData.value ?? []);
 
 const origenIcon = { alumno: faGraduationCap, externo: faGlobe } as const;
 const origenLabel = { alumno: 'Alumno', externo: 'Externo' } as const;
@@ -65,6 +70,16 @@ const fechaCambio = computed(() => (props.cambiadoEn ? new Date(props.cambiadoEn
         <FontAwesomeIcon :icon="faInfoCircle" class="w-3.5 h-3.5 mt-0.5 shrink-0" />
         Fecha hasta la cual el usuario tendrá acceso con origen {{ origenLabel[origen] }}.
       </p>
+
+      <label class="block text-sm font-medium text-heading mb-1.5 mt-3">Curso</label>
+      <select
+        :value="cursoId"
+        @change="$emit('update:cursoId', ($event.target as HTMLSelectElement).value || null)"
+        class="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500"
+      >
+        <option value="">Sin curso</option>
+        <option v-for="c in cursos" :key="c.id" :value="c.id">{{ c.nombre }}</option>
+      </select>
     </div>
   </div>
 </template>

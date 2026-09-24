@@ -41,7 +41,6 @@ export const plantillas: Plantilla[] = [
                 etiqueta: 'Entidad',
                 tipo: 'texto_corto',
                 editable: true,
-                requerido: true,
                 descripcion: 'Entidad responsable del proyecto.',
                 valorEjemplo: 'Gobierno Regional de Cusco',
               },
@@ -51,7 +50,6 @@ export const plantillas: Plantilla[] = [
                 etiqueta: 'Nombre de la UF',
                 tipo: 'texto_corto',
                 editable: true,
-                requerido: true,
                 descripcion: 'Unidad Formuladora responsable.',
                 valorEjemplo: 'UF — Gerencia Regional de Educación Cusco',
               },
@@ -103,7 +101,6 @@ export const plantillas: Plantilla[] = [
                 etiqueta: 'Objeto de la intervención',
                 tipo: 'texto_corto',
                 editable: true,
-                requerido: true,
                 valorEjemplo: 'Servicio educativo de nivel inicial',
               },
               {

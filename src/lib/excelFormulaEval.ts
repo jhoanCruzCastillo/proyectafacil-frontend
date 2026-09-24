@@ -46,8 +46,8 @@ export interface ResultadoCelda {
 }
 
 const FUNCIONES_SOPORTADAS = new Set([
-  'IF', 'IFERROR', 'IFNA', 'VLOOKUP', 'TODAY', 'AND', 'OR', 'NOT', 'CONCATENATE', 'TRIM',
-  'SUM', 'COUNT', 'MIN', 'MAX', 'NPV',
+  'IF', 'IFERROR', 'IFNA', 'VLOOKUP', 'TODAY', 'AND', 'OR', 'NOT', 'CONCATENATE', 'TRIM', 'UPPER',
+  'TEXT', 'SUM', 'COUNT', 'COUNTA', 'COUNTIF', 'COUNTBLANK', 'MIN', 'MAX', 'NPV',
 ]);
 
 // Tope de celdas que se recorren al agregar un rango. Los rangos del formato oficial son de decenas
@@ -161,6 +161,10 @@ function tokenizar(formula: string): Token[] | null {
 // --- Analizador sintáctico + evaluación en un paso ---
 
 const RE_CELDA = /^(?:(?:'([^']+)'|([^'!]+))!)?\$?([A-Z]{1,3})\$?([0-9]+)$/i;
+
+// Referencia de columna completa, sin número de fila: "M", "Padron_web!A". El formato oficial la
+// usa para las tablas de referencia (Padron_web!A:M) que no quiere tener que reajustar si crecen filas.
+const RE_COLUMNA = /^(?:(?:'([^']+)'|([^'!]+))!)?\$?([A-Z]{1,3})$/i;
 
 interface Contexto {
   libro: LibroLeido;
@@ -323,14 +327,33 @@ class Parser {
 function construirRango(desde: string, hasta: string, ctx: Contexto): Valor {
   const a = RE_CELDA.exec(desde);
   const b = RE_CELDA.exec(hasta);
-  if (!a || !b) return NO_SOPORTADO;
-  const hoja = a[1] ?? a[2] ?? ctx.hojaBase;
+  if (a && b) {
+    const hoja = a[1] ?? a[2] ?? ctx.hojaBase;
+    return {
+      hoja,
+      c1: indiceColumna(a[3]),
+      f1: Number(a[4]),
+      c2: indiceColumna(b[3]),
+      f2: Number(b[4]),
+    };
+  }
+
+  // Columna completa en ambos extremos (`Padron_web!A:M`): se acota a la última fila REAL de la
+  // hoja (filaMaxima), no al límite teórico de Excel (1,048,576) — Padron_web, la hoja más grande
+  // del formato oficial, tiene 67,352 filas; usar el límite teórico haría que VLOOKUP recorriera
+  // un millón de celdas vacías en cada búsqueda.
+  const ca = RE_COLUMNA.exec(desde);
+  const cb = RE_COLUMNA.exec(hasta);
+  if (!ca || !cb) return NO_SOPORTADO;
+  const hoja = ca[1] ?? ca[2] ?? cb[1] ?? cb[2] ?? ctx.hojaBase;
+  const filaMaxima = ctx.libro.filaMaxima(hoja);
+  if (!filaMaxima) return NO_SOPORTADO;
   return {
     hoja,
-    c1: indiceColumna(a[3]),
-    f1: Number(a[4]),
-    c2: indiceColumna(b[3]),
-    f2: Number(b[4]),
+    c1: indiceColumna(ca[3]),
+    f1: 1,
+    c2: indiceColumna(cb[3]),
+    f2: filaMaxima,
   };
 }
 
@@ -374,7 +397,13 @@ function valorDeCelda(ctx: Contexto, hoja: string, ref: string): Valor {
     if (mapeado !== undefined && mapeado !== '') resultado = comoEscalar(mapeado);
     else {
       const cache = ctx.libro.celda(hoja, ref);
-      resultado = cache && cache.valor !== '' ? comoEscalar(cache.valor) : '';
+      // Una celda TEXTO del XML (t="s"/"inlineStr") se deja tal cual, nunca por comoEscalar: un
+      // CODLOCAL como "325221" no trae cero a la izquierda y es indistinguible de un número por su
+      // forma, así que convertirlo perdía el tipo texto y un VLOOKUP de coincidencia exacta contra
+      // su TEXT(...) dejaba de calzar (325221 número !== "325221" texto). Encontrado en vivo:
+      // Padron_web!A:M, la tabla que resuelve departamento/provincia/distrito de la Institución
+      // Educativa en el enunciado del proyecto (01.01.1).
+      resultado = !cache || cache.valor === '' ? '' : cache.esTexto ? cache.valor : comoEscalar(cache.valor);
     }
   }
 
@@ -527,6 +556,68 @@ function numerosDeArgumentos(args: Valor[], ctx: Contexto): number[] | ErrorExce
   return out;
 }
 
+/**
+ * Cuenta las celdas "con contenido" de un rango, al estilo COUNTA: una celda con fórmula cuenta
+ * aunque el resultado sea "" —hay algo escrito ahí—, a diferencia de COUNTBLANK (`valoresDeRango` +
+ * filtrar por `''`), que sí trata una fórmula que da "" como vacía. Es una distinción real de Excel,
+ * no un matiz nuestro: encontrada en vivo en U74 = COUNTA(U70:U73)-COUNTBLANK(U70:U73), que cuenta
+ * cuántos servicios educativos están marcados para decidir si la lista los une con ", " o " y ".
+ */
+function contarConContenido(rango: Rango, ctx: Contexto): number | typeof NO_SOPORTADO {
+  let total = 0;
+  let vistas = 0;
+  for (let f = rango.f1; f <= rango.f2; f++) {
+    for (let c = rango.c1; c <= rango.c2; c++) {
+      if (++vistas > MAX_CELDAS_RANGO) return NO_SOPORTADO;
+      const ref = `${letraColumna(c)}${f}`;
+      if (ctx.libro.formulaDe(rango.hoja, ref)) {
+        total++;
+        continue;
+      }
+      const v = valorDeCelda(ctx, rango.hoja, ref);
+      if (v === NO_SOPORTADO) return NO_SOPORTADO;
+      if (esRango(v)) continue;
+      if (v instanceof ErrorExcel || (v !== '' && v !== null)) total++;
+    }
+  }
+  return total;
+}
+
+/** Recorre un rango celda a celda y devuelve sus valores crudos, sin descartar texto ni vacíos como
+ * hace `numerosDeArgumentos` — lo necesitan COUNTIF/COUNTBLANK, que sí distinguen ambos. */
+function valoresDeRango(rango: Rango, ctx: Contexto): Escalar[] | ErrorExcel | typeof NO_SOPORTADO {
+  const out: Escalar[] = [];
+  let vistas = 0;
+  for (let f = rango.f1; f <= rango.f2; f++) {
+    for (let c = rango.c1; c <= rango.c2; c++) {
+      if (++vistas > MAX_CELDAS_RANGO) return NO_SOPORTADO;
+      const v = valorDeCelda(ctx, rango.hoja, `${letraColumna(c)}${f}`);
+      if (v === NO_SOPORTADO) return NO_SOPORTADO;
+      if (v instanceof ErrorExcel) return v;
+      if (esRango(v)) continue;
+      out.push(v);
+    }
+  }
+  return out;
+}
+
+// Criterio de COUNTIF: una comparación explícita (">5", "<>0") o, si no trae operador, igualdad
+// literal (texto sin distinguir mayúsculas, o el mismo número) — cubre lo que usa el formato oficial.
+const RE_CRITERIO_COMPARACION = /^(<>|>=|<=|>|<|=)(.*)$/;
+function comoEscalarCriterio(texto: string): Escalar {
+  if (texto.trim() === '') return '';
+  const n = Number(texto);
+  return Number.isNaN(n) ? texto : n;
+}
+function cumpleCriterio(valor: Escalar, criterio: Escalar): boolean {
+  if (typeof criterio === 'string') {
+    const m = RE_CRITERIO_COMPARACION.exec(criterio);
+    if (m) return comparar(m[1], valor, comoEscalarCriterio(m[2])) === true;
+  }
+  if (typeof valor === 'string' && typeof criterio === 'string') return valor.toLowerCase() === criterio.toLowerCase();
+  return valor === criterio;
+}
+
 function aplicarFuncion(nombre: string, args: Valor[], ctx: Contexto): Valor {
   const esc = (i: number) => escalar(args[i], ctx);
 
@@ -543,6 +634,51 @@ function aplicarFuncion(nombre: string, args: Valor[], ctx: Contexto): Valor {
       // MIN/MAX sobre un rango sin números devuelven 0 en Excel, no un error
       if (nums.length === 0) return 0;
       return nombre === 'MIN' ? Math.min(...nums) : Math.max(...nums);
+    }
+
+    // Caso real: U74 = COUNTA(U70:U73)-COUNTBLANK(U70:U73) cuenta cuántos de los 4 servicios
+    // educativos (Inicial/Primaria/Secundaria/Básica Alternativa) están marcados, para decidir si la
+    // lista los une con ", " o " y " (ver X71:X73) — de ahí cuelga Y73, que arma el nombre del
+    // proyecto (01.01.1).
+    case 'COUNTA': {
+      let total = 0;
+      for (const arg of args) {
+        if (arg === NO_SOPORTADO) return NO_SOPORTADO;
+        if (esRango(arg)) {
+          const n = contarConContenido(arg, ctx);
+          if (n === NO_SOPORTADO) return NO_SOPORTADO;
+          total += n;
+          continue;
+        }
+        if (arg instanceof ErrorExcel) return arg;
+        const v = escalar(arg, ctx);
+        if (v === NO_SOPORTADO) return NO_SOPORTADO;
+        if (v !== '' && v !== null) total += 1;
+      }
+      return total;
+    }
+
+    case 'COUNTBLANK': {
+      const rango = args[0];
+      if (rango === NO_SOPORTADO) return NO_SOPORTADO;
+      if (!esRango(rango)) return NO_SOPORTADO;
+      const vals = valoresDeRango(rango, ctx);
+      if (vals === NO_SOPORTADO) return NO_SOPORTADO;
+      if (vals instanceof ErrorExcel) return vals;
+      return vals.filter((v) => v === '' || v === null).length;
+    }
+
+    case 'COUNTIF': {
+      const rango = args[0];
+      if (rango === NO_SOPORTADO) return NO_SOPORTADO;
+      if (!esRango(rango)) return NO_SOPORTADO;
+      const criterio = esc(1);
+      if (criterio === NO_SOPORTADO) return NO_SOPORTADO;
+      if (criterio instanceof ErrorExcel) return criterio;
+      const vals = valoresDeRango(rango, ctx);
+      if (vals === NO_SOPORTADO) return NO_SOPORTADO;
+      if (vals instanceof ErrorExcel) return vals;
+      return vals.filter((v) => cumpleCriterio(v, criterio)).length;
     }
 
     case 'TODAY':
@@ -633,9 +769,67 @@ function aplicarFuncion(nombre: string, args: Valor[], ctx: Contexto): Valor {
       return texto(v).replace(/\s+/g, ' ').trim();
     }
 
+    case 'UPPER': {
+      const v = esc(0);
+      if (v === NO_SOPORTADO) return NO_SOPORTADO;
+      if (v instanceof ErrorExcel) return v;
+      return texto(v).toUpperCase();
+    }
+
+    // Caso real: TEXT(H100,"000000") rellena un código UBIGEO con ceros a la izquierda antes de
+    // usarlo como llave de VLOOKUP contra Padron_web — sin esto, toda esa cadena de búsquedas
+    // (institución educativa, ubigeo, distrito/provincia/departamento) cae fuera del subconjunto
+    // soportado y arrastra con ella cualquier fórmula que las concatene (ver 1.1 Enunciado del
+    // nombre del proyecto). Reusa la misma máscara de formato numérico que ya aplica `celda.valor`
+    // (textoVisibleDeNumero) — "000000" es una máscara de formato válida ahí también.
+    case 'TEXT': {
+      const v = esc(0);
+      if (v === NO_SOPORTADO) return NO_SOPORTADO;
+      if (v instanceof ErrorExcel) return v;
+      const formatoArg = esc(1);
+      if (formatoArg === NO_SOPORTADO) return NO_SOPORTADO;
+      if (formatoArg instanceof ErrorExcel) return formatoArg;
+      const n = numero(v);
+      if (n instanceof ErrorExcel) return texto(v);
+      return textoVisibleDeNumero(n, texto(formatoArg)) ?? texto(v);
+    }
+
     default:
       return NO_SOPORTADO;
   }
+}
+
+// Índice de una columna de búsqueda (clave -> primera fila donde aparece), para VLOOKUP de
+// coincidencia exacta. Se guarda por libro (WeakMap: se libera solo si el libro se libera) y por
+// hoja+columna+rango exacto — recorrerla es un costo único; a partir de ahí cada búsqueda es O(1).
+// Sin esto, una ficha con cientos de VLOOKUP contra una tabla de referencia grande (Padron_web,
+// ~67 mil filas) repetía el recorrido lineal completo en cada uno de ellos: encontrado en vivo,
+// ~600 búsquedas de ese tipo tardaban varios segundos en total y bloqueaban la pestaña cada vez que
+// cambiaba el mapa de valores (editar un campo, o incluso solo cambiar de pestaña Estructura/Ejemplos).
+// Es seguro cachearlo mientras el libro exista: es un archivo de referencia estático, nadie lo edita
+// en vivo, así que su contenido no puede cambiar bajo el mismo `LibroLeido`.
+const indicesPorLibro = new WeakMap<LibroLeido, Map<string, Map<string | number | boolean, number>>>();
+
+function indiceColumnaVertical(ctx: Contexto, hoja: string, columna: number, f1: number, f2: number): Map<string | number | boolean, number> {
+  let porLibro = indicesPorLibro.get(ctx.libro);
+  if (!porLibro) {
+    porLibro = new Map();
+    indicesPorLibro.set(ctx.libro, porLibro);
+  }
+  const clave = `${hoja}!${letraColumna(columna)}|${f1}-${f2}`;
+  let indice = porLibro.get(clave);
+  if (!indice) {
+    indice = new Map();
+    for (let f = f1; f <= f2; f++) {
+      const v = valorDeCelda(ctx, hoja, `${letraColumna(columna)}${f}`);
+      if (v === NO_SOPORTADO || esRango(v) || v instanceof ErrorExcel || v === null || v === '') continue;
+      const k = typeof v === 'string' ? v.toLowerCase() : v;
+      // Solo la PRIMERA fila con esa clave importa: es lo que devuelve un VLOOKUP real.
+      if (!indice.has(k)) indice.set(k, f);
+    }
+    porLibro.set(clave, indice);
+  }
+  return indice;
 }
 
 /**
@@ -651,16 +845,24 @@ function buscarVertical(buscado: Escalar, tabla: Rango, indice: number, ctx: Con
     return esRango(destino) ? NO_SOPORTADO : destino;
   };
 
+  // Coincidencia exacta: se resuelve con el índice de la columna en vez de recorrerla — el caso
+  // real (Padron_web y similares) es siempre este modo (VLOOKUP(...,FALSE)).
+  if (!aproximado) {
+    if (clave === null || clave === '' || clave instanceof ErrorExcel) return new ErrorExcel('#N/A');
+    const fila = indiceColumnaVertical(ctx, tabla.hoja, tabla.c1, tabla.f1, tabla.f2).get(clave);
+    return fila === undefined ? new ErrorExcel('#N/A') : devolver(fila);
+  }
+
+  // Aproximado: necesita el mayor valor <= buscado en orden, así que sigue recorriendo — no es el
+  // caso que motivó el índice, y son rangos mucho más chicos en el formato oficial.
   let candidata: number | null = null;
   for (let f = tabla.f1; f <= tabla.f2; f++) {
     const celda = valorDeCelda(ctx, tabla.hoja, `${letraColumna(tabla.c1)}${f}`);
     if (esRango(celda) || celda === NO_SOPORTADO || celda instanceof ErrorExcel) continue;
     const v = typeof celda === 'string' ? celda.toLowerCase() : celda;
-    if (v === clave) return devolver(f);
-    if (aproximado && v !== null && v !== '' && clave !== null && v <= clave) candidata = f;
+    if (v !== null && v !== '' && clave !== null && v <= clave) candidata = f;
   }
-  if (aproximado && candidata !== null) return devolver(candidata);
-  return new ErrorExcel('#N/A');
+  return candidata !== null ? devolver(candidata) : new ErrorExcel('#N/A');
 }
 
 // --- Entrada pública ---

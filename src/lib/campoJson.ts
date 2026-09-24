@@ -199,6 +199,7 @@ function parseColumna(raw: unknown, path: string): ColumnaTabla | { error: strin
     ...(opciones ? { opciones } : {}),
     ...(etiquetasBooleano ? { etiquetasBooleano } : {}),
     ...(decimales !== undefined ? { decimales } : {}),
+    ...(typeof raw.nota === 'string' ? { nota: raw.nota } : {}),
     ...(subcolumnas.length > 0 ? { subcolumnas } : {}),
   };
 }
@@ -328,12 +329,6 @@ export function parseCampoJson(text: string): CampoJsonValidation {
     editable,
   };
 
-  if (raw.requerido !== undefined) {
-    const requerido = asBoolean(raw.requerido, 'requerido');
-    if (typeof requerido !== 'boolean') return { ok: false, error: requerido.error };
-    campo.requerido = requerido;
-  }
-
   if (raw.descripcion !== undefined) {
     const descripcion = asString(raw.descripcion, 'descripcion');
     if (typeof descripcion !== 'string') return { ok: false, error: descripcion.error };
@@ -354,9 +349,16 @@ export function parseCampoJson(text: string): CampoJsonValidation {
   }
 
   if (raw.valorEjemplo !== undefined) {
-    const valorEjemplo = asString(raw.valorEjemplo, 'valorEjemplo');
-    if (typeof valorEjemplo !== 'string') return { ok: false, error: valorEjemplo.error };
-    campo.valorEjemplo = valorEjemplo;
+    // Para campos tabla, stringifyCampoJson() decodifica `valorEjemplo` a array/objeto real para que
+    // se lea sin barras invertidas — aquí aceptamos esa forma de vuelta y la re-serializamos a texto
+    // (Campo.valorEjemplo siempre es string), además del caso normal de un string plano.
+    if (Array.isArray(raw.valorEjemplo) || isRecord(raw.valorEjemplo)) {
+      campo.valorEjemplo = JSON.stringify(raw.valorEjemplo);
+    } else {
+      const valorEjemplo = asString(raw.valorEjemplo, 'valorEjemplo');
+      if (typeof valorEjemplo !== 'string') return { ok: false, error: valorEjemplo.error };
+      campo.valorEjemplo = valorEjemplo;
+    }
   }
 
   if (raw.configTabla !== undefined) {
@@ -415,6 +417,20 @@ export function parseCampoJson(text: string): CampoJsonValidation {
   return { ok: true, campo };
 }
 
+/**
+ * Para campos tabla, `valorEjemplo` guarda un array de filas serializado como string — mostrarlo
+ * tal cual dentro de este JSON ya bonito produce puras barras invertidas escapadas (string dentro
+ * de JSON). Se decodifica solo para la vista; parseCampoJson() acepta la forma decodificada de
+ * vuelta y la re-serializa. Pedido explícito del usuario (2026-09-20).
+ */
 export function stringifyCampoJson(campo: Campo): string {
-  return JSON.stringify(campo, null, 2);
+  const paraMostrar: Record<string, unknown> = { ...campo };
+  if (typeof campo.valorEjemplo === 'string' && campo.valorEjemplo !== '') {
+    try {
+      paraMostrar.valorEjemplo = JSON.parse(campo.valorEjemplo);
+    } catch {
+      // No era JSON (texto plano normal) — se deja el string tal cual.
+    }
+  }
+  return JSON.stringify(paraMostrar, null, 2);
 }

@@ -46,7 +46,9 @@ function guardar() {
           <div class="p-5 space-y-3">
             <p class="text-xs text-muted leading-relaxed">
               Código visible de «{{ subseccion.nombre }}» (ej. <span class="font-mono">1.04</span>).
-              Al cambiarlo se actualizan los identificadores de sus campos que usen este prefijo.
+              Los campos que ya existen conservan su identificador tal cual — solo los campos
+              nuevos que agregues de ahora en adelante usarán este código como prefijo. Debe ser
+              distinto al de cualquier otra subsección de la ficha.
             </p>
             <div>
               <label class="block text-[10px] font-medium text-muted mb-1">Código</label>

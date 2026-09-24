@@ -158,7 +158,7 @@ function abrirEditorCodigo(sub: Subseccion) {
         </button>
       </div>
       <div class="space-y-3">
-        <template v-for="campo in sub.campos" :key="campo.id">
+        <template v-for="(campo, campoIndex) in sub.campos" :key="campo.id">
         <FieldCard
           :campo="campo"
           :hoja="seccion.hoja"
@@ -199,8 +199,10 @@ function abrirEditorCodigo(sub: Subseccion) {
           @ayuda-ia-campo="emit('ayuda-ia-campo', campo.identificador, $event)"
         />
         <!-- Mismos botones que los del final de la subsección, pero pegados al campo seleccionado:
-             lo nuevo entra justo detrás de él, no al final. -->
-        <div v-if="editable && selectedCampoId === campo.id" class="flex gap-2">
+             lo nuevo entra justo detrás de él, no al final. Si el seleccionado ya es el último
+             campo, se omite — ahí abajo ya está el botón "Agregar campo" por defecto de la
+             subsección, duplicarlo confundía más de lo que ayudaba. -->
+        <div v-if="editable && selectedCampoId === campo.id && campoIndex < sub.campos.length - 1" class="flex gap-2">
           <button
             @click="emit('add-campo', sub.id, sub.codigo, campo.id)"
             type="button"

@@ -1,7 +1,7 @@
-import { apiFetch, apiUploadJson } from './_shared';
+import { apiFetch, apiUploadFormData, apiUploadJson } from './_shared';
 import { getAuthToken } from '@/lib/authToken';
 import type { CandidatosApi } from '../contracts/candidatos';
-import type { Candidato, CandidatoDetalle, NotaCandidato, ResumenCandidatos } from '@/types';
+import type { Candidato, CandidatoDetalle, NotaCandidato, ResultadoImportacion, ResumenCandidatos } from '@/types';
 
 export const candidatosHttp: CandidatosApi = {
   list() {
@@ -46,6 +46,14 @@ export async function descargarCvCandidato(id: string, nombreArchivo: string): P
   link.download = nombreArchivo;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+/** Carga masiva de especialistas desde Excel — entran directo como asesores (ver CandidatosController::importarExcel). */
+export function importarEspecialistasExcel(archivo: File): Promise<ResultadoImportacion> {
+  const form = new FormData();
+  form.append('archivo', archivo, archivo.name);
+
+  return apiUploadFormData<ResultadoImportacion>('candidatos/importar', form);
 }
 
 /** Descarga el .xlsx de candidatos (con los filtros activos) y dispara el guardado en el

@@ -360,7 +360,6 @@ const claseLabelEjemplo = computed(() => {
               {{ campo.identificador }}
             </span>
             <span class="font-semibold text-heading text-sm">{{ campo.etiqueta }}</span>
-            <span v-if="campo.requerido" class="text-red-500 text-sm" title="Obligatorio">*</span>
             <FontAwesomeIcon
               v-if="!campo.editable"
               :icon="fieldTypeIcons.calculado"

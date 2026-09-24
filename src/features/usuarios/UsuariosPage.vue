@@ -9,6 +9,7 @@ import {
   faIdCard, faClockRotateLeft, faDesktop, faXmark, faEnvelope, faPhone, faCalendarDays,
   faCheck, faGear, faMobileScreen, faCreditCard, faCalendarCheck, faStar, faComments, faVideo,
   faFileLines, faRotate, faGem, faCrown, faBolt, faChevronLeft, faChevronRight, faAnglesLeft, faAnglesRight,
+  faFileImport,
   rolUsuarioLabels,
 } from '@/lib/icons';
 import { rolesGestionablesPor } from '@/lib/permisos';
@@ -27,10 +28,14 @@ import { useUiStore } from '@/stores/ui';
 import ConfirmModal from '@/components/ConfirmModal.vue';
 import PageShell from '@/components/PageShell.vue';
 import Avatar from '@/components/Avatar.vue';
+import ImportarExcelModal from '@/components/ImportarExcelModal.vue';
 import UsuarioModal from './UsuarioModal.vue';
 import GestionarRolesModal from './GestionarRolesModal.vue';
 import PermisosUsuarioModal from './PermisosUsuarioModal.vue';
-import type { Usuario, RolUsuario, OrigenCliente, ActividadReciente } from '@/types';
+import { importarAlumnosExcel } from '@/api/http/usuarios.http';
+import { useCursosQuery } from '@/composables/useCursos';
+import NuevoCursoModal from './NuevoCursoModal.vue';
+import type { Usuario, RolUsuario, OrigenCliente, ActividadReciente, ResultadoImportacion } from '@/types';
 
 const session = useSessionStore();
 const router = useRouter();
@@ -40,6 +45,7 @@ const { data: usuariosData } = useUsuariosQuery();
 const { data: tiposUsuarioData } = useTiposUsuarioQuery();
 const { data: resumenNiveles } = useResumenNivelesQuery();
 const { data: dashboardAsesoria } = useDashboardAsesoriaQuery();
+const { data: cursosData } = useCursosQuery();
 const eliminarUsuario = useEliminarUsuario();
 const actualizarUsuario = useActualizarUsuario();
 const pushActividad = usePushActividad();
@@ -130,9 +136,18 @@ const TABS: { value: TabUsuarios; label: string }[] = [
 ];
 const tabActiva = ref<TabUsuarios>('todos');
 
+const cursos = computed(() => cursosData.value ?? []);
+// null = "Todos los cursos" — solo aplica en la pestaña Alumnos (único rol con cursoId).
+const cursoFiltroId = ref<string | null>(null);
+const mostrarNuevoCurso = ref(false);
+
 const lista = computed(() => {
   if (tabActiva.value === 'organizacion') return listaBase.value.filter((u) => u.rol !== 'cliente');
-  if (tabActiva.value === 'alumnos') return listaBase.value.filter((u) => u.rol === 'cliente' && u.origen === 'alumno');
+  if (tabActiva.value === 'alumnos') {
+    return listaBase.value.filter(
+      (u) => u.rol === 'cliente' && u.origen === 'alumno' && (!cursoFiltroId.value || u.cursoId === cursoFiltroId.value),
+    );
+  }
   if (tabActiva.value === 'externos') return listaBase.value.filter((u) => u.rol === 'cliente' && u.origen === 'externo');
   return listaBase.value;
 });
@@ -142,7 +157,10 @@ const PORCIONES = [10, 25, 50];
 const porPagina = ref(10);
 const paginaActual = ref(1);
 
-watch([tabActiva, busqueda], () => {
+watch(tabActiva, (val) => {
+  if (val !== 'alumnos') cursoFiltroId.value = null;
+});
+watch([tabActiva, busqueda, cursoFiltroId], () => {
   paginaActual.value = 1;
 });
 
@@ -542,6 +560,18 @@ function handleNuevo() {
   editTarget.value = null;
   showModal.value = true;
 }
+
+const COLUMNAS_IMPORT_ALUMNOS = [
+  { nombre: 'Nombre', detalle: 'Nombres y apellidos (obligatorio)' },
+  { nombre: 'Correo', detalle: 'Correo electrónico único (obligatorio)' },
+  { nombre: 'Teléfono', detalle: 'Opcional' },
+  { nombre: 'Vigencia hasta', detalle: 'Fecha AAAA-MM-DD hasta la que tendrá acceso como alumno (opcional)' },
+];
+const mostrarImportarAlumnos = ref(false);
+function importacionAlumnosCompletada(_resultado: ResultadoImportacion) {
+  queryClient.invalidateQueries({ queryKey: ['usuarios'] });
+  ui.toast('Alumnos importados');
+}
 function handleEditar(u: Usuario) {
   menuAccionAbierto.value = null;
   editTarget.value = u;
@@ -580,6 +610,15 @@ async function handleDelete() {
       >
         <FontAwesomeIcon :icon="faTags" class="w-3.5 h-3.5" />
         Gestionar roles
+      </button>
+      <button
+        v-if="tabActiva === 'alumnos'"
+        @click="mostrarImportarAlumnos = true"
+        type="button"
+        class="px-5 py-2.5 rounded-lg bg-white/[0.06] border border-white/10 text-sm font-medium text-white/80 hover:bg-white/10 hover:text-white transition-colors flex items-center gap-2"
+      >
+        <FontAwesomeIcon :icon="faFileImport" class="w-3.5 h-3.5" />
+        Importar desde Excel
       </button>
       <button
         @click="handleNuevo"
@@ -680,6 +719,46 @@ async function handleDelete() {
       </div>
     </div>
 
+    <!-- Filtro de cursos — solo en la pestaña Clientes - Alumnos -->
+    <div v-if="tabActiva === 'alumnos'" class="flex flex-wrap items-center gap-3 px-6 pb-4">
+      <label class="flex items-center gap-2 text-sm text-muted shrink-0">
+        Curso
+        <select
+          v-model="cursoFiltroId"
+          class="px-3 py-2 rounded-lg border border-gray-200 text-sm text-heading focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500"
+        >
+          <option :value="null">Todos los cursos</option>
+          <option v-for="c in cursos" :key="c.id" :value="c.id">{{ c.nombre }}</option>
+        </select>
+      </label>
+
+      <div class="flex flex-wrap items-center gap-2">
+        <button
+          v-for="c in cursos"
+          :key="c.id"
+          type="button"
+          @click="cursoFiltroId = cursoFiltroId === c.id ? null : c.id"
+          class="px-3 py-1.5 rounded-full text-xs font-semibold transition-colors duration-75"
+          :style="
+            cursoFiltroId === c.id
+              ? { backgroundColor: c.colorAccent, color: '#fff' }
+              : { backgroundColor: `${c.colorAccent}1a`, color: c.colorAccent }
+          "
+        >
+          {{ c.nombre }}
+        </button>
+      </div>
+
+      <button
+        @click="mostrarNuevoCurso = true"
+        type="button"
+        class="ml-auto px-4 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors duration-75 flex items-center gap-2 shrink-0"
+      >
+        <FontAwesomeIcon :icon="faPlus" class="w-3.5 h-3.5" />
+        Crear curso
+      </button>
+    </div>
+
     <!-- Tabla + panel de detalles -->
     <div class="flex items-start gap-5 px-6 pb-6">
       <div class="flex-1 min-w-0 rounded-xl border border-gray-200 overflow-hidden overflow-x-auto">
@@ -687,6 +766,7 @@ async function handleDelete() {
           <thead>
             <tr class="border-b border-gray-100 bg-gray-50">
               <th class="text-left text-[11px] font-semibold uppercase tracking-wider text-muted px-4 py-3">Usuario</th>
+              <th v-if="tabActiva === 'alumnos'" class="text-left text-[11px] font-semibold uppercase tracking-wider text-muted px-4 py-3">Curso</th>
               <th class="text-left text-[11px] font-semibold uppercase tracking-wider text-muted px-4 py-3">Rol</th>
               <th class="text-left text-[11px] font-semibold uppercase tracking-wider text-muted px-4 py-3">Área / Origen</th>
               <th class="text-left text-[11px] font-semibold uppercase tracking-wider text-muted px-4 py-3">Estado</th>
@@ -710,6 +790,16 @@ async function handleDelete() {
                     <p class="text-xs text-muted truncate">{{ u.correo || u.usuario }}</p>
                   </div>
                 </div>
+              </td>
+              <td v-if="tabActiva === 'alumnos'" class="px-4 py-3">
+                <span
+                  v-if="u.cursoNombre"
+                  class="inline-block text-xs font-semibold px-2.5 py-1 rounded-full whitespace-nowrap"
+                  :style="{ backgroundColor: `${u.cursoColorAccent}1a`, color: u.cursoColorAccent ?? undefined }"
+                >
+                  {{ u.cursoNombre }}
+                </span>
+                <span v-else class="text-sm text-gray-300">—</span>
               </td>
               <td class="px-4 py-3">
                 <span class="text-xs font-semibold px-2.5 py-1 rounded-full whitespace-nowrap" :class="rolBadge[u.rol]">
@@ -749,7 +839,7 @@ async function handleDelete() {
               </td>
             </tr>
             <tr v-if="lista.length === 0">
-              <td colspan="6" class="px-6 py-8 text-center text-sm text-muted">No hay usuarios para mostrar.</td>
+              <td :colspan="tabActiva === 'alumnos' ? 7 : 6" class="px-6 py-8 text-center text-sm text-muted">No hay usuarios para mostrar.</td>
             </tr>
           </tbody>
         </table>
@@ -1277,5 +1367,16 @@ async function handleDelete() {
       @confirm="handleDelete"
       @close="deleteTarget = null"
     />
+
+    <ImportarExcelModal
+      :is-open="mostrarImportarAlumnos"
+      titulo="Importar clientes-alumnos desde Excel"
+      :columnas="COLUMNAS_IMPORT_ALUMNOS"
+      :subir="importarAlumnosExcel"
+      @importado="importacionAlumnosCompletada"
+      @close="mostrarImportarAlumnos = false"
+    />
+
+    <NuevoCursoModal :is-open="mostrarNuevoCurso" @close="mostrarNuevoCurso = false" />
   </PageShell>
 </template>

@@ -44,6 +44,7 @@ const rol = ref<RolUsuario>('cliente');
 const origen = ref<OrigenCliente>('alumno');
 const origenGuardado = ref<OrigenCliente | null>(null);
 const vigenciaAlumnoHasta = ref('');
+const cursoId = ref<string | null>(null);
 const error = ref('');
 const credencialGenerada = ref<{ id: string; usuario: string; password: string; correo?: string } | null>(null);
 
@@ -61,6 +62,7 @@ watch(
     origen.value = props.usuario?.origen ?? 'alumno';
     origenGuardado.value = props.usuario?.origen ?? null;
     vigenciaAlumnoHasta.value = props.usuario?.vigenciaAlumnoHasta ?? '';
+    cursoId.value = props.usuario?.cursoId ?? null;
     error.value = '';
   },
 );
@@ -77,8 +79,12 @@ async function handleSubmit() {
   }
 
   const datosOrigen = rol.value === 'cliente'
-    ? { origen: origen.value, vigenciaAlumnoHasta: origen.value === 'alumno' ? (vigenciaAlumnoHasta.value || null) : null }
-    : { origen: null, vigenciaAlumnoHasta: null };
+    ? {
+        origen: origen.value,
+        vigenciaAlumnoHasta: origen.value === 'alumno' ? (vigenciaAlumnoHasta.value || null) : null,
+        cursoId: origen.value === 'alumno' ? cursoId.value : null,
+      }
+    : { origen: null, vigenciaAlumnoHasta: null, cursoId: null };
 
   if (esEdicion.value && props.usuario) {
     const rolCambio = rol.value !== props.usuario.rol;
@@ -206,6 +212,7 @@ async function handleEnviarAccesos() {
               v-if="rol === 'cliente'"
               v-model:origen="origen"
               v-model:vigenciaAlumnoHasta="vigenciaAlumnoHasta"
+              v-model:curso-id="cursoId"
               :origen-guardado="origenGuardado ?? undefined"
               :cambiado-por-nombre="usuario?.origenCambiadoPorNombre"
               :cambiado-en="usuario?.origenCambiadoEn"

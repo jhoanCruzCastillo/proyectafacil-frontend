@@ -864,45 +864,30 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
   }
 
   /**
-   * Cambia el código visible de la subsección (ej. 1.04 → 1.05) y reescribe el prefijo de los
-   * identificadores de sus campos. También remapea claves de valores del ejemplo activo.
+   * Cambia el código visible de la subsección (ej. 1.04 → 1.05). No reescribe los identificadores
+   * de los campos que ya existen — quedan tal cual, sin cascada — porque `siguienteIdentificador`
+   * solo mira el último número usado (ignora el prefijo), así que un campo nuevo igual encadena
+   * bien aunque sus hermanos tengan el prefijo viejo. Bloquea si el código ya lo usa otra
+   * subsección de la ficha: evita colisiones sin necesitar renombrar nada en cascada. Para
+   * "intercambiar" el código entre dos subsecciones, hay que pasar primero por uno temporal que
+   * no exista (A→temp, B→A, temp→B) — pedido explícito del usuario (2026-09-19).
    */
   function handleSubsectionCodigoChange(subseccionId: string, codigo: string) {
     const nuevo = codigo.trim();
-    if (!nuevo) return;
-    const remapeos: Array<{ from: string; to: string }> = [];
+    if (!nuevo || !editData.value) return;
+    const yaExiste = editData.value.secciones.some((sec) =>
+      sec.subsecciones.some((sub) => sub.id !== subseccionId && sub.codigo === nuevo),
+    );
+    if (yaExiste) {
+      ui.toast(`Ya existe una subsección con el código "${nuevo}"`, 'error');
+      return;
+    }
     mutate((p) => {
       for (const sec of p.secciones) {
         const sub = sec.subsecciones.find((s) => s.id === subseccionId);
-        if (!sub) continue;
-        const anterior = sub.codigo;
-        if (anterior === nuevo) return;
-        sub.codigo = nuevo;
-        for (const campo of sub.campos) {
-          if (!campo.identificador) continue;
-          if (campo.identificador === anterior || campo.identificador.startsWith(`${anterior}.`)) {
-            const to = `${nuevo}${campo.identificador.slice(anterior.length)}`;
-            remapeos.push({ from: campo.identificador, to });
-            campo.identificador = to;
-          }
-        }
-        break;
+        if (sub) { sub.codigo = nuevo; break; }
       }
     });
-    if (remapeos.length > 0 && Object.keys(editedValores.value).length > 0) {
-      const next = { ...editedValores.value };
-      for (const { from, to } of remapeos) {
-        if (Object.prototype.hasOwnProperty.call(next, from)) {
-          next[to] = next[from]!;
-          delete next[from];
-        }
-      }
-      editedValores.value = next;
-    }
-    if (selectedCampo.value) {
-      const m = remapeos.find((r) => r.from === selectedCampo.value!.identificador);
-      if (m) selectedCampo.value = { ...selectedCampo.value, identificador: m.to };
-    }
     ui.toast(`Código actualizado a ${nuevo}`);
   }
 
@@ -915,6 +900,22 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
         if (sub) sec.cantidadCampos -= sub.campos.length;
       }
     });
+  }
+  /** Nunca borra la última sección que queda — sin eso, la ficha se queda sin ningún lugar donde
+   * agregar campos (mismo criterio que handleDeleteSubsection con la última subsección). */
+  function handleDeleteSeccion(seccionId: string) {
+    if (!editData.value || editData.value.secciones.length <= 1) return;
+    mutate((p) => {
+      p.secciones = p.secciones.filter((s) => s.id !== seccionId);
+      p.cantidadSecciones = p.secciones.length;
+    });
+    if (activeSectionIndex.value >= secciones.value.length) {
+      activeSectionIndex.value = Math.max(0, secciones.value.length - 1);
+    }
+    if (selectedCampo.value && !secciones.value.some((s) => s.subsecciones.some((sub) => sub.campos.some((c) => c.id === selectedCampo.value!.id)))) {
+      selectedCampo.value = null;
+    }
+    ui.toast('Sección eliminada');
   }
   function handleAddSection() {
     const nuevoIndex = secciones.value.length;
@@ -1041,13 +1042,32 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     guardar: persistir,
   });
 
+  // Sin esto la barra saltaría de 0% a 100% de un tirón: un Guardar es un PATCH chico sin progreso
+  // real que reportar (no es como Insertar, que sí recorre pasos concretos). Se acerca a 90% con una
+  // curva que se aplana (nunca llega a fingir el 100% hasta que el guardado de verdad terminó) y el
+  // último tramo lo pone quien llama, en cuanto la promesa resuelve.
+  async function conProgresoSimulado<T>(idToast: string, tarea: Promise<T>): Promise<T> {
+    const inicio = Date.now();
+    const intervalo = setInterval(() => {
+      const transcurrido = Date.now() - inicio;
+      ui.actualizarProgreso(idToast, 90 * (1 - Math.exp(-transcurrido / 600)));
+    }, 80);
+    try {
+      return await tarea;
+    } finally {
+      clearInterval(intervalo);
+    }
+  }
+
   async function handleSave() {
     if (!editData.value) return;
+    const idToast = ui.iniciarProgreso('Guardando…');
     try {
-      await persistir();
+      await conProgresoSimulado(idToast, persistir());
+      ui.actualizarProgreso(idToast, 100);
       autoguardado.marcarGuardado();
     } catch (e) {
-      ui.toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error');
+      ui.completarProgreso(idToast, e instanceof Error ? e.message : 'No se pudo guardar', 'error');
       return;
     }
 
@@ -1055,7 +1075,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
 
     const sinCaptura = contarCamposSinCaptura(editData.value);
     if (sinCaptura > 0) {
-      ui.toast(`Guardado, pero ${sinCaptura} campo${sinCaptura === 1 ? '' : 's'} no ${sinCaptura === 1 ? 'tiene' : 'tienen'} registrada su posición en el Excel`, 'error');
+      ui.completarProgreso(idToast, `Guardado, pero ${sinCaptura} campo${sinCaptura === 1 ? '' : 's'} no ${sinCaptura === 1 ? 'tiene' : 'tienen'} registrada su posición en el Excel`, 'error');
       highlightMissingCaptura.value = true;
       setTimeout(() => { highlightMissingCaptura.value = false; }, 2500);
 
@@ -1074,7 +1094,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
           ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
     } else {
-      ui.toast(`Plantilla "${editData.value.codigo}" guardada`);
+      ui.completarProgreso(idToast, `Plantilla "${editData.value.codigo}" guardada`);
     }
   }
 
@@ -1101,16 +1121,26 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
   }
 
   /** "Ver JSON" de UN campo (botón junto a Eliminar en FieldCard, Estructura y Ejemplos) — muestra
-   * la definición interna del campo (id, tipo, configTabla, nota, etc.) junto con su valor actual:
-   * el de ejemplo activo si estamos en la pestaña Ejemplos, si no el valor por defecto de Estructura. */
+   * la definición interna del campo TAL CUAL (id, identificador, valorEjemplo de la plantilla, tipo,
+   * configTabla, etc.), sin pisar ni disfrazar nada. En la pestaña Ejemplos, además agrega
+   * `valorEnEsteEjemplo` (el dato real guardado para el ejemplo activo, sacado de
+   * `ejemplo.valores[identificador]`) y `ejemploActivo` (de qué ejemplo salió) como campos aparte —
+   * antes se sobreescribía `valorEjemplo` con ese dato, ocultando cuál de los dos estabas viendo
+   * (pedido explícito del usuario, 2026-09-19: "que me muestre todo... si me oculta no podré saber"). */
   function handleViewJsonCampo(campoId: string, subseccionId: string) {
     if (!editData.value) return;
     for (const sec of editData.value.secciones) {
       const sub = sec.subsecciones.find((s) => s.id === subseccionId);
       const campo = sub?.campos.find((c) => c.id === campoId);
       if (campo) {
-        const valorCrudo = showExamples.value ? editedValores.value[campo.identificador] : campo.valorEjemplo;
-        const payload = { ...campo, valorEjemplo: intentarParsearJson(valorCrudo) };
+        const payload = showExamples.value
+          ? {
+              ...campo,
+              valorEjemplo: intentarParsearJson(campo.valorEjemplo),
+              ejemploActivo: activeEjemplo.value ? { id: activeEjemplo.value.id, nombre: activeEjemplo.value.nombre } : null,
+              valorEnEsteEjemplo: intentarParsearJson(editedValores.value[campo.identificador]),
+            }
+          : { ...campo, valorEjemplo: intentarParsearJson(campo.valorEjemplo) };
         jsonPreview.value = {
           title: `${campo.identificador} — ${campo.etiqueta || 'Campo'}`,
           json: JSON.stringify(payload, null, 2),
@@ -1121,17 +1151,22 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
 
   /** "Editar JSON" de UN campo — solo tab Ejemplos, solo admin (botón junto a "Ver JSON" en
    * FieldCard, gateado por `showExampleValue`). Abre el mismo preview que `handleViewJsonCampo`
-   * pero editable; el guardado (`handleSaveJsonCampo`) solo aplica lo que traiga la clave
-   * "valorEjemplo" — pensado para probar rápido un JSON generado a mano o por IA sin pasar por la
-   * UI de la tabla, no para reescribir la definición del campo (eso se edita en Estructura). */
+   * (con `valorEnEsteEjemplo` y `valorEjemplo` mostrados por separado, sin pisarse) pero editable;
+   * el guardado (`handleSaveJsonCampo`) solo aplica lo que traiga la clave "valorEnEsteEjemplo" —
+   * pensado para probar rápido un JSON generado a mano o por IA sin pasar por la UI de la tabla, no
+   * para reescribir la definición del campo (eso se edita en Estructura). */
   function handleEditJsonCampo(campoId: string, subseccionId: string) {
     if (!editData.value || !showExamples.value) return;
     for (const sec of editData.value.secciones) {
       const sub = sec.subsecciones.find((s) => s.id === subseccionId);
       const campo = sub?.campos.find((c) => c.id === campoId);
       if (campo) {
-        const valorCrudo = editedValores.value[campo.identificador];
-        const payload = { ...campo, valorEjemplo: intentarParsearJson(valorCrudo) };
+        const payload = {
+          ...campo,
+          valorEjemplo: intentarParsearJson(campo.valorEjemplo),
+          ejemploActivo: activeEjemplo.value ? { id: activeEjemplo.value.id, nombre: activeEjemplo.value.nombre } : null,
+          valorEnEsteEjemplo: intentarParsearJson(editedValores.value[campo.identificador]),
+        };
         jsonPreview.value = {
           title: `${campo.identificador} — ${campo.etiqueta || 'Campo'} (editar)`,
           json: JSON.stringify(payload, null, 2),
@@ -1157,11 +1192,11 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
       jsonPreview.value = { ...jsonPreview.value, json: texto, error: `JSON inválido: ${e instanceof Error ? e.message : String(e)}` };
       return;
     }
-    if (typeof parsed !== 'object' || parsed === null || !('valorEjemplo' in parsed)) {
-      jsonPreview.value = { ...jsonPreview.value, json: texto, error: 'Falta la clave "valorEjemplo" en el JSON.' };
+    if (typeof parsed !== 'object' || parsed === null || !('valorEnEsteEjemplo' in parsed)) {
+      jsonPreview.value = { ...jsonPreview.value, json: texto, error: 'Falta la clave "valorEnEsteEjemplo" en el JSON.' };
       return;
     }
-    const valorEjemplo = (parsed as { valorEjemplo: unknown }).valorEjemplo;
+    const valorEjemplo = (parsed as { valorEnEsteEjemplo: unknown }).valorEnEsteEjemplo;
     const valorString = typeof valorEjemplo === 'string' ? valorEjemplo : JSON.stringify(valorEjemplo);
     handleExampleValueChange(jsonPreview.value.identificador, valorString);
     jsonPreview.value = null;
@@ -1192,7 +1227,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     handleLeftResize, handleRightResize, handleExamplesResize, handleTabChange, handleSectionSelect,
     goToPrevSection, goToNextSection, handleFieldUpdate, handleAddCampo, handleAddNota, handleDuplicarCampo, handleDeleteCampo,
     handleSectionNameChange, handleSectionHojaChange, handleSubsectionNameChange,
-    handleSubseccionAyudaChange, handleAddSubsection, handleSubsectionCodigoChange, handleDeleteSubsection, handleAddSection, handleDuplicarSeccion,
+    handleSubseccionAyudaChange, handleAddSubsection, handleSubsectionCodigoChange, handleDeleteSubsection, handleAddSection, handleDuplicarSeccion, handleDeleteSeccion,
     handleExampleValueChange, handleCreateExample, handleDeleteEjemplo, handleToggleEjemploEstado, handleToggleReferenciaIA,
     handleDownloadExcel, handlePreviewExample, handleInsertExcel,
     handleVolcarExcel, handleVolcarEstructura, handleConfirmarVolcado, getDefaultValores,

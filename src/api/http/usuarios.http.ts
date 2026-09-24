@@ -1,6 +1,6 @@
-import { apiFetch } from './_shared';
+import { apiFetch, apiUploadFormData } from './_shared';
 import type { UsuariosApi } from '../contracts/usuarios';
-import type { AsignarBeneficiosPayload, BeneficiosAsignados, Usuario } from '@/types';
+import type { AsignarBeneficiosPayload, BeneficiosAsignados, ResultadoImportacion, Usuario } from '@/types';
 
 export const usuariosHttp: UsuariosApi = {
   list() {
@@ -41,3 +41,11 @@ export const usuariosHttp: UsuariosApi = {
     });
   },
 };
+
+/** Carga masiva de clientes-alumnos desde Excel (ver UsuariosController::importarAlumnosExcel). */
+export function importarAlumnosExcel(archivo: File): Promise<ResultadoImportacion> {
+  const form = new FormData();
+  form.append('archivo', archivo, archivo.name);
+
+  return apiUploadFormData<ResultadoImportacion>('usuarios/importar-alumnos', form);
+}

@@ -141,6 +141,15 @@ export interface Sector {
   cantidadEjemplos: number;
 }
 
+/** Curso al que pertenece un cliente/alumno — categoriza la pestaña "Clientes - Alumnos" de
+ * Usuarios y permisos (chips de filtro + botón "Crear curso"). */
+export interface Curso {
+  id: string;
+  nombre: string;
+  colorAccent: string;
+  cantidadAlumnos: number;
+}
+
 export type TipoInstrumento = 'formato' | 'ioarr' | 'ficha_tecnica' | 'perfil';
 
 export type TipologiaIoarr = 'optimizacion' | 'ampliacion_marginal' | 'reposicion' | 'rehabilitacion';
@@ -212,8 +221,6 @@ export interface Campo {
   etiqueta: string;
   tipo: TipoCampo;
   editable: boolean;
-  /** El cliente debe llenarlo obligatoriamente — lo usa el validador del lado cliente */
-  requerido?: boolean;
   descripcion?: string;
   fuenteCatalogo?: string;
   cadena?: string[];
@@ -433,6 +440,11 @@ export interface Usuario {
   fotoUrl?: string | null;
   /** Solo tiene sentido cuando rol === 'cliente' y origen === 'alumno' — fecha ISO (YYYY-MM-DD). */
   vigenciaAlumnoHasta?: string | null;
+  /** Solo tiene sentido cuando rol === 'cliente' y origen === 'alumno'. cursoNombre/cursoColorAccent
+   * vienen ya resueltos del backend (join), no hace falta cruzar contra useCursosQuery para pintar el chip. */
+  cursoId?: string | null;
+  cursoNombre?: string | null;
+  cursoColorAccent?: string | null;
   /** Rastro de auditoría cuando un admin cambió `origen` a mano — lo setea el backend, nunca el cliente. */
   origenCambiadoPorNombre?: string | null;
   origenCambiadoEn?: string | null;
@@ -1110,6 +1122,12 @@ export interface Candidato {
 export interface ResumenCandidatos {
   total: number;
   porEstado: Record<EstadoCandidato, number>;
+}
+
+/** Resultado de una importación masiva desde Excel (especialistas o clientes-alumnos). */
+export interface ResultadoImportacion {
+  creados: number;
+  omitidos: { fila: number; motivo: string }[];
 }
 
 export interface CandidatoDetalle {

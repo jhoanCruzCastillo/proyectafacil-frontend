@@ -3,22 +3,41 @@ import { computed, ref } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import {
   faUserPlus, faFileCirclePlus, faUserCheck, faCircleCheck, faCircleXmark,
-  faMagnifyingGlass, faFileExcel, faArrowUpRightFromSquare, faEye, faTrash,
+  faMagnifyingGlass, faFileExcel, faFileImport, faArrowUpRightFromSquare, faEye, faTrash,
   faChevronLeft, faChevronRight, faAnglesLeft, faAnglesRight,
 } from '@/lib/icons';
 import PageShell from '@/components/PageShell.vue';
 import LoadingSpinner from '@/components/LoadingSpinner.vue';
 import ConfirmModal from '@/components/ConfirmModal.vue';
+import ImportarExcelModal from '@/components/ImportarExcelModal.vue';
 import CandidatoDetalleModal from './CandidatoDetalleModal.vue';
 import { useCandidatosQuery, useCandidatosResumenQuery, useEliminarCandidato } from '@/composables/useCandidatos';
-import { exportarCandidatosExcel } from '@/api/http/candidatos.http';
+import { exportarCandidatosExcel, importarEspecialistasExcel } from '@/api/http/candidatos.http';
 import { useUiStore } from '@/stores/ui';
+import { useQueryClient } from '@tanstack/vue-query';
 import { ESTADO_CANDIDATO_LABEL as ESTADO_LABEL, ESTADO_CANDIDATO_CLASE as ESTADO_CLASE } from '@/lib/estadoCandidato';
-import type { Candidato, EstadoCandidato } from '@/types';
+import type { Candidato, EstadoCandidato, ResultadoImportacion } from '@/types';
 
 const ui = useUiStore();
+const queryClient = useQueryClient();
 const { data: candidatos, isLoading } = useCandidatosQuery();
 const { data: resumen } = useCandidatosResumenQuery();
+
+const COLUMNAS_IMPORT_ESPECIALISTAS = [
+  { nombre: 'Nombre', detalle: 'Nombres y apellidos (obligatorio)' },
+  { nombre: 'Correo', detalle: 'Correo electrónico único (obligatorio)' },
+  { nombre: 'Teléfono', detalle: 'Opcional' },
+  { nombre: 'Especialidades', detalle: 'Nombres de sectores separados por coma, ej. "Educación, Salud" (opcional)' },
+];
+const mostrarImportar = ref(false);
+function importacionCompletada(_resultado: ResultadoImportacion) {
+  // Los importados entran directo como asesores (usuarios), no como candidatos — ver
+  // CandidatosController::importarExcel. Lo que cambia es Docentes/Asesores y Usuarios y permisos.
+  queryClient.invalidateQueries({ queryKey: ['docentes-admin'] });
+  queryClient.invalidateQueries({ queryKey: ['docentes'] });
+  queryClient.invalidateQueries({ queryKey: ['usuarios'] });
+  ui.toast('Especialistas importados a Docentes / Asesores');
+}
 
 type Tab = 'todos' | EstadoCandidato;
 const TABS: { value: Tab; label: string }[] = [
@@ -134,6 +153,14 @@ async function confirmarEliminar() {
       >
         <FontAwesomeIcon :icon="faArrowUpRightFromSquare" class="w-3.5 h-3.5" />
         Ver formulario público
+      </button>
+      <button
+        @click="mostrarImportar = true"
+        type="button"
+        class="px-4 py-2.5 rounded-lg border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors duration-75 flex items-center gap-2"
+      >
+        <FontAwesomeIcon :icon="faFileImport" class="w-3.5 h-3.5" />
+        Importar desde Excel
       </button>
       <button
         @click="exportar"
@@ -280,5 +307,14 @@ async function confirmarEliminar() {
     loading-label="Eliminando…"
     @confirm="confirmarEliminar"
     @close="candidatoAEliminar = null"
+  />
+
+  <ImportarExcelModal
+    :is-open="mostrarImportar"
+    titulo="Importar especialistas desde Excel"
+    :columnas="COLUMNAS_IMPORT_ESPECIALISTAS"
+    :subir="importarEspecialistasExcel"
+    @importado="importacionCompletada"
+    @close="mostrarImportar = false"
   />
 </template>

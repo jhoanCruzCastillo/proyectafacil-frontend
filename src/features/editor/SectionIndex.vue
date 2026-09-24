@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faGear, faPlus, faCircleCheck, faFileImport, faFileCode, faClone } from '@/lib/icons';
+import { faGear, faPlus, faCircleCheck, faFileImport, faFileCode, faClone, faChevronDown, faTrash } from '@/lib/icons';
 import { useSessionStore } from '@/stores/session';
-import type { Seccion } from '@/types';
+import type { Plantilla, Seccion } from '@/types';
 
 defineProps<{
   secciones: Seccion[];
@@ -13,10 +13,14 @@ defineProps<{
   showEditHoja?: boolean;
   /** true = muestra el botón para duplicar la sección completa (solo tab Estructura) */
   showDuplicateSection?: boolean;
-  /** Cantidad de campos pendientes/inválidos por sección — si se pasa, se muestra un indicador de avance (solo modo cliente) */
+  /** Cantidad de campos con error de formato por sección (nunca por estar vacíos — el cliente puede
+   * dejarlos así) — si se pasa, se muestra un indicador de avance (solo modo cliente) */
   erroresPorSeccion?: Record<string, number>;
   /** true = muestra el botón sutil para importar/reemplazar toda la estructura desde JSON (solo tab Estructura) */
   showImportEstructura?: boolean;
+  /** Nombre, código y sector de la ficha — si se pasa, se muestra encabezado arriba de "Secciones" (solo tab Estructura del editor) */
+  plantilla?: Plantilla;
+  sectorNombre?: string;
 }>();
 
 const emit = defineEmits<{
@@ -24,6 +28,7 @@ const emit = defineEmits<{
   'add-section': [];
   'edit-hoja': [seccionId: string];
   'duplicate-section': [seccionId: string];
+  'delete-section': [seccionId: string];
   'import-estructura': [];
   'view-json': [];
 }>();
@@ -34,6 +39,18 @@ const esSuperusuario = computed(() => session.sesion?.rol === 'superusuario');
 
 <template>
   <div class="flex flex-col h-full">
+    <div v-if="plantilla" class="mb-4 px-2">
+      <div class="flex items-center gap-1.5">
+        <h2 class="text-sm font-bold text-heading truncate" :title="plantilla.nombre">{{ plantilla.nombre }}</h2>
+        <FontAwesomeIcon :icon="faChevronDown" class="w-3 h-3 text-gray-400 shrink-0" />
+      </div>
+      <div class="flex items-center gap-2 flex-wrap mt-1">
+        <span class="text-xs text-muted">ID: {{ plantilla.codigo }}</span>
+        <span v-if="sectorNombre" class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 text-gray-600 border border-gray-200">
+          Sector: {{ sectorNombre }}
+        </span>
+      </div>
+    </div>
     <div class="flex items-center justify-between gap-2 mb-3 px-2">
       <h3 class="text-xs font-semibold uppercase tracking-widest text-muted">
         Secciones · {{ secciones.length }}
@@ -76,7 +93,7 @@ const esSuperusuario = computed(() => session.sesion?.rol === 'superusuario');
         <template v-if="erroresPorSeccion">
           <span
             v-if="erroresPorSeccion[seccion.id] > 0"
-            :title="`${erroresPorSeccion[seccion.id]} campo(s) pendiente(s)`"
+            :title="`${erroresPorSeccion[seccion.id]} campo(s) con error de formato`"
             class="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 shrink-0"
           >
             {{ erroresPorSeccion[seccion.id] }}
@@ -100,6 +117,15 @@ const esSuperusuario = computed(() => session.sesion?.rol === 'superusuario');
           class="w-6 h-6 rounded flex items-center justify-center text-gray-300 hover:text-brand-500 hover:bg-white transition-colors shrink-0"
         >
           <FontAwesomeIcon :icon="faGear" class="w-3 h-3" />
+        </button>
+        <button
+          v-if="showDuplicateSection && secciones.length > 1"
+          @click.stop="emit('delete-section', seccion.id)"
+          type="button"
+          title="Eliminar sección"
+          class="w-6 h-6 rounded flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-white transition-colors shrink-0"
+        >
+          <FontAwesomeIcon :icon="faTrash" class="w-3 h-3" />
         </button>
       </div>
     </nav>

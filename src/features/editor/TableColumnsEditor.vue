@@ -1,21 +1,30 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { subtipoTablaLabels, faTriangleExclamation, faGear } from '@/lib/icons';
+import { subtipoTablaLabels, faTriangleExclamation, faGear, faPlus } from '@/lib/icons';
 import { columnaExcelFormatoInvalido, columnaFaltaCaptura } from '@/lib/campoValidation';
 import FilasDinamicasColumnsEditor from './FilasDinamicasColumnsEditor.vue';
 import MatrizPeriodosEditor from './MatrizPeriodosEditor.vue';
 import JerarquicaColumnsEditor from './JerarquicaColumnsEditor.vue';
 import AgrupadorConfigModal from './AgrupadorConfigModal.vue';
+import AgregarFilasModal from './AgregarFilasModal.vue';
 import CampoConAyuda from '@/components/CampoConAyuda.vue';
 import { esJerarquica, agrupadorProfundidad } from '@/lib/tableRowHelpers';
 import type { ConfigTabla, SubtipoTabla } from '@/types';
 
-const props = defineProps<{ config: ConfigTabla }>();
-const emit = defineEmits<{ update: [ConfigTabla] }>();
+const props = defineProps<{
+  config: ConfigTabla;
+  /** Filas que la tabla tiene hoy en su valor. Solo se usa para el alta masiva de filas:
+   * este panel no toca el valor, lo pide el padre (ver el emit `agregarFilas`). */
+  filasActuales?: number;
+}>();
+const emit = defineEmits<{ update: [ConfigTabla]; agregarFilas: [cantidad: number] }>();
 
 const subtipos = Object.entries(subtipoTablaLabels) as [SubtipoTabla, string][];
 const showAgrupadorConfig = ref(false);
+const showAgregarFilas = ref(false);
+// Solo filas dinámicas: las jerárquicas crecen por árbol y las matrices por período.
+const puedeAgregarFilas = computed(() => props.config.subtipo === 'filas_dinamicas');
 const columnasSinPosicion = computed(() => props.config.columnas.filter(columnaFaltaCaptura).length);
 const columnaInicialInvalida = computed(() => columnaExcelFormatoInvalido(props.config.captura?.columnaInicial));
 
@@ -152,6 +161,23 @@ const anchoTotalAgrupador = computed(() => cabecerasAgrupador.value.reduce((s, c
       <FontAwesomeIcon :icon="faTriangleExclamation" class="w-2.5 h-2.5 shrink-0" />
       {{ columnasSinPosicion }} columna{{ columnasSinPosicion === 1 ? '' : 's' }} sin posición en Excel — configúra{{ columnasSinPosicion === 1 ? 'la' : 'las' }} desde el engranaje de cada columna.
     </p>
+
+    <button
+      v-if="puedeAgregarFilas"
+      @click="showAgregarFilas = true"
+      type="button"
+      class="w-full py-2 rounded-lg border border-dashed border-brand-200 text-[11px] font-medium text-brand-600 hover:bg-brand-50 transition-colors duration-100 flex items-center justify-center gap-1.5"
+    >
+      <FontAwesomeIcon :icon="faPlus" class="w-2.5 h-2.5" />
+      Agregar filas
+    </button>
+
+    <AgregarFilasModal
+      :is-open="showAgregarFilas"
+      :filas-actuales="filasActuales ?? 0"
+      @close="showAgregarFilas = false"
+      @agregar="(n) => emit('agregarFilas', n)"
+    />
 
     <AgrupadorConfigModal
       :is-open="showAgrupadorConfig"
