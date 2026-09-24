@@ -25,6 +25,11 @@ export interface CeldaLeida {
   decimales?: number;
   /** Código de formato numérico OOXML (`"E-"00`, `#,##0.00`, …), si la celda no es General/Texto */
   codigoFormato?: string;
+  /** La celda es de tipo TEXTO en el XML (`t="s"`/`t="inlineStr"`), no un número que solo parece
+   * texto. Un CODLOCAL como "325221" no trae cero a la izquierda y es indistinguible de un número
+   * por su forma — sin este dato, el evaluador de fórmulas lo convertía a number y un VLOOKUP de
+   * coincidencia exacta contra su TEXT(...) nunca calzaba (número 325221 !== texto "325221"). */
+  esTexto: boolean;
 }
 
 export interface FusionLeida {
@@ -72,6 +77,9 @@ export interface LibroLeido {
   esPorcentaje(hoja: string, ref: string): boolean;
   /** Código de formato numérico de la celda (`"E-"00`, …), aunque esté vacía */
   codigoFormato(hoja: string, ref: string): string | undefined;
+  /** Fila más alta usada en la hoja, o undefined si la hoja no existe — acota un rango de columna
+   * completa (`A:M`) a su tamaño real en vez del límite teórico de Excel. */
+  filaMaxima(hoja: string): number | undefined;
 }
 
 function textoDe(el: Element): string {
@@ -211,6 +219,9 @@ interface HojaParseada {
   /** Listas desplegables de la hoja. Son pocas (decenas), así que se recorren linealmente en vez de
    * indexarse celda por celda: una sola validación puede cubrir miles de celdas (`H35:H1048542`). */
   validaciones: ValidacionParseada[];
+  /** Fila más alta que aparece en el XML de la hoja (tenga o no valor). Acota un rango de columna
+   * completa (`Padron_web!A:M`) a su tamaño real en vez del límite teórico de Excel (1,048,576). */
+  filaMaxima: number;
 }
 
 interface Rect {
@@ -357,11 +368,15 @@ function parseHoja(
   const maestras = new Map<string, { formula: string; ref: string }>();
   const pendientes: { ref: string; si: string }[] = [];
   const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  let filaMaxima = 0;
 
   for (const c of Array.from(doc.getElementsByTagName('c'))) {
     const ref = c.getAttribute('r');
     if (!ref) continue;
     const tipo = c.getAttribute('t');
+
+    const filaDeRef = Number(ref.match(/[0-9]+$/)?.[0]);
+    if (Number.isFinite(filaDeRef) && filaDeRef > filaMaxima) filaMaxima = filaDeRef;
 
     const estiloAttr = c.getAttribute('s');
     if (estiloAttr !== null) estilos.set(ref, Number(estiloAttr));
@@ -422,6 +437,7 @@ function parseHoja(
       esPorcentaje: pct,
       decimales: formatoCelda.decimales,
       codigoFormato: codigo && numFmtCelda !== 0 && numFmtCelda !== 49 ? codigo : undefined,
+      esTexto: tipo === 's' || tipo === 'inlineStr',
     });
   }
   // Expansión de las fórmulas compartidas: cada celda recibe la fórmula de su maestra trasladada
@@ -435,7 +451,7 @@ function parseHoja(
     formulas.set(ref, trasladarFormula(maestra.formula, destino.col - origen.col, destino.fila - origen.fila));
   }
 
-  return { celdas, estilos, formulas, formatos, fusiones: parseFusiones(doc), validaciones: parseValidaciones(doc) };
+  return { celdas, estilos, formulas, formatos, fusiones: parseFusiones(doc), validaciones: parseValidaciones(doc), filaMaxima };
 }
 
 function partirRef(ref: string): { col: number; fila: number } | undefined {
@@ -516,6 +532,9 @@ export async function leerLibroXlsx(fuente: string): Promise<LibroLeido> {
     },
     codigoFormato(hoja: string, ref: string): string | undefined {
       return hojaParseada(hoja)?.formatos.get(ref)?.codigo;
+    },
+    filaMaxima(hoja: string): number | undefined {
+      return hojaParseada(hoja)?.filaMaxima;
     },
     validacionLista(hoja: string, ref: string): string | undefined {
       const m = ref.match(/^\$?([A-Z]+)\$?(\d+)$/i);

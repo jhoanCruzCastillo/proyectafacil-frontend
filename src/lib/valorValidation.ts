@@ -2,12 +2,13 @@ import type { Campo, Plantilla } from '@/types';
 import { aFechaISO, numeroDesdeTextoVisible } from './conversionesExcel';
 import { esJerarquica, parseDynamicRows, parseGroupedRows, parseTree, type FilaDinamica, type TreeNode, type ValorCelda } from './tableRowHelpers';
 
-// Validación de los VALORES que llena el cliente (obligatoriedad + tipo) — distinto de
+// Validación de los VALORES que llena el cliente (formato, no obligatoriedad — el cliente puede
+// guardar un campo vacío si así lo decide, nunca se le exige llenarlo) — distinto de
 // campoValidation.ts, que valida la posición de captura en Excel (cosa del admin).
 
 export function validarValorCampo(campo: Campo, valor: string | undefined): string | null {
   const v = (valor ?? '').trim();
-  if (!v) return campo.requerido ? 'Este campo es obligatorio' : null;
+  if (!v) return null;
   if (campo.tipo === 'numero' || campo.tipo === 'decimal') {
     // Misma lectura que excelWriter.ts (coerceValor -> numeroDesdeTextoVisible): acepta "68%" (el
     // Excel real lo admite en una celda con formato de porcentaje) además de números planos — sin

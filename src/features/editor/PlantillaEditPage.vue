@@ -7,6 +7,8 @@ import ResizeHandle from '@/components/ResizeHandle.vue';
 import ConfirmModal from '@/components/ConfirmModal.vue';
 import SectionIndex from './SectionIndex.vue';
 import SectionContent from './SectionContent.vue';
+import SectionLoadingSkeleton from './SectionLoadingSkeleton.vue';
+import { useTransicionSeccion } from '@/composables/useTransicionSeccion';
 import FieldPropertiesPanel from './FieldPropertiesPanel.vue';
 import EditorTopBar from './EditorTopBar.vue';
 import ContextosIAPanel from './ContextosIAPanel.vue';
@@ -20,7 +22,7 @@ import VolcarExcelModal from './VolcarExcelModal.vue';
 import ExcelCatalogModal from '@/features/plantillas/ExcelCatalogModal.vue';
 import { usePlantillaEditor } from '@/composables/usePlantillaEditor';
 import { useSectorQuery } from '@/composables/useSectores';
-import type { Ejemplo } from '@/types';
+import type { Ejemplo, Seccion } from '@/types';
 
 const route = useRoute();
 const sectorId = computed(() => route.params.sectorId as string);
@@ -42,7 +44,7 @@ const {
   handleLeftResize, handleRightResize, handleExamplesResize, handleTabChange, handleSectionSelect,
   goToPrevSection, goToNextSection, handleFieldUpdate, handleAddCampo, handleAddNota, handleDuplicarCampo, handleDeleteCampo,
   handleSectionNameChange, handleSectionHojaChange, handleSubsectionNameChange,
-  handleSubseccionAyudaChange, handleAddSubsection, handleSubsectionCodigoChange, handleDeleteSubsection, handleAddSection, handleDuplicarSeccion,
+  handleSubseccionAyudaChange, handleAddSubsection, handleSubsectionCodigoChange, handleDeleteSubsection, handleAddSection, handleDuplicarSeccion, handleDeleteSeccion,
   handleCreateExample, handleDeleteEjemplo, handleToggleEjemploEstado, handleToggleReferenciaIA,
   handleDownloadExcel, handlePreviewExample, handleInsertExcel,
   handleVolcarExcel, handleVolcarEstructura, handleConfirmarVolcado, getDefaultValores,
@@ -52,6 +54,12 @@ const {
 } = usePlantillaEditor(plantillaId);
 
 const mostrarTipologiasIoarr = computed(() => editData.value?.instrumento === 'ioarr');
+
+// Cambiar de sección o de pestaña (Estructura/Ejemplos) remonta SectionContent entero — decenas de
+// FieldCard volviendo a consultar su celda en el Excel vivo. Sin este estado de carga, ese trabajo
+// síncrono se sentía como que la pantalla se congelaba (ver useTransicionSeccion).
+const claveSeccion = computed(() => (seccionActiva.value ? `${seccionActiva.value.id}:${activeTab.value}` : null));
+const { cargando: cargandoSeccion, claveMostrada: claveSeccionMostrada } = useTransicionSeccion(claveSeccion);
 
 // Contextos IA reemplaza el cuerpo del editor (no es una versión más de la ficha, así que no entra
 // en `activeTab`): la barra superior se queda y debajo se cambia todo el contenido.
@@ -70,6 +78,16 @@ async function confirmarToggleEstado() {
   } finally {
     confirmandoToggle.value = false;
   }
+}
+
+// Borrar una sección se lleva todas sus subsecciones y campos de un golpe — a diferencia de borrar
+// una subsección o un campo (sin confirmación hoy), acá sí se pide confirmar explícitamente: es el
+// motivo por el que se agregó este botón (evitar que una sección duplicada por error se quede así).
+const deleteSeccionTarget = ref<Seccion | null>(null);
+function confirmarEliminarSeccion() {
+  if (!deleteSeccionTarget.value) return;
+  handleDeleteSeccion(deleteSeccionTarget.value.id);
+  deleteSeccionTarget.value = null;
 }
 </script>
 
@@ -131,6 +149,7 @@ async function confirmarToggleEstado() {
           @add-section="handleAddSection"
           @edit-hoja="editingHojaSeccionId = $event"
           @duplicate-section="handleDuplicarSeccion"
+          @delete-section="(id) => (deleteSeccionTarget = secciones.find((s) => s.id === id) ?? null)"
           @import-estructura="showImportEstructura = true"
           @view-json="handleViewJson"
         />
@@ -140,8 +159,9 @@ async function confirmarToggleEstado() {
 
       <div class="flex-1 min-w-0 flex flex-col overflow-hidden bg-white">
         <div class="flex-1 overflow-y-auto bg-white p-6 mr-1.5">
+          <SectionLoadingSkeleton v-if="cargandoSeccion" :cantidad-campos="seccionActiva?.cantidadCampos" />
           <SectionContent
-            v-if="seccionActiva"
+            v-else-if="seccionActiva && claveSeccionMostrada === claveSeccion"
             :key="seccionActiva.id"
             :seccion="seccionActiva"
             editable
@@ -244,6 +264,14 @@ async function confirmarToggleEstado() {
       loading-label="Eliminando…"
       @close="deleteTarget = null"
       @confirm="handleDeleteEjemplo"
+    />
+
+    <ConfirmModal
+      :is-open="!!deleteSeccionTarget"
+      title="Eliminar sección"
+      :message="`¿Seguro que deseas eliminar la sección &quot;${deleteSeccionTarget?.nombre}&quot;? Se eliminarán también todas sus subsecciones y campos. Esta acción no se puede deshacer.`"
+      @close="deleteSeccionTarget = null"
+      @confirm="confirmarEliminarSeccion"
     />
 
     <ConfirmModal

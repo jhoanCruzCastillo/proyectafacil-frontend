@@ -158,6 +158,20 @@ function quitarSub(idx: number) {
               </div>
             </div>
 
+            <div v-if="!soloGrupo" class="pt-3 border-t border-gray-100 space-y-1.5">
+              <label class="block text-[10px] font-medium text-muted">Nota / instructivo para la IA</label>
+              <textarea
+                :value="columna.nota || ''"
+                @input="emit('update-columna', { nota: ($event.target as HTMLTextAreaElement).value })"
+                rows="3"
+                placeholder="Ej. Escribe Departamento, Provincia y Distrito separados por &quot; | &quot;. No inventes el código UBIGEO…"
+                class="w-full px-3 py-2 rounded-lg border border-gray-200 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 resize-none"
+              />
+              <p class="text-[10px] text-muted leading-relaxed">
+                Se manda tal cual a la IA al llenar esta columna — úsala para reglas que el nombre de la columna no deja claras (formato esperado, qué no debe inventar, unidades, etc.).
+              </p>
+            </div>
+
             <!-- Booleano: Sí/No (dos opciones) vs casilla (un círculo, como OptionButton de Excel) -->
             <div v-if="!soloGrupo && columna.tipo === 'booleano'" class="pt-3 border-t border-gray-100 space-y-2">
               <p class="text-[10px] font-medium text-muted">Presentación</p>

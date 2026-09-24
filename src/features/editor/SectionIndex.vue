@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faGear, faPlus, faCircleCheck, faFileImport, faFileCode, faClone, faChevronDown } from '@/lib/icons';
+import { faGear, faPlus, faCircleCheck, faFileImport, faFileCode, faClone, faChevronDown, faTrash } from '@/lib/icons';
 import { useSessionStore } from '@/stores/session';
 import type { Plantilla, Seccion } from '@/types';
 
@@ -13,7 +13,8 @@ defineProps<{
   showEditHoja?: boolean;
   /** true = muestra el botón para duplicar la sección completa (solo tab Estructura) */
   showDuplicateSection?: boolean;
-  /** Cantidad de campos pendientes/inválidos por sección — si se pasa, se muestra un indicador de avance (solo modo cliente) */
+  /** Cantidad de campos con error de formato por sección (nunca por estar vacíos — el cliente puede
+   * dejarlos así) — si se pasa, se muestra un indicador de avance (solo modo cliente) */
   erroresPorSeccion?: Record<string, number>;
   /** true = muestra el botón sutil para importar/reemplazar toda la estructura desde JSON (solo tab Estructura) */
   showImportEstructura?: boolean;
@@ -27,6 +28,7 @@ const emit = defineEmits<{
   'add-section': [];
   'edit-hoja': [seccionId: string];
   'duplicate-section': [seccionId: string];
+  'delete-section': [seccionId: string];
   'import-estructura': [];
   'view-json': [];
 }>();
@@ -91,7 +93,7 @@ const esSuperusuario = computed(() => session.sesion?.rol === 'superusuario');
         <template v-if="erroresPorSeccion">
           <span
             v-if="erroresPorSeccion[seccion.id] > 0"
-            :title="`${erroresPorSeccion[seccion.id]} campo(s) pendiente(s)`"
+            :title="`${erroresPorSeccion[seccion.id]} campo(s) con error de formato`"
             class="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 shrink-0"
           >
             {{ erroresPorSeccion[seccion.id] }}
@@ -115,6 +117,15 @@ const esSuperusuario = computed(() => session.sesion?.rol === 'superusuario');
           class="w-6 h-6 rounded flex items-center justify-center text-gray-300 hover:text-brand-500 hover:bg-white transition-colors shrink-0"
         >
           <FontAwesomeIcon :icon="faGear" class="w-3 h-3" />
+        </button>
+        <button
+          v-if="showDuplicateSection && secciones.length > 1"
+          @click.stop="emit('delete-section', seccion.id)"
+          type="button"
+          title="Eliminar sección"
+          class="w-6 h-6 rounded flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-white transition-colors shrink-0"
+        >
+          <FontAwesomeIcon :icon="faTrash" class="w-3 h-3" />
         </button>
       </div>
     </nav>

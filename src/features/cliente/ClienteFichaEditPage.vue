@@ -6,6 +6,8 @@ import { faGraduationCap, faChevronLeft, faChevronRight } from '@/lib/icons';
 import ResizeHandle from '@/components/ResizeHandle.vue';
 import SectionIndex from '@/features/editor/SectionIndex.vue';
 import SectionContent from '@/features/editor/SectionContent.vue';
+import SectionLoadingSkeleton from '@/features/editor/SectionLoadingSkeleton.vue';
+import { useTransicionSeccion } from '@/composables/useTransicionSeccion';
 import ExcelPreviewModal from '@/features/editor/ExcelPreviewModal.vue';
 import ConfirmModal from '@/components/ConfirmModal.vue';
 import ClienteFichaTopBar from './ClienteFichaTopBar.vue';
@@ -75,6 +77,12 @@ const {
 
 const { cargandoPorCampo: cargandoTablaIAPorCampo, erroresPorCampo: erroresTablaIAPorCampo, llenarTabla } = useLlenadoTablaIA(ejemploId);
 const ui = useUiStore();
+
+// Cambiar de sección o de pestaña (Mi ficha/Ejemplos de referencia) remonta SectionContent entero —
+// decenas de FieldCard volviendo a consultar su celda en el Excel vivo. Sin este estado de carga, ese
+// trabajo síncrono se sentía como que la pantalla se congelaba (ver useTransicionSeccion).
+const claveSeccion = computed(() => (seccionActiva.value ? `${seccionActiva.value.id}:${activeTab.value}` : null));
+const { cargando: cargandoSeccion, claveMostrada: claveSeccionMostrada } = useTransicionSeccion(claveSeccion);
 
 const showCancelarLlenadoConfirm = ref(false);
 /** Parpadeo de "Guardar" en la topbar tras un llenado con IA — se prende cuando el sistema termina
@@ -365,8 +373,9 @@ async function onGuardar() {
 
       <div class="flex-1 min-w-0 flex flex-col overflow-hidden">
         <div class="flex-1 overflow-y-auto bg-white p-6">
+          <SectionLoadingSkeleton v-if="cargandoSeccion" :cantidad-campos="seccionActiva?.cantidadCampos" />
           <SectionContent
-            v-if="seccionActiva"
+            v-else-if="seccionActiva && claveSeccionMostrada === claveSeccion"
             :key="`${seccionActiva.id}-${activeTab}`"
             :seccion="seccionActiva"
             show-example-values
@@ -434,7 +443,7 @@ async function onGuardar() {
       :is-open="showInsertConfirm"
       title="Insertar antes de descargar"
       :message="erroresCount > 0
-        ? `Todavía tienes ${erroresCount} campo${erroresCount > 1 ? 's' : ''} pendiente${erroresCount > 1 ? 's' : ''} o con errores. Tienes cambios sin insertar en el Excel de &quot;${ejemplo.nombre}&quot; — se insertarán con lo que llenaste hasta ahora y luego se descargará. Esta acción no se puede deshacer.`
+        ? `Todavía tienes ${erroresCount} campo${erroresCount > 1 ? 's' : ''} con error de formato. Tienes cambios sin insertar en el Excel de &quot;${ejemplo.nombre}&quot; — se insertarán con lo que llenaste hasta ahora y luego se descargará. Esta acción no se puede deshacer.`
         : `Tienes cambios sin insertar en el Excel de &quot;${ejemplo.nombre}&quot; — se insertarán y luego se descargará. Esta acción no se puede deshacer.`"
       confirm-label="Insertar y descargar"
       :progress="isInserting ? insertProgress : null"

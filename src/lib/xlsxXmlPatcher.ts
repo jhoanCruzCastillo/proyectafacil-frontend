@@ -47,25 +47,33 @@ export class LibroEdits {
   }
 
   escribirCelda(hoja: string, columna: string, fila: number, valor: string | number | boolean) {
-    this.getHoja(hoja).celdas.push({ columna, fila, valor });
+    this.getHoja(hoja).celdas.push({ columna: columna.toUpperCase(), fila, valor });
   }
 
   // Escribe una fórmula nativa de Excel (sin el "=" inicial) — Excel la recalcula al abrir el
   // archivo; `valorCache` es el número que se muestra mientras tanto (y en visores que no evalúan
   // fórmulas, como nuestra propia vista previa).
   escribirFormula(hoja: string, columna: string, fila: number, formula: string, valorCache: number) {
-    this.getHoja(hoja).celdas.push({ columna, fila, valor: valorCache, formula });
+    this.getHoja(hoja).celdas.push({ columna: columna.toUpperCase(), fila, valor: valorCache, formula });
   }
 
+  // .toUpperCase() sobre el rango entero es seguro: dígitos y ":" no cambian, solo normaliza la
+  // letra de columna. Necesario porque `columnaInicial` de una tabla jerárquica es dato de la
+  // ESTRUCTURA (JSON), no algo que este módulo controle — encontrado en vivo: dos campos de
+  // FTE-EBR-V03 traían "e"/"b" en minúscula, y escribir "e790" junto al "E790" ya existente en la
+  // plantilla oficial son la MISMA celda para Excel pero dos `<c>` distintos para el XML, así que al
+  // abrir el archivo Excel las trataba como duplicadas y "reparaba" el archivo eliminando una de las
+  // dos (y la fórmula SUM cercana que dependía de esa fila) — ver también la limpieza del dato en la
+  // estructura de la plantilla, que es la causa raíz; esto es la red de seguridad para cualquier otra.
   fusionar(hoja: string, rango: string) {
-    this.getHoja(hoja).merges.add(rango);
+    this.getHoja(hoja).merges.add(rango.toUpperCase());
   }
 
   // Rompe la fusión que cubra ese rango. Necesario para las celdas partidas (4.8): la plantilla
   // oficial trae J:K fusionada por fila, y escribir en K dentro de una fusión deja el dato oculto
   // — Excel solo muestra la celda superior-izquierda del rango.
   desfusionar(hoja: string, rango: string) {
-    this.getHoja(hoja).desfusiones.add(rango);
+    this.getHoja(hoja).desfusiones.add(rango.toUpperCase());
   }
 
   // Una imagen no ocupa una celda: se guarda como binario aparte y se ancla entre coordenadas.
@@ -77,7 +85,7 @@ export class LibroEdits {
   // Convierte la celda en un enlace en el que se puede hacer clic. El texto visible lo pone
   // escribirCelda por separado — esto solo añade el salto.
   enlazar(hoja: string, columna: string, fila: number, url: string) {
-    this.getHoja(hoja).enlaces.set(`${columna}${fila}`, url);
+    this.getHoja(hoja).enlaces.set(`${columna.toUpperCase()}${fila}`, url);
   }
 
   // Registra que una tabla creció más allá de sus filas base — las filas físicas de Excel deben
@@ -320,6 +328,35 @@ function desplazarMergesDesde(worksheet: Element, desdeFila: number, delta: numb
   }
 }
 
+// Ajusta el `ref` de cada fórmula compartida MAESTRA (`<f t="shared" ref="...">`) que caiga (total o
+// parcialmente) debajo del punto de inserción — mismo criterio que desplazarMergesDesde, pero para
+// el rango de un grupo de fórmula compartida en vez de una fusión.
+//
+// Sin esto, el rango declarado se queda corto apenas una tabla ANTERIOR en la misma hoja crece: las
+// celdas del grupo SÍ se desplazan (desplazarFilasDesde ya les renumera su `r`), pero el `ref` de su
+// maestra es solo texto en el propio `<f>` y nadie más lo toca, así que se queda apuntando a las
+// filas de ANTES del desplazamiento. El grupo termina con una celda miembro fuera del rango que su
+// propia maestra declara — encontrado en vivo: 94 de 95 grupos de Anexo 2 quedaban así con una sola
+// tabla creciendo, y es justo lo que Excel repara eliminando la fórmula compartida al abrir el archivo.
+function desplazarFormulasCompartidasDesde(worksheet: Element, desdeFila: number, delta: number) {
+  for (const f of Array.from(worksheet.getElementsByTagName('f'))) {
+    if (f.getAttribute('t') !== 'shared') continue;
+    const ref = f.getAttribute('ref');
+    if (!ref) continue; // solo la maestra trae `ref`; las demás del grupo solo traen `si`
+    const [inicioRef, finRef] = ref.split(':');
+    const inicio = parseDireccion(inicioRef);
+    const fin = finRef ? parseDireccion(finRef) : inicio;
+    let cambio = false;
+    let nuevoInicio = inicio.fila;
+    let nuevoFin = fin.fila;
+    if (inicio.fila > desdeFila) { nuevoInicio += delta; cambio = true; }
+    if (fin.fila > desdeFila) { nuevoFin += delta; cambio = true; }
+    if (cambio) {
+      f.setAttribute('ref', finRef ? `${inicio.columna}${nuevoInicio}:${fin.columna}${nuevoFin}` : `${inicio.columna}${nuevoInicio}`);
+    }
+  }
+}
+
 // Clona una fila existente como plantilla en blanco para una fila nueva: conserva el atributo de
 // estilo (`s`) de cada celda (así la fila nueva se ve igual que la original) pero limpia su valor.
 function clonarFilaComoPlantilla(filaOrigen: Element, nuevoNumero: number): Element {
@@ -349,6 +386,7 @@ function insertarFilasEnHoja(worksheet: Element, sheetData: Element, crecimiento
 
   desplazarFilasDesde(sheetData, despuesDeFila, cantidad);
   desplazarMergesDesde(worksheet, despuesDeFila, cantidad);
+  desplazarFormulasCompartidasDesde(worksheet, despuesDeFila, cantidad);
 
   const filaSiguiente = Array.from(sheetData.children).find(
     (el) => el.localName === 'row' && Number(el.getAttribute('r')) === despuesDeFila + cantidad + 1,
@@ -477,6 +515,66 @@ function agregarMerge(doc: Document, worksheet: Element, sheetData: Element, ran
   nuevo.setAttribute('ref', rango);
   mergeCells.appendChild(nuevo);
   mergeCells.setAttribute('count', String(mergeCells.children.length));
+}
+
+// calcChain.xml es solo un caché del orden en que Excel evaluó las fórmulas la última vez — nunca
+// lo mantenemos sincronizado cuando una tabla crece: insertarFilasEnHoja desplaza filas (y las
+// fórmulas que traían) a otra posición física, y calcChain se queda apuntando a la fila vieja, que
+// ya no tiene fórmula. Esa referencia obsoleta es justo lo que hace que Excel muestre "Encontramos
+// un problema con contenido en…" y "repare" el archivo al abrirlo (encontrado en vivo: 91 entradas
+// obsoletas en un solo ejemplo de FTE-EBR-V03, todas en la hoja donde una tabla creció). Excel no lo
+// necesita para funcionar — si falta, simplemente recalcula todo y lo reconstruye al abrir el
+// libro — así que es más seguro quitarlo siempre que se edite algo, en vez de intentar mantenerlo
+// sincronizado con cada desplazamiento de filas.
+async function quitarCalcChain(zip: JSZip): Promise<void> {
+  if (!zip.file('xl/calcChain.xml')) return;
+  zip.remove('xl/calcChain.xml');
+  const parser = new DOMParser();
+  const serializer = new XMLSerializer();
+
+  const ctPath = '[Content_Types].xml';
+  const ctXml = await zip.file(ctPath)?.async('string');
+  if (ctXml) {
+    const doc = parser.parseFromString(ctXml, 'application/xml');
+    for (const override of Array.from(doc.getElementsByTagName('Override'))) {
+      if (override.getAttribute('PartName') === '/xl/calcChain.xml') override.parentNode?.removeChild(override);
+    }
+    zip.file(ctPath, serializer.serializeToString(doc));
+  }
+
+  const relsPath = 'xl/_rels/workbook.xml.rels';
+  const relsXml = await zip.file(relsPath)?.async('string');
+  if (relsXml) {
+    const doc = parser.parseFromString(relsXml, 'application/xml');
+    for (const rel of Array.from(doc.getElementsByTagName('Relationship'))) {
+      if (rel.getAttribute('Target') === 'calcChain.xml') rel.parentNode?.removeChild(rel);
+    }
+    zip.file(relsPath, serializer.serializeToString(doc));
+  }
+}
+
+// El formato oficial no trae `fullCalcOnLoad` en su `<calcPr>` (solo un `calcId` de la versión de
+// Excel que lo guardó por última vez) — por defecto ese atributo vale "false", así que Excel abre el
+// archivo confiando en el `<v>` que ya tenía cada celda con fórmula en vez de recalcular. Como
+// nunca actualizamos ese caché para las celdas que SÍ dependen de un valor que acabamos de escribir
+// (Departamento/Provincia/Distrito/Institución Educativa, todas VLOOKUP contra el código de local),
+// se veían vacías o con el valor viejo hasta que el usuario tocaba a mano alguna celda de la que
+// dependían — eso sí fuerza un recálculo local, que es lo que lo hacía "aparecer solo". Forzar
+// `fullCalcOnLoad="1"` hace que Excel recalcule TODO al abrir, sin depender de que el usuario haga
+// ese paso a mano ni de que calcChain.xml (que ya quitamos) le diga qué recalcular.
+async function forzarRecalculoAlAbrir(zip: JSZip): Promise<void> {
+  const path = 'xl/workbook.xml';
+  const xml = await zip.file(path)?.async('string');
+  if (!xml) return;
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xml, 'application/xml');
+  let calcPr = doc.getElementsByTagName('calcPr')[0];
+  if (!calcPr) {
+    calcPr = doc.createElementNS(SML_NS, 'calcPr');
+    doc.documentElement.appendChild(calcPr);
+  }
+  calcPr.setAttribute('fullCalcOnLoad', '1');
+  zip.file(path, new XMLSerializer().serializeToString(doc));
 }
 
 async function extraerMimeYBuffer(dataUrl: string): Promise<{ mime: string; buffer: ArrayBuffer }> {
@@ -614,6 +712,9 @@ export async function aplicarEdicionesXlsx(
     onProgress?.(0.08 + (hojaIdx / totalHojas) * 0.67);
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
+
+  await quitarCalcChain(zip);
+  await forzarRecalculoAlAbrir(zip);
 
   const outBuffer = await zip.generateAsync(
     { type: 'base64', compression: 'DEFLATE', compressionOptions: { level: 6 } },

@@ -1,46 +1,17 @@
 <script setup lang="ts">
-interface GrupoProfesion {
-  grupo: string;
-  opciones: string[];
-}
-
-const GRUPOS_PROFESION: GrupoProfesion[] = [
-  {
-    grupo: 'Liquidación financiera y valorización de obras',
-    opciones: ['Contador/a Público/a', 'Economista', 'Ingeniero/a Civil', 'Ingeniero/a de Costos y Presupuestos', 'Especialista en Liquidación de Obras'],
-  },
-  {
-    grupo: 'Inversión pública e Invierte.pe',
-    opciones: ['Gestor/a de Proyectos de Inversión', 'Especialista SNIP / Invierte.pe', 'Formulador/a de IOARR', 'Especialista en Programación Multianual'],
-  },
-  {
-    grupo: 'Expedientes técnicos y TDRs',
-    opciones: ['Arquitecto/a', 'Ingeniero/a Sanitario/a', 'Ingeniero/a Hidráulico/a', 'Ingeniero/a Mecánico-Eléctrico/a', 'Ingeniero/a Industrial', 'Ingeniero/a Agrícola', 'Ingeniero/a de Caminos y Transportes', 'Topógrafo/a'],
-  },
-  {
-    grupo: 'Contrataciones y compras públicas',
-    opciones: ['Abogado/a', 'Especialista en Contrataciones del Estado', 'Especialista en Compras Públicas', 'Administrador/a de Contrataciones'],
-  },
-  {
-    grupo: 'OxI, APPs y peritaje',
-    opciones: ['Especialista en Obras por Impuestos y APPs', 'Perito/a Economista', 'Perito/a Contador', 'Perito/a Ingeniero/a Civil'],
-  },
-  {
-    grupo: 'Evaluación social y estudios',
-    opciones: ['Sociólogo/a', 'Antropólogo/a', 'Estadístico/a', 'Ingeniero/a Económico-Estadístico/a', 'Especialista en Evaluación Social'],
-  },
-  {
-    grupo: 'Salud',
-    opciones: ['Médico/a', 'Obstetra', 'Enfermero/a', 'Especialista en Gestión de Servicios de Salud'],
-  },
-  {
-    grupo: 'Educación y apoyo académico',
-    opciones: ['Docente Universitario/a', 'Asesor/a de Tesis', 'Especialista en Educación Inicial / Primaria / Secundaria', 'Especialista en Gestión Educativa'],
-  },
-  {
-    grupo: 'Otras',
-    opciones: ['Otra ingeniería', 'Otra profesión'],
-  },
+// Lista plana tal como la pidió el cliente en el mockup "Nuevo-registro-especialistas-ilpiie-live-v4.html"
+// (reemplaza la lista anterior agrupada por sector de ILPIIE). "Otras" revela un campo de texto libre
+// (g-profotra/f-profotra en el mockup) para que el postulante especifique su profesión real.
+const PROFESIONES = [
+  'Abogacía', 'Administración', 'Administración de Negocios', 'Agronomía', 'Antropología', 'Arquitectura',
+  'Biología', 'Ciencia Política', 'Ciencias de la Comunicación', 'Contabilidad', 'Contabilidad y Finanzas',
+  'Derecho', 'Economía', 'Educación', 'Enfermería', 'Estadística', 'Farmacia y Bioquímica', 'Física',
+  'Geografía', 'Geología', 'Historia', 'Ingeniería Agrícola', 'Ingeniería Ambiental', 'Ingeniería Civil',
+  'Ingeniería de Minas', 'Ingeniería de Sistemas', 'Ingeniería de Software', 'Ingeniería Económica',
+  'Ingeniería Eléctrica', 'Ingeniería Electrónica', 'Ingeniería Estadística', 'Ingeniería Geológica',
+  'Ingeniería Industrial', 'Ingeniería Mecánica', 'Ingeniería Mecatrónica', 'Ingeniería Metalúrgica',
+  'Ingeniería Petroquímica', 'Ingeniería Química', 'Ingeniería Sanitaria', 'Medicina', 'Medicina Veterinaria',
+  'Obstetricia', 'Psicología', 'Química', 'Sociología', 'Trabajo Social', 'Zootecnia', 'Otras',
 ];
 
 const NIVELES_ACADEMICOS = ['Bachiller', 'Licenciado / Título profesional', 'Magister / Maestría', 'Doctorado / PhD'];
@@ -69,7 +40,7 @@ const MENSAJE_ERROR = 'Completa todos los campos obligatorios. Verifica el corre
 defineProps<{
   campos: {
     nombre: string; dni: string; correo: string; telefono: string; password: string; password2: string;
-    profesion: string; nivelAcademico: string; colegiatura: string; experiencia: string;
+    profesion: string; profesionOtra: string; nivelAcademico: string; experiencia: string;
   };
   mostrarError: boolean;
 }>();
@@ -105,10 +76,12 @@ const errorCorreo = defineModel<string>('errorCorreo', { required: true });
           <label class="form-label">Profesión <span class="required">*</span></label>
           <select v-model="campos.profesion">
             <option value="">Selecciona tu profesión</option>
-            <optgroup v-for="g in GRUPOS_PROFESION" :key="g.grupo" :label="g.grupo">
-              <option v-for="o in g.opciones" :key="o">{{ o }}</option>
-            </optgroup>
+            <option v-for="p in PROFESIONES" :key="p">{{ p }}</option>
           </select>
+        </div>
+        <div v-if="campos.profesion === 'Otras'" class="form-group full-width">
+          <label class="form-label">Especifica tu profesión <span class="required">*</span></label>
+          <input v-model="campos.profesionOtra" type="text" placeholder="Ej. Ingeniero/a Geógrafo/a, Técnico/a en Construcción..." />
         </div>
         <div class="form-group">
           <label class="form-label">Nivel académico <span class="required">*</span></label>
@@ -117,7 +90,6 @@ const errorCorreo = defineModel<string>('errorCorreo', { required: true });
             <option v-for="n in NIVELES_ACADEMICOS" :key="n">{{ n }}</option>
           </select>
         </div>
-        <div class="form-group"><label class="form-label">N.° de colegiatura / CIP</label><input v-model="campos.colegiatura" type="text" placeholder="Ej. 123456" /></div>
         <div class="form-group">
           <label class="form-label">Años de experiencia <span class="required">*</span></label>
           <select v-model="campos.experiencia">

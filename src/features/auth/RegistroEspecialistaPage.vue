@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
 import logoIcono from '@/assets/logo-icono.png';
 import { DIAS, HORAS, bloqueMarcado, totalBloques as calcularTotalBloques, listaDisponibilidad as calcularListaDisponibilidad } from './especialistaDisponibilidad';
+import { leerSesionPostulacion, guardarSesionPostulacion, borrarSesionPostulacion } from '@/lib/postulacionEspecialistaSesion';
 import PasoPerfil from './PasoPerfil.vue';
 import PasoEspecialidad from './PasoEspecialidad.vue';
 import PasoActividades from './PasoActividades.vue';
@@ -93,16 +94,22 @@ const campos = reactive({
   password: '',
   password2: '',
   profesion: '',
+  profesionOtra: '',
   nivelAcademico: '',
-  colegiatura: '',
   experiencia: '',
   otrosTemas: '',
   linkedin: '',
   otrasRedes: '',
   comentarios: '',
 });
+// "Otras" en el select revela un campo libre (ver PasoPerfil.vue) — el valor final que se guarda
+// y se muestra es ese texto, nunca el literal "Otras".
+const profesionTexto = computed(() => (campos.profesion === 'Otras' ? campos.profesionOtra.trim() : campos.profesion));
 const nivelEspecialidad = ref('');
 const temasSeleccionados = ref<number[]>([]);
+// No es un id del catálogo (no viaja en temaIds) — solo revela el textarea de "otros temas" en
+// PasoEspecialidad.vue, igual que el checkbox homónimo del mockup del cliente.
+const otrosTemasSeleccionado = ref(false);
 const actividadesSeleccionadas = ref<string[]>([]);
 const bloques = reactive<Record<string, boolean>>({});
 const aceptaTerminos = ref(false);
@@ -110,6 +117,43 @@ const archivoCV = ref<File | null>(null);
 
 const totalBloques = computed(() => calcularTotalBloques(bloques));
 const listaDisponibilidad = computed(() => calcularListaDisponibilidad(bloques));
+
+// Restaura el progreso guardado (si hay) — nunca incluye password/password2 ni el CV (ver
+// lib/postulacionEspecialistaSesion.ts). Si el CV falta y el progreso guardado llegaba hasta
+// "Confirmar", se retrocede a "Documentos" para que vuelva a adjuntarlo antes de enviar.
+const sesionGuardada = leerSesionPostulacion();
+if (sesionGuardada) {
+  Object.assign(campos, sesionGuardada.campos);
+  nivelEspecialidad.value = sesionGuardada.nivelEspecialidad;
+  temasSeleccionados.value = sesionGuardada.temasSeleccionados;
+  otrosTemasSeleccionado.value = sesionGuardada.otrosTemasSeleccionado;
+  actividadesSeleccionadas.value = sesionGuardada.actividadesSeleccionadas;
+  Object.assign(bloques, sesionGuardada.bloques);
+  aceptaTerminos.value = sesionGuardada.aceptaTerminos;
+  paso.value = sesionGuardada.paso === 6 ? 5 : sesionGuardada.paso;
+}
+
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+watch(
+  [campos, nivelEspecialidad, temasSeleccionados, otrosTemasSeleccionado, actividadesSeleccionadas, bloques, aceptaTerminos, paso],
+  () => {
+    if (persistTimer) clearTimeout(persistTimer);
+    persistTimer = setTimeout(() => {
+      const { password: _password, password2: _password2, ...camposPersistibles } = campos;
+      guardarSesionPostulacion({
+        paso: paso.value,
+        campos: camposPersistibles,
+        nivelEspecialidad: nivelEspecialidad.value,
+        temasSeleccionados: temasSeleccionados.value,
+        otrosTemasSeleccionado: otrosTemasSeleccionado.value,
+        actividadesSeleccionadas: actividadesSeleccionadas.value,
+        bloques: { ...bloques },
+        aceptaTerminos: aceptaTerminos.value,
+      });
+    }, 300);
+  },
+  { deep: true },
+);
 
 function pasoValido(): boolean {
   switch (paso.value) {
@@ -122,12 +166,16 @@ function pasoValido(): boolean {
         campos.password === campos.password2 &&
         campos.telefono.trim().length >= 6 &&
         !!campos.profesion &&
+        (campos.profesion !== 'Otras' || campos.profesionOtra.trim().length > 2) &&
         !!campos.nivelAcademico &&
         !!campos.experiencia &&
         !!nivelEspecialidad.value
       );
-    case 2:
-      return temasSeleccionados.value.length > 0;
+    case 2: {
+      const algunTemaOOtros = temasSeleccionados.value.length > 0 || otrosTemasSeleccionado.value;
+      const otrosOk = !otrosTemasSeleccionado.value || campos.otrosTemas.trim().length > 3;
+      return algunTemaOOtros && otrosOk;
+    }
     case 3:
       return actividadesSeleccionadas.value.length > 0;
     case 4:
@@ -159,9 +207,9 @@ async function enviarPostulacion() {
       correo: campos.correo.trim(),
       telefono: campos.telefono.trim(),
       password: campos.password,
-      profesion: campos.profesion,
+      profesion: profesionTexto.value,
       nivelAcademico: campos.nivelAcademico,
-      colegiatura: campos.colegiatura.trim(),
+      colegiatura: '', // ya no se recolecta en el formulario (mockup v4 del cliente la quitó)
       experiencia: campos.experiencia,
       nivelEspecialidad: nivelEspecialidad.value,
       otrosTemas: campos.otrosTemas.trim(),
@@ -190,6 +238,7 @@ async function enviarPostulacion() {
     }
 
     enviado.value = true;
+    borrarSesionPostulacion();
     window.scrollTo({ top: 0, behavior: 'smooth' });
   } catch (e) {
     errorEnvio.value = e instanceof Error ? e.message : 'No se pudo enviar la postulación. Intenta de nuevo.';
@@ -223,9 +272,8 @@ const filasResumen = computed<[string, string][]>(() => [
   ['DNI / CE', campos.dni || '—'],
   ['Correo', campos.correo || '—'],
   ['Teléfono', campos.telefono || '—'],
-  ['Profesión', campos.profesion || '—'],
+  ['Profesión', profesionTexto.value || '—'],
   ['Nivel académico / especialidad', `${campos.nivelAcademico || '—'} · ${nivelEspecialidad.value || '—'}`],
-  ['Colegiatura / CIP', campos.colegiatura || '—'],
   ['Experiencia', campos.experiencia || '—'],
   ['Temas de asesoría', temas.value.filter((t) => temasSeleccionados.value.includes(t.id)).map((t) => t.nombre).join(', ') || '—'],
   ['Otros temas', campos.otrosTemas || '—'],
@@ -259,7 +307,7 @@ const filasResumen = computed<[string, string][]>(() => [
 
     <main class="container">
       <div class="form-hero">
-        <div class="label">Postulación abierta</div>
+        <div class="label"><span class="live-dot" />Postulación abierta</div>
         <h1>Únete al equipo de especialistas <span class="live">ILPIIE&nbsp;Live</span></h1>
         <p>¿Eres experto en inversión pública, contrataciones, obras o peritaje? Completa tu registro para formar parte de la red de asesores técnicos y docentes de ILPIIE Live. Toma menos de 5 minutos.</p>
       </div>
@@ -284,6 +332,7 @@ const filasResumen = computed<[string, string][]>(() => [
         :campos="campos"
         :mostrar-error="mostrarError"
         v-model:temas-seleccionados="temasSeleccionados"
+        v-model:otros-seleccionado="otrosTemasSeleccionado"
       />
       <PasoActividades
         v-else-if="!enviado && paso === 3"
@@ -310,6 +359,7 @@ const filasResumen = computed<[string, string][]>(() => [
       <div v-if="!enviado" class="nav">
         <button class="btn btn-ghost" type="button" :style="{ visibility: paso === 1 ? 'hidden' : 'visible' }" :disabled="enviando" @click="anterior">← Anterior</button>
         <button class="btn btn-pri" type="button" :class="{ 'btn-red': paso === 6 }" :disabled="enviando" @click="siguiente">
+          <svg v-if="enviando" class="spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 3a9 9 0 100 18 9 9 0 000-18" stroke-opacity=".25"/><path d="M12 3a9 9 0 019 9"/></svg>
           {{ paso === 6 ? (enviando ? 'Enviando…' : 'Enviar postulación ✓') : 'Siguiente →' }}
         </button>
       </div>
@@ -363,10 +413,10 @@ const filasResumen = computed<[string, string][]>(() => [
 }
 .pagina-especialista .header-inner { max-width: 900px; margin: 0 auto; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; }
 .pagina-especialista .header-brand { display: flex; align-items: center; gap: 12px; text-decoration: none; }
-.pagina-especialista .header-brand-logo { width: 40px; height: 40px; object-fit: contain; flex-shrink: 0; }
-.pagina-especialista .header-text .brand-name { font-size: 18px; font-weight: 800; color: var(--blanco); }
+.pagina-especialista .header-brand-logo { width: 80px; height: 80px; object-fit: contain; flex-shrink: 0; }
+.pagina-especialista .header-text .brand-name { font-size: 27px; font-weight: 800; color: var(--blanco); line-height: 1.15; }
 .pagina-especialista .header-text .brand-name span { color: var(--verde); }
-.pagina-especialista .header-text .brand-tag { font-size: 11px; color: var(--texto-muted); }
+.pagina-especialista .header-text .brand-tag { font-size: 9px; color: var(--texto-muted); line-height: 1.15; }
 
 .pagina-especialista .header-nav { display: flex; align-items: center; gap: 26px; }
 .pagina-especialista .header-nav a { color: var(--texto); text-decoration: none; font-size: 14px; font-weight: 600; transition: color 0.2s; white-space: nowrap; }
@@ -389,7 +439,11 @@ const filasResumen = computed<[string, string][]>(() => [
 /* ===== LAYOUT ===== */
 .pagina-especialista .container { max-width: 820px; margin: 0 auto; padding: 36px 24px 60px; }
 .pagina-especialista .form-hero { text-align: center; margin-bottom: 36px; background: radial-gradient(ellipse 70% 90% at 50% 0%, rgba(34, 197, 94, 0.09), transparent 70%); padding: 12px 0 22px; }
-.pagina-especialista .form-hero .label { display: inline-flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px; padding: 6px 16px; border-radius: 20px; background: rgba(239, 68, 68, 0.13); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.45); margin-bottom: 14px; }
+.pagina-especialista .form-hero .label { display: inline-flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px; padding: 6px 16px; border-radius: 20px; background: rgba(34, 197, 94, 0.13); color: var(--verde-claro); border: 1px solid rgba(34, 197, 94, 0.45); margin-bottom: 14px; }
+.pagina-especialista .form-hero .label .live-dot { background: #22c55e; animation: pulseG 1.6s infinite; }
+@keyframes pulseG { 0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.5); } 50% { opacity: 0.6; box-shadow: 0 0 0 5px rgba(34, 197, 94, 0); } }
+.pagina-especialista .spin { animation: girar 0.7s linear infinite; }
+@keyframes girar { to { transform: rotate(360deg); } }
 .pagina-especialista .form-hero h1 { font-size: 30px; font-weight: 800; color: var(--blanco); line-height: 1.2; margin-bottom: 10px; }
 .pagina-especialista .form-hero h1 .live { color: #f87171; }
 .pagina-especialista .form-hero p { font-size: 15px; color: var(--texto-muted); max-width: 600px; margin: 0 auto; }
@@ -410,11 +464,11 @@ const filasResumen = computed<[string, string][]>(() => [
 /* ===== CARDS ===== */
 .pagina-especialista .section-card { background: var(--azul-card); border: 1px solid var(--azul-borde); border-radius: 16px; padding: 28px; margin-bottom: 20px; transition: border-color 0.3s; }
 .pagina-especialista .section-card:focus-within { border-color: var(--verde); box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.1); }
-.pagina-especialista .section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; padding-bottom: 14px; border-bottom: 1px solid var(--azul-borde); }
-.pagina-especialista .section-icon { width: 40px; height: 40px; border-radius: 10px; background: rgba(34, 197, 94, 0.12); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.pagina-especialista .section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; padding: 13px 16px; background: rgba(34, 197, 94, 0.08); border: 1px solid rgba(34, 197, 94, 0.28); border-radius: 12px; }
+.pagina-especialista .section-icon { width: 40px; height: 40px; border-radius: 10px; background: rgba(34, 197, 94, 0.16); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .pagina-especialista .section-icon svg { stroke: var(--verde); }
-.pagina-especialista .section-title { font-size: 16px; font-weight: 700; color: var(--blanco); }
-.pagina-especialista .section-subtitle { font-size: 12px; color: var(--texto-muted); margin-top: 1px; }
+.pagina-especialista .section-title { font-size: 13.5px; font-weight: 800; color: var(--blanco); text-transform: uppercase; letter-spacing: 0.6px; }
+.pagina-especialista .section-subtitle { font-size: 11.5px; color: var(--verde-claro); margin-top: 2px; }
 
 /* ===== FORM ===== */
 .pagina-especialista .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
@@ -498,7 +552,11 @@ const filasResumen = computed<[string, string][]>(() => [
 /* ===== UPLOAD ===== */
 .pagina-especialista .file-upload { border: 2px dashed var(--azul-borde); border-radius: 12px; padding: 28px; text-align: center; cursor: pointer; transition: all 0.2s; background: var(--azul-input); }
 .pagina-especialista .file-upload:hover { border-color: var(--verde); background: rgba(34, 197, 94, 0.04); }
-.pagina-especialista .file-upload svg { margin-bottom: 10px; stroke: var(--verde); }
+.pagina-especialista .file-upload.dragover { border-color: var(--verde); background: rgba(34, 197, 94, 0.1); border-style: solid; }
+/* display: inline-block (no solo margin) — Tailwind pone `svg{display:block}` en su preflight, y un
+   <svg> block dentro del <span> que envuelve el ícono (v-html) fuerza a ese span a layout de bloque,
+   rompiendo el text-align:center del contenedor. inline-block deja que el centrado funcione. */
+.pagina-especialista .file-upload svg { display: inline-block; margin-bottom: 10px; stroke: var(--verde); }
 .pagina-especialista .file-upload p { font-size: 14px; color: var(--blanco); font-weight: 600; }
 .pagina-especialista .file-upload > span { font-size: 12px; color: var(--texto-muted); }
 .pagina-especialista .file-upload input[type='file'] { display: none; }
@@ -522,7 +580,7 @@ const filasResumen = computed<[string, string][]>(() => [
 .pagina-especialista .rsm .it { background: var(--azul-input); border: 1px solid var(--azul-borde); border-radius: 10px; padding: 10px 12px; font-size: 13px; }
 .pagina-especialista .rsm .it b { font-size: 10px; color: var(--texto-muted); text-transform: uppercase; letter-spacing: 0.06em; display: block; margin-bottom: 3px; }
 .pagina-especialista .okbox { text-align: center; padding: 40px 16px; }
-.pagina-especialista .okbox .ck { width: 64px; height: 64px; margin: 0 auto 16px; border-radius: 50%; background: #450a0a; color: #f87171; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 6px rgba(239, 68, 68, 0.12); }
+.pagina-especialista .okbox .ck { width: 64px; height: 64px; margin: 0 auto 16px; border-radius: 50%; background: #14532d; color: #4ade80; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.15); }
 .pagina-especialista .okbox h2 { font-size: 20px; font-weight: 800; color: var(--blanco); margin: 0 0 8px; }
 .pagina-especialista .okbox p { color: var(--texto-muted); font-size: 14px; max-width: 440px; margin: 0 auto; }
 .pagina-especialista .divider { height: 1px; background: var(--azul-borde); margin: 20px 0; }
