@@ -4,14 +4,14 @@ import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import {
   faUserPlus, faFileCirclePlus, faUserCheck, faCircleCheck, faCircleXmark,
   faMagnifyingGlass, faFileExcel, faFileImport, faArrowUpRightFromSquare, faEye, faTrash,
-  faChevronLeft, faChevronRight, faAnglesLeft, faAnglesRight,
+  faChevronLeft, faChevronRight, faAnglesLeft, faAnglesRight, faRotate,
 } from '@/lib/icons';
 import PageShell from '@/components/PageShell.vue';
 import LoadingSpinner from '@/components/LoadingSpinner.vue';
 import ConfirmModal from '@/components/ConfirmModal.vue';
 import ImportarExcelModal from '@/components/ImportarExcelModal.vue';
 import CandidatoDetalleModal from './CandidatoDetalleModal.vue';
-import { useCandidatosQuery, useCandidatosResumenQuery, useEliminarCandidato } from '@/composables/useCandidatos';
+import { useCandidatosQuery, useCandidatosResumenQuery, useEliminarCandidato, usePromoverCandidato } from '@/composables/useCandidatos';
 import { exportarCandidatosExcel, importarEspecialistasExcel } from '@/api/http/candidatos.http';
 import { useUiStore } from '@/stores/ui';
 import { useQueryClient } from '@tanstack/vue-query';
@@ -127,6 +127,23 @@ function verFormularioPublico() {
 const candidatoSeleccionadoId = ref<string | null>(null);
 function verCandidato(c: Candidato) {
   candidatoSeleccionadoId.value = c.id;
+}
+
+/** Backfill para los aprobados de antes de que cambiarEstado() empezara a promover automático —
+ * ver Candidato.usuarioId. El botón de la fila solo queda habilitado para esos casos (aprobado +
+ * sin usuarioId); sin confirmación, promover() es idempotente y no tiene efecto destructivo. */
+const promoverCandidato = usePromoverCandidato();
+const promoviendoId = ref<string | null>(null);
+async function promover(c: Candidato) {
+  promoviendoId.value = c.id;
+  try {
+    await promoverCandidato.mutateAsync(c.id);
+    ui.toast(`"${c.nombre}" pasado a Docentes / Asesores`);
+  } catch (e) {
+    ui.toast(e instanceof Error ? e.message : 'No se pudo promover a este especialista', 'error');
+  } finally {
+    promoviendoId.value = null;
+  }
 }
 
 const eliminarCandidato = useEliminarCandidato();
@@ -257,6 +274,19 @@ async function confirmarEliminar() {
                 >
                   <FontAwesomeIcon :icon="faEye" class="w-3 h-3" />
                   Ver
+                </button>
+                <button
+                  v-if="c.estado === 'aprobado'"
+                  @click="promover(c)"
+                  :disabled="!!c.usuarioId || promoviendoId === c.id"
+                  type="button"
+                  :title="c.usuarioId ? 'Ya está en Docentes / Asesores' : 'Pasar a Docentes / Asesores'"
+                  class="w-8 h-8 rounded-lg border transition-colors duration-75 inline-flex items-center justify-center shrink-0"
+                  :class="c.usuarioId
+                    ? 'border-gray-200 text-gray-300 cursor-not-allowed'
+                    : 'border-emerald-200 text-emerald-600 hover:bg-emerald-50 disabled:opacity-60'"
+                >
+                  <FontAwesomeIcon :icon="faRotate" class="w-3 h-3" :class="{ 'animate-spin': promoviendoId === c.id }" />
                 </button>
                 <button
                   @click="candidatoAEliminar = c"

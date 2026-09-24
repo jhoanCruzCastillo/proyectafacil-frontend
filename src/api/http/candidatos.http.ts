@@ -28,6 +28,9 @@ export const candidatosHttp: CandidatosApi = {
   eliminar(id) {
     return apiFetch<void>(`candidatos/${id}`, { method: 'DELETE' });
   },
+  promover(id) {
+    return apiFetch<CandidatoDetalle>(`candidatos/${id}/promover`, { method: 'POST' });
+  },
 };
 
 /** Descarga el CV del candidato (proxy admin, nunca URL pública directa) y dispara el guardado. */

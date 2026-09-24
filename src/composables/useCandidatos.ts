@@ -65,3 +65,20 @@ export function useEliminarCandidato() {
     },
   });
 }
+
+/** Promueve a un aprobado puntual que se quedó sin cuenta de asesor (ver Candidato.usuarioId) —
+ * el caso de los aprobados antes de que la promoción automática existiera. */
+export function usePromoverCandidato() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => candidatosHttp.promover(id),
+    onSuccess: (_data, id) => {
+      queryClient.invalidateQueries({ queryKey: ['candidatos'] });
+      queryClient.invalidateQueries({ queryKey: ['candidatos', 'detalle', id] });
+      queryClient.invalidateQueries({ queryKey: ['candidatos-resumen'] });
+      queryClient.invalidateQueries({ queryKey: ['docentes-admin'] });
+      queryClient.invalidateQueries({ queryKey: ['docentes'] });
+      queryClient.invalidateQueries({ queryKey: ['usuarios'] });
+    },
+  });
+}

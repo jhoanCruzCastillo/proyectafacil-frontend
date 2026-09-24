@@ -1116,6 +1116,9 @@ export interface Candidato {
   aniosExperiencia: string;
   temas: EspecialidadDocente[];
   estado: EstadoCandidato;
+  /** Cuenta de asesor ya creada para este candidato (ver CandidatosController::promover()), o
+   * null si todavía no se promovió — solo puede pasar de null a con valor, nunca al revés. */
+  usuarioId: string | null;
   fechaRegistro: string;
 }
 

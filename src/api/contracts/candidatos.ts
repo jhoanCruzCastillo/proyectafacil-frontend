@@ -8,4 +8,5 @@ export interface CandidatosApi {
   agregarNota(id: string, texto: string): Promise<NotaCandidato[]>;
   cambiarEstado(id: string, estado: EstadoCandidato): Promise<CandidatoDetalle>;
   eliminar(id: string): Promise<void>;
+  promover(id: string): Promise<CandidatoDetalle>;
 }
