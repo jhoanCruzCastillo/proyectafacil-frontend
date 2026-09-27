@@ -263,7 +263,21 @@ const router = createRouter({
           component: () => import('@/features/about/AboutPage.vue'),
           meta: { soloSuperusuario: true },
         },
+        {
+          path: 'test',
+          name: 'prueba-ia',
+          component: () => import('@/features/pruebas/PruebaIAPage.vue'),
+          meta: { soloSuperusuario: true },
+        },
       ],
+    },
+    {
+      // Catch-all: cualquier URL que no matchee ninguna ruta de arriba (typo, enlace viejo,
+      // etc.) — standalone, sin MainLayout/sidebar ni requiresAuth, para que funcione sin
+      // sesión también.
+      path: '/:pathMatch(.*)*',
+      name: 'not-found',
+      component: () => import('@/features/errores/NotFoundPage.vue'),
     },
   ],
 });

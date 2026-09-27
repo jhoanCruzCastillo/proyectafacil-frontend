@@ -13,6 +13,7 @@ import ResumenConsultaModal from './ResumenConsultaModal.vue';
 import { useSessionStore } from '@/stores/session';
 import { useUiStore } from '@/stores/ui';
 import { useChatAsesoriaStore } from '@/stores/chatAsesoria';
+import { SIDEBAR_WIDTH, SIDEBAR_WIDTH_COLLAPSED } from '@/composables/useViewport';
 import { useMisSolicitudesQuery, useAceptarSolicitud, useCompletarVideo } from '@/composables/useAsesoria';
 import { useUsuariosQuery, useActualizarUsuario } from '@/composables/useUsuarios';
 import { tiempoHastaVencer, tiempoRelativo } from '@/lib/tiempoRelativo';
@@ -487,8 +488,7 @@ function cambiarPorPagina(valor: number) {
   <div
     v-if="alumnosEsperando.length > 0"
     class="fixed bottom-0 right-0 z-30 border-t border-navy-700 shadow-dark transition-[left] duration-150 ease-out"
-    :class="ui.sidebarCollapsed ? 'left-16' : 'left-56'"
-    style="background: #260e11"
+    :style="{ left: `${ui.sidebarCollapsed ? SIDEBAR_WIDTH_COLLAPSED : SIDEBAR_WIDTH}px`, background: '#260e11' }"
   >
     <div class="flex items-center gap-4 px-6 sm:px-8 py-3 flex-wrap">
       <p class="text-[10px] font-semibold uppercase tracking-widest text-red-300 shrink-0">Alumnos esperando atención</p>

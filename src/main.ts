@@ -40,7 +40,22 @@ try {
 }
 
 app.use(router)
-app.use(VueQueryPlugin)
+app.use(VueQueryPlugin, {
+  queryClientConfig: {
+    defaultOptions: {
+      queries: {
+        // Default de la librería es 0 (todo "obsoleto" apenas llega) — con decenas de componentes
+        // llamando la MISMA query (ej. useUsuariosQuery() en Sidebar.vue, useClienteFichaEditor.ts,
+        // topbar, modales…), cada nueva pantalla montada volvía a pedir usuarios/plantillas/ejemplos
+        // aunque ya se hubieran cargado hace instantes — confirmado en vivo: /api/usuarios pedido 3
+        // veces y /api/notificaciones 2 veces en una sola entrada a una ficha. 30s alcanza para que
+        // no se note un catálogo desactualizado, y no interfiere con las mutaciones existentes
+        // (invalidateQueries() sigue forzando el refetch de inmediato sin importar este valor).
+        staleTime: 30_000,
+      },
+    },
+  },
+})
 app.mount('#app')
 
 // Permite otro auto-reload si vuelve a aparecer un chunk stale tras un rebuild futuro.

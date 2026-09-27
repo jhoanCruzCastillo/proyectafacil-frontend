@@ -417,6 +417,10 @@ export function posicionDe(mapa: Map<string, PosicionNodo>, path: number[]): Pos
  * en la 4.01.02 la columna "%" ocupa J y K, y sin desdoblarla el texto de la derecha se indexaba
  * sobre J —la celda que el Excel calcula— o no se indexaba en absoluto.
  */
+// Las celdas VACÍAS también entran al mapa (con ''): el worker de Excel vivo solo resuelve listas y
+// fórmulas de las claves que recibe, así que omitirlas dejaba sin desplegable a toda celda de tabla
+// recién vaciada — el usuario borraba un Departamento y ya no podía volver a elegir uno. Para las
+// fórmulas '' es neutro: valorDeCelda (excelFormulaEval.ts) lo trata igual que una celda no mapeada.
 function indexarFila(
   mapa: Map<string, string>,
   hoja: string,
@@ -428,13 +432,12 @@ function indexarFila(
     const valor = fila[col.id];
     if (col.subcolumnas?.length && esCeldaPartida(valor)) {
       for (const sub of col.subcolumnas) {
-        const texto = valorSubcolumna(valor, sub.id);
-        if (sub.columnaExcel && texto !== '') mapa.set(`${hoja}!${sub.columnaExcel}${filaExcel}`, texto);
+        if (sub.columnaExcel) mapa.set(`${hoja}!${sub.columnaExcel}${filaExcel}`, valorSubcolumna(valor, sub.id));
       }
       continue;
     }
-    if (col.columnaExcel && typeof valor === 'string' && valor !== '') {
-      mapa.set(`${hoja}!${col.columnaExcel}${filaExcel}`, valor);
+    if (col.columnaExcel && (valor == null || typeof valor === 'string')) {
+      mapa.set(`${hoja}!${col.columnaExcel}${filaExcel}`, valor ?? '');
     }
   }
 }
@@ -498,13 +501,14 @@ function indexarCeldasJerarquicas(
     const pos = posicionDe(posiciones, path);
     if (pos) {
       const col = config!.columnas[pos.colIdx];
-      if (col?.columnaExcel && typeof node.value === 'string' && node.value !== '') {
+      // Vacías incluidas por el mismo motivo que en indexarFila.
+      if (col?.columnaExcel && typeof node.value === 'string') {
         mapa.set(`${hoja}!${col.columnaExcel}${pos.fila}`, node.value);
       }
       // Fila de título de un grupo: sus columnas libres a la derecha también son celdas de datos.
       for (const [colId, valor] of Object.entries(node.valores ?? {})) {
         const libre = config!.columnas.find((c) => c.id === colId);
-        if (libre?.columnaExcel && typeof valor === 'string' && valor !== '') {
+        if (libre?.columnaExcel && typeof valor === 'string') {
           mapa.set(`${hoja}!${libre.columnaExcel}${pos.fila}`, valor);
         }
       }

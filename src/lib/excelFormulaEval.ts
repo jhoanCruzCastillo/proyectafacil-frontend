@@ -47,7 +47,7 @@ export interface ResultadoCelda {
 
 const FUNCIONES_SOPORTADAS = new Set([
   'IF', 'IFERROR', 'IFNA', 'VLOOKUP', 'TODAY', 'AND', 'OR', 'NOT', 'CONCATENATE', 'TRIM', 'UPPER',
-  'TEXT', 'SUM', 'COUNT', 'COUNTA', 'COUNTIF', 'COUNTBLANK', 'MIN', 'MAX', 'NPV',
+  'SUBSTITUTE', 'TEXT', 'SUM', 'COUNT', 'COUNTA', 'COUNTIF', 'COUNTBLANK', 'MIN', 'MAX', 'NPV',
 ]);
 
 // Tope de celdas que se recorren al agregar un rango. Los rangos del formato oficial son de decenas
@@ -776,6 +776,42 @@ function aplicarFuncion(nombre: string, args: Valor[], ctx: Contexto): Valor {
       return texto(v).toUpperCase();
     }
 
+    // Caso real: los desplegables en cascada de UBIGEO (Departamento -> Provincia -> Distrito)
+    // usan `INDIRECT(SUBSTITUTE(C69," ","_"))` para convertir el nombre elegido en el nombre de
+    // rango que le corresponde (los rangos con nombre no pueden tener espacios). Sin SUBSTITUTE,
+    // ese INDIRECT nunca resuelve nada y la celda queda de texto libre aunque sí tenga desplegable
+    // en el Excel real — encontrado en vivo en "Ubicación geográfica" de Ficha Estandar (D69/E69).
+    case 'SUBSTITUTE': {
+      const v = esc(0);
+      const buscar = esc(1);
+      const reemplazo = esc(2);
+      if (v === NO_SOPORTADO || buscar === NO_SOPORTADO || reemplazo === NO_SOPORTADO) return NO_SOPORTADO;
+      if (v instanceof ErrorExcel) return v;
+      if (buscar instanceof ErrorExcel) return buscar;
+      if (reemplazo instanceof ErrorExcel) return reemplazo;
+      const base = texto(v);
+      const desde = texto(buscar);
+      const hacia = texto(reemplazo);
+      if (desde === '') return base;
+      if (args.length <= 3) return base.split(desde).join(hacia);
+      // 4º argumento opcional: reemplaza solo esa aparición (1-indexada), no todas.
+      const instancia = esc(3);
+      if (instancia === NO_SOPORTADO) return NO_SOPORTADO;
+      if (instancia instanceof ErrorExcel) return instancia;
+      const n = Number(instancia);
+      let contador = 0;
+      let pos = -1;
+      for (let desde_i = 0; ; ) {
+        const encontrado = base.indexOf(desde, desde_i);
+        if (encontrado === -1) break;
+        contador++;
+        if (contador === n) { pos = encontrado; break; }
+        desde_i = encontrado + desde.length;
+      }
+      if (pos === -1) return base;
+      return base.slice(0, pos) + hacia + base.slice(pos + desde.length);
+    }
+
     // Caso real: TEXT(H100,"000000") rellena un código UBIGEO con ceros a la izquierda antes de
     // usarlo como llave de VLOOKUP contra Padron_web — sin esto, toda esa cadena de búsquedas
     // (institución educativa, ubigeo, distrito/provincia/departamento) cae fuera del subconjunto
@@ -804,10 +840,13 @@ function aplicarFuncion(nombre: string, args: Valor[], ctx: Contexto): Valor {
 // hoja+columna+rango exacto — recorrerla es un costo único; a partir de ahí cada búsqueda es O(1).
 // Sin esto, una ficha con cientos de VLOOKUP contra una tabla de referencia grande (Padron_web,
 // ~67 mil filas) repetía el recorrido lineal completo en cada uno de ellos: encontrado en vivo,
-// ~600 búsquedas de ese tipo tardaban varios segundos en total y bloqueaban la pestaña cada vez que
-// cambiaba el mapa de valores (editar un campo, o incluso solo cambiar de pestaña Estructura/Ejemplos).
-// Es seguro cachearlo mientras el libro exista: es un archivo de referencia estático, nadie lo edita
-// en vivo, así que su contenido no puede cambiar bajo el mismo `LibroLeido`.
+// ~600 búsquedas de ese tipo tardaban varios segundos en total. Hoy ese costo ya no bloquea la
+// pestaña — este archivo corre dentro de un Web Worker (ver frontend/src/workers/excelVivoWorker.ts
+// y el plan de migración) cada vez que cambia el mapa de valores — pero el índice sigue siendo
+// necesario: sin él, cada recálculo en el worker seguiría gastando esos mismos segundos de CPU real
+// en vez de servir la búsqueda en O(1). Es seguro cachearlo mientras el libro exista: es un archivo
+// de referencia estático, nadie lo edita en vivo, así que su contenido no puede cambiar bajo el
+// mismo `LibroLeido`.
 const indicesPorLibro = new WeakMap<LibroLeido, Map<string, Map<string | number | boolean, number>>>();
 
 function indiceColumnaVertical(ctx: Contexto, hoja: string, columna: number, f1: number, f2: number): Map<string | number | boolean, number> {

@@ -8,6 +8,7 @@ import {
 import Avatar from '@/components/Avatar.vue';
 import AsesoriaChatPanel from '@/features/asesoria/AsesoriaChatPanel.vue';
 import ResumenConsultaModal from './ResumenConsultaModal.vue';
+import AppLoadingScreen from '@/components/AppLoadingScreen.vue';
 import { useSessionStore } from '@/stores/session';
 import { useUiStore } from '@/stores/ui';
 import { useMisSolicitudesQuery, useAceptarSolicitud } from '@/composables/useAsesoria';
@@ -26,11 +27,14 @@ const session = useSessionStore();
 const ui = useUiStore();
 const docenteId = computed(() => session.sesion?.usuarioId ?? '');
 
-const { data: solicitudes } = useMisSolicitudesQuery(docenteId, 'asesor');
+const { data: solicitudes, isPending: cargandoSolicitudes } = useMisSolicitudesQuery(docenteId, 'asesor');
 const aceptarSolicitud = useAceptarSolicitud();
 
-const { data: usuarios } = useUsuariosQuery();
+const { data: usuarios, isPending: cargandoUsuarios } = useUsuariosQuery();
 const actualizarUsuario = useActualizarUsuario();
+// Mientras cualquiera siga sin resolver, los contadores/tarjetas en 0 o vacíos que se ven mientras
+// tanto son un estado incorrecto que luego "salta" al real (mismo fix que en el resto de dashboards).
+const cargando = computed(() => cargandoSolicitudes.value || cargandoUsuarios.value);
 const yoMismo = computed(() => usuarios.value?.find((u) => u.id === docenteId.value));
 const disponible = computed(() => yoMismo.value?.disponible ?? true);
 
@@ -106,7 +110,8 @@ const resumenClienteCorreo = computed(() => usuarios.value?.find((u) => u.id ===
 </script>
 
 <template>
-  <div class="min-h-screen bg-surface p-6 sm:p-8">
+  <AppLoadingScreen v-if="cargando" />
+  <div v-else class="min-h-screen bg-surface p-6 sm:p-8">
     <div class="rounded-2xl bg-white shadow-card p-6 sm:p-8 flex flex-wrap items-center justify-between gap-6 mb-6">
       <div class="flex items-center gap-4 min-w-0">
         <Avatar :nombre="session.sesion?.nombre ?? '?'" :fotoUrl="yoMismo?.fotoUrl" size="w-16 h-16" />

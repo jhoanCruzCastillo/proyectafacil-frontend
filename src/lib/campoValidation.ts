@@ -30,6 +30,11 @@ function tablaFaltaCaptura(config: ConfigTabla | undefined): boolean {
 export function campoFaltaCaptura(campo: Campo): boolean {
   // Una nota (4.11) no es un campo real de la ficha: nunca tiene ni necesita captura en Excel.
   if (campo.tipo === 'nota') return false;
+  // Botón de opción del Excel sin celda propia (ej. "Número de alternativas" como radio buttons):
+  // a propósito no lleva captura, no es un campo incompleto. Sin este exemption, este aviso llevó a
+  // borrar por error 5 campos así de "FTE-CARRETERAS" (2026-09-27) — el admin los vio marcados como
+  // "falta posición" y asumió que estaban rotos.
+  if (campo.opciones && campo.opciones.length > 0 && !campo.captura) return false;
   const esTabla = campo.tipo === 'tabla' || campo.tipo === 'tabla_jerarquica';
   if (esTabla) return tablaFaltaCaptura(campo.configTabla);
   return !campo.captura?.columna || !campo.captura?.fila;

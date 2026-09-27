@@ -29,12 +29,16 @@ const sectorFiltro = ref<'todos' | string>('todos');
 
 const delInstrumento = computed(() => props.plantillas.filter((p) => p.instrumento === props.instrumento));
 
-// El formato 6A es la ficha técnica general del MEF: se muestra aparte, arriba de todo, porque
-// aplica a cualquier sector. Los demás instrumentos no tienen un equivalente.
-const mef = computed(() =>
-  props.instrumento === 'ficha_tecnica' ? (delInstrumento.value.find((p) => p.codigo === '6A') ?? null) : null,
+// Los formatos 6A y 6B son las fichas técnicas generales del MEF (Directiva 001-2019-EF/63.01):
+// se muestran aparte, arriba de todo, porque aplican a cualquier sector — no a uno concreto como
+// el resto. Los demás instrumentos no tienen un equivalente.
+const CODIGOS_MEF = ['6A', '6B'];
+const mefPlantillas = computed(() =>
+  props.instrumento === 'ficha_tecnica'
+    ? CODIGOS_MEF.map((codigo) => delInstrumento.value.find((p) => p.codigo === codigo)).filter((p): p is Plantilla => !!p)
+    : [],
 );
-const resto = computed(() => delInstrumento.value.filter((p) => p.id !== mef.value?.id));
+const resto = computed(() => delInstrumento.value.filter((p) => !mefPlantillas.value.some((m) => m.id === p.id)));
 
 function coincide(p: Plantilla): boolean {
   const q = busqueda.value.trim().toLowerCase();
@@ -43,7 +47,7 @@ function coincide(p: Plantilla): boolean {
 }
 
 // El destacado del MEF ignora el filtro de sector a propósito: no pertenece a un sector concreto.
-const mefVisible = computed(() => (mef.value && coincide(mef.value) ? mef.value : null));
+const mefVisibles = computed(() => mefPlantillas.value.filter(coincide));
 const restoFiltrado = computed(() => resto.value.filter(coincide));
 
 const sectoresConAlgo = computed(() => props.sectores.filter((s) => delInstrumento.value.some((p) => p.sectorId === s.id)));
@@ -115,27 +119,31 @@ async function handleActualizarDatos(
       </div>
     </div>
 
-    <div v-if="mefVisible">
+    <div v-if="mefVisibles.length > 0">
       <p class="text-[11px] font-semibold uppercase tracking-widest text-brand-600 mb-2 flex items-center gap-1.5">
         <FontAwesomeIcon :icon="faStar" class="w-2.5 h-2.5" />
-        Ficha técnica del MEF
+        Ministerio de Economía y Finanzas (MEF)
       </p>
       <div class="rounded-lg border-2 border-brand-200 bg-brand-50/40 overflow-hidden">
-        <div class="flex items-center justify-between gap-3 px-4 py-2.5">
+        <div
+          v-for="m in mefVisibles"
+          :key="m.id"
+          class="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-brand-100 last:border-0"
+        >
           <div class="flex items-center gap-3 min-w-0">
             <span class="inline-flex items-center justify-center w-auto min-w-9 px-2 h-7 rounded-md border border-brand-200 text-brand-700 text-xs font-bold bg-brand-50 shrink-0">
-              {{ mefVisible.codigo }}
+              {{ m.codigo }}
             </span>
             <div class="min-w-0">
-              <p class="text-sm font-medium text-heading truncate">{{ mefVisible.nombre }}</p>
-              <p class="text-xs text-muted truncate">{{ mefVisible.descripcion }}</p>
+              <p class="text-sm font-medium text-heading truncate">{{ m.nombre }}</p>
+              <p class="text-xs text-muted truncate">{{ m.descripcion }}</p>
             </div>
           </div>
           <div class="flex items-center gap-1.5 shrink-0">
-            <PracticaToggle :plantilla="mefVisible" />
-            <EstadoPlantillaToggle :plantilla="mefVisible" />
+            <PracticaToggle :plantilla="m" />
+            <EstadoPlantillaToggle :plantilla="m" />
             <button
-              @click="editandoPlantillaId = mefVisible.id"
+              @click="editandoPlantillaId = m.id"
               type="button"
               class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-gray-600 hover:bg-gray-100 transition-colors"
               title="Editar código, nombre, tipo y descripción"
@@ -144,14 +152,14 @@ async function handleActualizarDatos(
               Datos
             </button>
             <RouterLink
-              :to="rutaEditar(mefVisible)"
+              :to="rutaEditar(m)"
               class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-white bg-sidebar hover:bg-heading transition-colors"
             >
               <FontAwesomeIcon :icon="faPen" class="w-3 h-3" />
               Edit. plantilla
             </RouterLink>
             <button
-              @click="excelPlantillaId = mefVisible.id"
+              @click="excelPlantillaId = m.id"
               type="button"
               class="inline-flex items-center justify-center w-8 h-8 rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
               title="Gestionar Excel"
@@ -214,7 +222,7 @@ async function handleActualizarDatos(
           </div>
         </div>
       </div>
-      <p v-if="total === 0 && !mefVisible" class="text-center text-sm text-muted py-8">
+      <p v-if="total === 0 && mefVisibles.length === 0" class="text-center text-sm text-muted py-8">
         No se encontraron resultados.
       </p>
     </div>

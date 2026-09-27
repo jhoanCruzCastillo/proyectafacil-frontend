@@ -3,9 +3,11 @@ import { nextTick, ref, watch, type Ref } from 'vue';
 /**
  * Da un estado "cargando" real al cambiar de sección o de pestaña (Estructura/Ejemplos, o su
  * equivalente en la ficha del cliente), en vez de dejar que el remontaje de SectionContent bloquee
- * la UI sin avisar. Ese remontaje es trabajo síncrono de verdad — decenas de FieldCard, cada uno
- * consultando su celda en el Excel vivo (VLOOKUP incluido) — así que si solo se alternara un booleano
- * en el mismo tick, Vue jamás llegaría a pintar el esqueleto antes de arrancarlo.
+ * la UI sin avisar. Ese remontaje sigue siendo trabajo síncrono real de Vue — decenas de FieldCard
+ * montándose de una — así que si solo se alternara un booleano en el mismo tick, Vue jamás llegaría
+ * a pintar el esqueleto antes de arrancarlo. (El cálculo pesado de Excel vivo — VLOOKUP, INDIRECT —
+ * ya no forma parte de este costo: corre en un Web Worker, ver useListasExcel.ts/excelVivoWorker.ts;
+ * lo que queda acá es solo el montaje de componentes.)
  *
  * `clave` identifica qué debe estar montado (p. ej. `${seccionId}:${tab}`). Cuando cambia:
  * 1. Se desmonta lo actual y se activa `cargando`.

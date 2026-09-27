@@ -147,8 +147,8 @@ onMounted(async () => {
          reserva espacio), así que ahí quedan pegados al borde de la pantalla nomás. -->
     <div
       v-if="chatsEnCursoSinAbrir.length > 0"
-      class="fixed bottom-6 z-20 flex flex-col-reverse gap-3 transition-[left] duration-150 ease-out"
-      :style="{ left: isDesktop ? `${(ui.sidebarCollapsed ? SIDEBAR_WIDTH_COLLAPSED : SIDEBAR_WIDTH) + 12}px` : '16px' }"
+      class="fixed bottom-6 left-0 z-20 flex flex-col-reverse gap-3 transition-transform duration-150 ease-out"
+      :style="{ transform: `translateX(${isDesktop ? (ui.sidebarCollapsed ? SIDEBAR_WIDTH_COLLAPSED : SIDEBAR_WIDTH) + 12 : 16}px)` }"
     >
       <button
         v-for="s in chatsEnCursoSinAbrir"

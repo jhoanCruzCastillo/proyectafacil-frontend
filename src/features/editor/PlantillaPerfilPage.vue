@@ -10,6 +10,7 @@ import ExampleSelector from './ExampleSelector.vue';
 import PerfilBlockCard from './PerfilBlockCard.vue';
 import PerfilPropertiesPanel from './PerfilPropertiesPanel.vue';
 import PerfilSectionIndex from './PerfilSectionIndex.vue';
+import AppLoadingScreen from '@/components/AppLoadingScreen.vue';
 import { usePerfilEditor } from '@/composables/usePerfilEditor';
 
 const route = useRoute();
@@ -17,7 +18,7 @@ const sectorId = computed(() => route.params.sectorId as string);
 const plantillaId = computed(() => route.params.plantillaId as string);
 
 const {
-  editData, sector, activeTab, activeSectionIndex, selectedCampoId, selectedCampo,
+  editData, sector, cargando, activeTab, activeSectionIndex, selectedCampoId, selectedCampo,
   ejemplos, activeEjemplo, editedValores, showNuevoEjemplo,
   leftWidth, rightWidth, secciones, safeIdx, seccionActiva, isFirst, isLast, showExamples,
   activeItemId, containerRef,
@@ -37,7 +38,8 @@ function deleteSelected() {
 </script>
 
 <template>
-  <div v-if="!editData || !sector" class="p-8 text-muted">Plantilla no encontrada</div>
+  <AppLoadingScreen v-if="cargando" />
+  <div v-else-if="!editData || !sector" class="p-8 text-muted">Plantilla no encontrada</div>
   <div v-else class="flex flex-col h-screen">
     <div class="shrink-0 border-b border-gray-100 bg-white px-6 py-3">
       <div class="flex items-center justify-between">

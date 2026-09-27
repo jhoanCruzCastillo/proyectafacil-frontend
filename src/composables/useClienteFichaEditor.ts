@@ -10,7 +10,7 @@ import { useEstadoEntrenamiento } from '@/composables/useEstadoEntrenamiento';
 import { useExcelVivo, useAltoDeBloqueExcel, EXCEL_VIVO } from '@/composables/useListasExcel';
 import { useMapaValoresExcelDebounced, type ResolverValorCampo } from '@/composables/useMapaValoresExcelDebounced';
 import type { ModoEdicionEditor } from '@/composables/usePlantillaEditor';
-import type { EstadoCampoIA } from '@/types';
+import type { EstadoCampoIA, OrigenCampo } from '@/types';
 import { useSessionStore } from '@/stores/session';
 import { useUiStore } from '@/stores/ui';
 import { generateId } from '@/api/mock/_shared';
@@ -30,9 +30,9 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
   const session = useSessionStore();
   const ui = useUiStore();
 
-  const { data: ejemplo } = useEjemploQuery(ejemploId);
+  const { data: ejemplo, isPending: cargandoEjemplo } = useEjemploQuery(ejemploId);
   const plantillaId = computed(() => ejemplo.value?.plantillaId ?? '');
-  const { data: plantilla } = usePlantillaQuery(plantillaId);
+  const { data: plantilla, isPending: cargandoPlantilla } = usePlantillaQuery(plantillaId);
   const { data: archivoEjemplo } = useExcelEjemploQuery(ejemploId);
   const { data: ejemplosPlantillaData } = useEjemplosByPlantillaQuery(plantillaId);
   const { data: usuariosData } = useUsuariosQuery();
@@ -60,6 +60,10 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
   const editedValores = ref<Record<string, string>>({});
   /** Origen breve por identificador ("¿de dónde salió este dato?"), para el botón "?" del editor. */
   const fuentesPorCampo = ref<Record<string, string>>({});
+  /** Quién puso/tocó por última vez el valor de cada campo ('ia'|'usuario') — indicador verde/azul
+   * del editor (ver OrigenCampo). Se puebla desde `ejemplo.origen` (ver watch más abajo) y se
+   * actualiza en handleSave() con lo que cambió en esta sesión (ver calcularCambios). */
+  const origenPorCampo = ref<Record<string, OrigenCampo>>({});
   /** Advertencias del último llenado con IA de una tabla (ej. "Fila 2: no se pudo determinar el
    * UBIGEO para 'X' — revísalo"), por identificador — ver setAdvertenciasCampo. Efímero: a
    * diferencia de `fuentesPorCampo`, no se persiste en el servidor (no tiene sentido arrastrar la
@@ -88,7 +92,7 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
   // ejemplo de esa plantilla, no la copia 1:1 que cada ficha guarda para descargar/insertar (esa
   // puede no existir todavía, p. ej. en una ficha vieja creada antes de que se copiara automático).
   // Lo que sí cambia según la pestaña son los VALORES que alimentan esas fórmulas (ver valoresPorCelda).
-  const { data: catalogoExcel } = useCatalogoExcelQuery(plantillaId);
+  const { data: catalogoExcel, isPending: cargandoCatalogoExcel } = useCatalogoExcelQuery(plantillaId);
   const archivoExcelAsignado = computed(() => {
     const catalogo = catalogoExcel.value;
     return catalogo?.archivos.find((a) => a.id === catalogo.asignadoId) ?? null;
@@ -161,8 +165,26 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
   // Se guarda en una variable (además de `provide`) para que ClienteFichaEditPage.vue pueda
   // resolver catálogos en vivo directamente (ej. la cascada de Sección 5 Problema-Objetivo), sin
   // depender de un `inject` redundante en el mismo componente que ya hizo el `provide`.
-  const excelVivo = useExcelVivo(fuenteExcelVivo, valoresPorCelda);
+  const { excelVivo, listo: excelVivoListo } = useExcelVivo(fuenteExcelVivo, valoresPorCelda);
   provide(EXCEL_VIVO, excelVivo);
+
+  // Gate único de "la ficha está lista para mostrarse", usado por ClienteFichaEditPage.vue para la
+  // pantalla de carga. Cubre 2 cosas distintas que antes se veían por separado:
+  //   1. ejemplo/plantilla/catálogo de Excel — sin esto, "no existe" era indistinguible de "está
+  //      cargando" (se veía "Ficha no encontrada" por un instante real en cada entrada).
+  //   2. excelVivoListo — sin esto, la ficha se mostraba con la sección 1 ya montada pero sus campos
+  //      "Calculado" todavía en blanco/editables hasta que el worker terminaba su primer cálculo, y
+  //      lo mismo iba a repetirse recién al cambiar de sección la primera vez. Esperar acá a que el
+  //      worker YA haya calculado el lote completo (todas las secciones, no solo la activa — el
+  //      cálculo en batch no distingue por sección) hace que cualquier sección que el cliente abra
+  //      después ya tenga sus valores calculados listos, sin ningún salto visual.
+  const cargandoFicha = computed(
+    () =>
+      cargandoEjemplo.value ||
+      (!!ejemplo.value && cargandoPlantilla.value) ||
+      (!!ejemplo.value && cargandoCatalogoExcel.value) ||
+      !excelVivoListo.value,
+  );
 
   // OJO: NO limpiar `borradoresPorCampo` aquí. Este watch se dispara en CUALQUIER refetch del
   // ejemplo (no solo al cambiar de ficha — para eso ya está el watch de `ejemploId` más abajo),
@@ -184,6 +206,7 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
     }
     editedValores.value = nuevosValores;
     fuentesPorCampo.value = { ...(ej.fuentes ?? {}) };
+    origenPorCampo.value = { ...(ej.origen ?? {}) };
     excelMapTrigger.value++;
     // Mismo motivo: mientras haya confirmaciones sin guardar, `ej.excelActualizado` todavía no
     // sabe de ellas — no lo pises, ya está en `true` desde que se confirmaron.
@@ -321,9 +344,18 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
       plantilla.value, ejemplo.value.valores, editedValores.value,
       fuentesPorCampo.value, estadosIAActuales, identificadoresAutocompletadosPorIA.value,
     );
+    // Mismo criterio que calcularCambios() para distinguir IA de usuario (ver ahí las 3 señales) —
+    // acá se traduce ese mismo veredicto por campo a OrigenCampo para el indicador verde/azul.
+    // "eliminado" borra la marca (vuelve a "sin completar", no se queda pegada a un valor vacío).
+    const nuevoOrigen = { ...origenPorCampo.value };
+    for (const c of cambios) {
+      if (c.accion === 'eliminado') delete nuevoOrigen[c.identificador];
+      else nuevoOrigen[c.identificador] = c.accion === 'autocompletado' ? 'ia' : 'usuario';
+    }
+    origenPorCampo.value = nuevoOrigen;
     await actualizarEjemplo.mutateAsync({
       id: ejemplo.value.id,
-      data: { valores: editedValores.value, fuentes: fuentesPorCampo.value, excelActualizado: !excelDesactualizado.value },
+      data: { valores: editedValores.value, fuentes: fuentesPorCampo.value, origen: nuevoOrigen, excelActualizado: !excelDesactualizado.value },
     });
     // Ya llegó al backend — el próximo refetch puede volver a adoptar `valores` tal cual sin
     // riesgo de pisar algo que todavía no se hubiera guardado.
@@ -449,10 +481,10 @@ export function useClienteFichaEditor(ejemploId: Ref<string>) {
   }
 
   return {
-    ejemplo, plantilla, archivoEjemplo, esNivel0, vencido, diasRestantes, numeroNivel,
+    ejemplo, plantilla, cargandoFicha, archivoEjemplo, esNivel0, vencido, diasRestantes, numeroNivel,
     soloLectura, permiteMejoraIA, muestraHistorial, showHistorial, showFuenteVerdad,
     esPropietario, ejemplosReferencia, referenciaId, referenciaEjemplo,
-    activeSectionIndex, editedValores, fuentesPorCampo, setFuenteCampo, marcarAutocompletadoPorIA, advertenciasPorCampo, setAdvertenciasCampo, confirmarTodosLosBorradores, leftWidth, activeTab, examplesWidth, showPreview, showInsertConfirm, isInserting, insertProgress, insertProgressLabel, excelDesactualizado,
+    activeSectionIndex, editedValores, fuentesPorCampo, origenPorCampo, setFuenteCampo, marcarAutocompletadoPorIA, advertenciasPorCampo, setAdvertenciasCampo, confirmarTodosLosBorradores, leftWidth, activeTab, examplesWidth, showPreview, showInsertConfirm, isInserting, insertProgress, insertProgressLabel, excelDesactualizado,
     modoEdicion, borradoresPorCampo, confirmarBorradorCampo,
     errores, erroresCount, progreso, erroresPorSeccion,
     secciones, safeIdx, seccionActiva, isFirst, isLast,

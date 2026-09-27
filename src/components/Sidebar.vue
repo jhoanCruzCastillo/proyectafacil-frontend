@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faHouse, faLayerGroup, faAnglesLeft, faAnglesRight, faUserGear, faCalendarWeek, faCalendarCheck, faCircleInfo, faCircleExclamation, faListCheck, faHeadset, faPeopleGroup, faUserPlus, faMoneyBillTransfer, faClock, faFolderOpen, faChevronUp, faChevronDown, faLock, faVideo, faComments, faStar, instrumentoIcons } from '@/lib/icons';
+import { faHouse, faLayerGroup, faAnglesLeft, faAnglesRight, faUserGear, faCalendarWeek, faCalendarCheck, faCircleInfo, faCircleExclamation, faListCheck, faHeadset, faPeopleGroup, faUserPlus, faMoneyBillTransfer, faClock, faFolderOpen, faChevronUp, faChevronDown, faLock, faVideo, faComments, faStar, faWandMagicSparkles, instrumentoIcons } from '@/lib/icons';
 import UserMenu from '@/features/settings/UserMenu.vue';
 import MejorarPlanCard from '@/features/settings/MejorarPlanCard.vue';
 import NotificacionesBell from '@/features/asesoria/NotificacionesBell.vue';
@@ -113,6 +113,7 @@ const navItems = computed(() => {
   }
   if (session.sesion?.rol === 'superusuario') {
     items.push({ to: '/about', label: 'About', icon: faCircleInfo });
+    items.push({ to: '/test', label: 'Sandbox IA', icon: faWandMagicSparkles });
   }
   return items;
 });

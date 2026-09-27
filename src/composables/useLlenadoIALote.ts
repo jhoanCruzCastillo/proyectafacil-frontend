@@ -5,7 +5,7 @@ import { construirResumenResultadoLlenado, mapaEstadosDesdeResumen, nombresCampo
 import { useUiStore } from '@/stores/ui';
 import type { EstadoCampoIA, Plantilla, ResultadoLlenadoIA, ResumenResultadoLlenadoIA } from '@/types';
 import type { TablaLoteIA } from '@/api/contracts/llenadoIALote';
-import type { SeccionProgresoIA } from '@/features/cliente/ProcesamientoIAModal.vue';
+import type { SeccionProgresoIA } from '@/types/progresoIA';
 
 export type FaseLoteIA = 'idle' | 'enviando' | 'procesando' | 'completado' | 'error';
 

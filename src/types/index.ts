@@ -277,6 +277,13 @@ export interface ResultadoLlenadoIA {
   costoTotalUsd?: number;
 }
 
+/** Quién puso/tocó por última vez el valor actual de un campo — para el indicador visual verde
+ * (usuario)/azul (IA) del editor de ficha del cliente. Independiente de `EstadoCampoIA` (que es
+ * sobre confianza/procedencia del llenado IA, no sobre "quién editó último"); no incluye un
+ * estado de "requiere revisión" — pedido explícito del usuario, solo estos dos + "sin completar"
+ * (ausencia de entrada en el mapa). */
+export type OrigenCampo = 'ia' | 'usuario';
+
 /** Estado por campo que declara el prompt de llenado IA (y se muestra en el editor del cliente). */
 export type EstadoCampoIA =
   | 'extraido'
@@ -332,6 +339,10 @@ export interface Ejemplo {
   /** Origen (breve) de cada valor llenado con IA, por identificador de campo — para el botón "?"
    * del editor ("¿de dónde salió este dato?"). Ausente/vacío en campos llenados a mano. */
   fuentes?: Record<string, string>;
+  /** Quién puso/tocó por última vez el valor de cada campo (ver OrigenCampo) — indicador verde/azul
+   * del editor de ficha del cliente. Sin entrada = campo sin completar (o dato legado de antes de
+   * que existiera este tracking). */
+  origen?: Record<string, OrigenCampo>;
   /** Solo relevante si la plantilla es IOARR: qué tipología(s) representa ESTE caso puntual
    * (a diferencia de Plantilla.tipologiasIoarr, que describe la cobertura del documento completo). */
   tipologiasIoarr?: TipologiaIoarr[];

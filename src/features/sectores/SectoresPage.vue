@@ -14,7 +14,7 @@ import { tiempoRelativo } from '@/lib/tiempoRelativo';
 
 const { data: sectores, isLoading } = useSectoresQuery();
 const { data: actividad } = useActividadQuery();
-const metricas = useMetricas();
+const { metricas } = useMetricas();
 const modalOpen = ref(false);
 const busqueda = ref('');
 

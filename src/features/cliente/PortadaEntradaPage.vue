@@ -8,6 +8,7 @@ import {
 } from '@/lib/icons';
 import PageShell from '@/components/PageShell.vue';
 import Avatar from '@/components/Avatar.vue';
+import AppLoadingScreen from '@/components/AppLoadingScreen.vue';
 import { useSessionStore } from '@/stores/session';
 import { puedeAccederProyectosIA, cuentaEfectivaDe, puedeVerFicha, tieneServicioIlpiieLive } from '@/lib/permisos';
 import { useEjemplosQuery } from '@/composables/useEjemplos';
@@ -45,13 +46,13 @@ function irAVideollamada() {
 
 // --- Mis fichas: misma lógica de filtrado/progreso que MisFichasLista.vue, para las 4 tarjetas
 //     de módulo, "Tu progreso" y (implícitamente) el candado de arriba. ---
-const { data: ejemplosData } = useEjemplosQuery();
-const { data: plantillasData } = usePlantillasQuery();
-const { data: usuariosData } = useUsuariosQuery();
+const { data: ejemplosData, isPending: cargandoEjemplos } = useEjemplosQuery();
+const { data: plantillasData, isPending: cargandoPlantillas } = usePlantillasQuery();
+const { data: usuariosData, isPending: cargandoUsuarios } = useUsuariosQuery();
 const usuarios = computed(() => usuariosData.value ?? []);
 const cuentaId = computed(() => (session.sesion ? cuentaEfectivaDe(usuarios.value, session.sesion) : null));
 const esTitular = computed(() => !!session.sesion && session.sesion.usuarioId === cuentaId.value);
-const { data: ticketsConsulta } = useTicketsConsultaQuery(() => cuentaId.value ?? '');
+const { data: ticketsConsulta, isPending: cargandoTickets } = useTicketsConsultaQuery(() => cuentaId.value ?? '');
 const tieneIlpiieLive = computed(() => tieneServicioIlpiieLive(ticketsConsulta.value));
 
 const misFichas = computed(() => {
@@ -106,7 +107,16 @@ const fichaEnProgreso = computed(() => misFichas.value.find((f) => !f.completo) 
 // Las del seed/demo ya vencidas (ej. "24 ago") no cuentan — si no hay una real por delante,
 // el bloque no se renderiza.
 const clienteId = computed(() => session.sesion?.usuarioId ?? '');
-const { data: misSolicitudes } = useMisSolicitudesQuery(clienteId, 'cliente');
+const { data: misSolicitudes, isPending: cargandoSolicitudes } = useMisSolicitudesQuery(clienteId, 'cliente');
+
+// Todas las consultas de las que depende esta portada (fichas, plantillas, usuarios, tickets,
+// solicitudes de videollamada) — mientras cualquiera siga sin resolver, los conteos/candados que se
+// arman a partir de datos parciales (ej. "Ninguna creada todavía" antes de que ejemplosData llegue,
+// aunque el usuario sí tenga fichas) muestran un estado incorrecto que luego "salta" al correcto.
+// Se espera a que TODO esté listo antes de mostrar nada, en vez de corregir el parpadeo a medias.
+const cargando = computed(
+  () => cargandoEjemplos.value || cargandoPlantillas.value || cargandoUsuarios.value || cargandoTickets.value || cargandoSolicitudes.value,
+);
 const proximaVideollamada = computed(() => {
   const candidatas = (misSolicitudes.value ?? [])
     .filter((s) => s.tipo === 'video' && s.estado === 'agendado' && s.horarioFecha && s.horarioHoraInicio)
@@ -135,7 +145,9 @@ const asesoresExtra = computed(() => Math.max(0, asesoresDisponibles.value.lengt
 </script>
 
 <template>
+  <AppLoadingScreen v-if="cargando" />
   <PageShell
+    v-else
     :icon="faFolderOpen"
     compact
     title="¿Qué quieres hacer hoy?"

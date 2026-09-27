@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { computed, inject, nextTick, ref, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { fieldTypeIcons, fieldTypeLabels, subtipoTablaLabels, columnTypeLabels, faTriangleExclamation, faClone, faTrash, faLightbulb, faWandMagicSparkles, faSpinner, faCheck, faCircleQuestion, faFileCode, faPen } from '@/lib/icons';
+import { fieldTypeIcons, fieldTypeLabels, subtipoTablaLabels, columnTypeLabels, faTriangleExclamation, faClone, faTrash, faLightbulb, faWandMagicSparkles, faCheck, faCircleQuestion, faFileCode, faPen } from '@/lib/icons';
 import { campoFaltaCaptura } from '@/lib/campoValidation';
-import { mejorarTexto } from '@/lib/mejoraTexto';
 import { esTablaExcluidaDeIA } from '@/lib/camposTablaExcluidosIA';
 import { esCampoAyudableConIA } from '@/lib/camposAyudaIA';
 import ExampleTableEditor from './ExampleTableEditor.vue';
@@ -13,11 +12,12 @@ import CampoArchivoInput from '@/components/CampoArchivoInput.vue';
 import CampoListaInput from '@/components/CampoListaInput.vue';
 import CampoEstadoIA from '@/features/cliente/CampoEstadoIA.vue';
 import CampoBooleanoInput from '@/components/CampoBooleanoInput.vue';
+import CampoAyudaModal from './CampoAyudaModal.vue';
 import CampoFechaInput from '@/components/CampoFechaInput.vue';
 import { EXCEL_VIVO } from '@/composables/useListasExcel';
 import { etiquetaDeValor, textoVisibleDeNumero } from '@/lib/conversionesExcel';
 import type { ModoEdicionEditor } from '@/composables/usePlantillaEditor';
-import type { Campo, ConfigTabla, EstadoCampoIA } from '@/types';
+import type { Campo, ConfigTabla, EstadoCampoIA, OrigenCampo } from '@/types';
 
 const props = defineProps<{
   campo: Campo;
@@ -45,6 +45,10 @@ const props = defineProps<{
   permiteMejoraIA?: boolean;
   /** Estado del llenado IA para este campo (solo cliente, tras un llenado) */
   estadoIA?: EstadoCampoIA | null;
+  /** Quién puso/tocó por última vez el valor actual ('ia'|'usuario'; null = sin completar o dato
+   * legado sin este tracking) — indicador verde/azul del editor de ficha del cliente. Distinto de
+   * `estadoIA` (que es sobre confianza del llenado IA, no sobre quién editó último). */
+  origenCampo?: OrigenCampo | null;
   /** Código de la plantilla — solo para saber si esta tabla está en la lista de exclusión (tablas de solo-fórmula) */
   plantillaCodigo?: string;
   /** true mientras se espera la respuesta de "Llenar con IA" para esta tabla */
@@ -163,6 +167,47 @@ const faltaCaptura = computed(() => campoFaltaCaptura(props.campo));
 const mostrarAyudaIA = computed(() => !!props.editableExample && props.permiteMejoraIA !== undefined && esCampoAyudableConIA(props.campo));
 const modoAyudaIA = computed<'llenar' | 'verificar'>(() => ((displayValue.value || '').trim() ? 'verificar' : 'llenar'));
 
+// Modal de ayuda del campo (descripción + acción de IA), abierto desde el "?" — ver CampoAyudaModal.
+const mostrarAyudaCampo = ref(false);
+/** ¿Esta tarjeta renderiza algún "?" que abra el modal? Un campo simple lo tiene por mostrarAyudaIA;
+ *  una tabla, por su propia condición en la fila de acciones (la variante ancha y la angosta usan la
+ *  misma regla, `tablaAncha` solo decide cuál de las dos se pinta). Se usa para no repetir el botón
+ *  de "origen del dato", que ahora vive dentro de ese mismo modal. */
+const hayModalDeAyuda = computed(
+  () => mostrarAyudaIA.value
+    || (isTableField.value && !!props.editableExample && props.permiteMejoraIA !== undefined && !tablaExcluidaDeIA.value),
+);
+/** Una tabla nunca está "a medio llenar" para este efecto: si ya tiene filas con datos, se ofrece
+ *  mejorar; si no, llenar. Para un campo simple alcanza con mirar si hay texto. */
+const modoAyudaModal = computed<'llenar' | 'mejorar'>(() => {
+  // "¿Ya está lleno?" se responde distinto según el tipo, porque cada señal falla en un caso:
+  //
+  //  - TABLA: por `origenCampo` (lo mismo que pinta el círculo de la tarjeta). Mirar el contenido no
+  //    sirve: la tabla trae etiquetas de estructura precargadas del Excel ("Adquisición",
+  //    "Mobiliario de Aula…") y valorTablaPareceVacio() las cuenta como dato real — no distingue un
+  //    rótulo del molde de algo que alguien escribió. Por eso 04.01.1, con el molde vacío, ofrecía
+  //    "Mejorar con IA" mientras su círculo decía "Sin completar".
+  //  - CAMPO SIMPLE: por el contenido. Acá `origenCampo` es el que falla, con los datos anteriores al
+  //    tracking de origen: 02.01.2 tiene "10%" cargado y ninguna entrada en el mapa, así que por
+  //    origen habría ofrecido "Llenar con IA" sobre un campo lleno.
+  if (isTableField.value) {
+    return props.origenCampo ? 'mejorar' : 'llenar';
+  }
+
+  return (displayValue.value || '').trim() ? 'mejorar' : 'llenar';
+});
+/** El "?" de una tabla y el de un campo simple abren el MISMO modal, pero la acción de IA no es la
+ *  misma: la tabla va por llenar-tabla-ia (endpoint propio) y el campo simple por ayuda-ia-campo
+ *  (chat del asesor). Se decide acá para que el modal no tenga que saber de esa diferencia. */
+function pedirIADesdeModal() {
+  mostrarAyudaCampo.value = false;
+  if (isTableField.value) {
+    emit('ayuda-ia-tabla');
+    return;
+  }
+  emit('ayuda-ia-campo', modoAyudaIA.value);
+}
+
 // Ayudas leídas del Excel asignado (no de la estructura JSON): las opciones del desplegable de esta
 // celda, y —si la celda es una fórmula— el valor que el Excel calcularía ahí con los datos actuales.
 // Si no hay Excel o la celda no aplica, quedan en undefined y el campo se comporta como siempre.
@@ -203,27 +248,16 @@ const textoCalculadoMostrar = computed(() => {
   const guardado = (displayValue.value || '').trim();
   return guardado || '';
 });
-const esCampoTexto = computed(() => props.campo.tipo === 'texto_corto' || props.campo.tipo === 'texto_largo');
 const esTextoLargo = computed(() => props.campo.tipo === 'texto_largo');
 
-const sugerenciaIA = ref<string | null>(null);
-const cargandoIA = ref(false);
 const mostrarFuenteInfo = ref(false);
 
-function pedirMejoraIA() {
-  cargandoIA.value = true;
-  sugerenciaIA.value = null;
-  setTimeout(() => {
-    sugerenciaIA.value = mejorarTexto(displayValue.value || '');
-    cargandoIA.value = false;
-  }, 500);
-}
-
-function usarSugerencia() {
-  if (sugerenciaIA.value === null) return;
-  emit('update-example-value', sugerenciaIA.value);
-  sugerenciaIA.value = null;
-}
+// Acá vivían pedirMejoraIA()/usarSugerencia()/sugerenciaIA, que alimentaban el botón de texto
+// "Mejorar con IA" y su panel de sugerencia. No llamaban a ninguna IA: `mejorarTexto()` es una
+// transformación local de string (src/lib/mejoraTexto.ts), un placeholder de cuando la función no
+// existía todavía. Al pasar la entrada de IA al modal del "?" —que sí va al asesor real— quedaron
+// sin ninguna vía de ejecución, así que se quitan en vez de dejar un panel inalcanzable.
+// `mejoraTexto.ts` se deja en su lugar: ya no lo importa nadie, pero borrarlo es una decisión aparte.
 
 function handleClick() {
   if (props.clickable) emit('click');
@@ -249,6 +283,18 @@ const claseContenedor = computed(() => {
   }
   if (props.isSelected) {
     return 'border-brand-500 bg-brand-50/30 outline outline-2 outline-brand-500 -outline-offset-2 shadow-[inset_0_0_14px_rgba(34,197,94,0.28)]';
+  }
+  // Quién editó último (ficha del cliente) — verde=usuario, azul=IA; sin marca = sin completar
+  // (o dato legado de antes de este tracking), cae al estadoIA/default de abajo.
+  // Más saturado que los tintes de `estadoIA` de abajo (pedido explícito): con bg-*-50/60 las
+  // tarjetas verdes/azules casi no se distinguían de las grises al recorrer la sección de un vistazo,
+  // que es justo para lo que existe este indicador. El recuadro interno del valor sigue en blanco,
+  // así que gana contraste sin perder la lectura de "acá se escribe".
+  if (props.origenCampo === 'usuario') {
+    return 'border-emerald-400 bg-emerald-100';
+  }
+  if (props.origenCampo === 'ia') {
+    return 'border-violet-400 bg-violet-100';
   }
   // Tras llenado IA: el card entero refleja el estado (ver mock Extraído / Inferido / No encontrado).
   switch (props.estadoIA) {
@@ -313,7 +359,7 @@ const claseLabelEjemplo = computed(() => {
     :data-campo-identificador="campo.identificador"
     @click="handleClick"
     @focusin="handleFocusIn"
-    class="rounded-xl border-2 p-4 transition-[background-color,border-color,outline-color,box-shadow] duration-150"
+    class="campo-card-cv rounded-xl border-2 p-4 transition-[background-color,border-color,outline-color,box-shadow] duration-150"
     :class="[claseContenedor, clickable ? 'cursor-pointer' : '']"
   >
     <div class="flex items-start gap-3">
@@ -343,15 +389,34 @@ const claseLabelEjemplo = computed(() => {
     :data-campo-identificador="campo.identificador"
     @click="handleClick"
     @focusin="handleFocusIn"
-    class="rounded-xl border-2 p-4 transition-[background-color,border-color,outline-color,box-shadow] duration-150"
+    class="campo-card-cv rounded-xl border-2 p-4 transition-[background-color,border-color,outline-color,box-shadow] duration-150"
     :class="[claseContenedor, clickable ? 'cursor-pointer' : '']"
   >
     <div class="flex items-start gap-3">
-      <div
-        class="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
-        :class="isSelected ? 'bg-brand-100 text-brand-600' : 'bg-gray-50 text-gray-400'"
-      >
-        <FontAwesomeIcon :icon="icon" class="w-4 h-4" />
+      <!-- El indicador de origen va montado sobre el ícono de tipo de dato (pedido explícito): un
+           solo punto de lectura a la izquierda de la tarjeta, en vez de repartir "qué tipo es" a la
+           izquierda y "quién lo llenó" al lado del identificador. El ring blanco lo despega del
+           fondo teñido de la tarjeta, que ahora es más saturado. -->
+      <div class="relative shrink-0">
+        <div
+          class="w-9 h-9 rounded-lg flex items-center justify-center"
+          :class="isSelected ? 'bg-brand-100 text-brand-600' : 'bg-gray-50 text-gray-400'"
+        >
+          <FontAwesomeIcon :icon="icon" class="w-4 h-4" />
+        </div>
+        <span
+          v-if="origenCampo !== undefined"
+          class="absolute -top-2 -left-2 w-6 h-6 rounded-full flex items-center justify-center ring-2 ring-white shadow-sm"
+          :class="{
+            'bg-emerald-500 text-white': origenCampo === 'usuario',
+            'bg-violet-500 text-white': origenCampo === 'ia',
+            'bg-white border-2 border-gray-300': !origenCampo,
+          }"
+          :title="origenCampo === 'usuario' ? 'Editado por el usuario' : origenCampo === 'ia' ? 'Valor sugerido por IA' : 'Sin completar'"
+        >
+          <FontAwesomeIcon v-if="origenCampo === 'usuario'" :icon="faCheck" class="w-3 h-3" />
+          <FontAwesomeIcon v-else-if="origenCampo === 'ia'" :icon="faWandMagicSparkles" class="w-3 h-3" />
+        </span>
       </div>
       <div class="flex-1 min-w-0">
         <div class="flex items-start gap-2">
@@ -366,7 +431,16 @@ const claseLabelEjemplo = computed(() => {
               class="w-3 h-3 text-gray-400"
               title="Campo calculado (solo lectura)"
             />
-            <span v-if="fuenteCampo || (advertenciasCampo && advertenciasCampo.length > 0)" class="relative inline-flex shrink-0">
+            <!-- Respaldo, no el camino normal: estos dos datos (origen del valor y advertencias) ahora
+                 se muestran DENTRO del modal del "?" — ver CampoAyudaModal. Este botón sobrevive solo
+                 para el caso en que la tarjeta no tenga ese modal (campo no editable, calculado,
+                 imagen/firma, o tabla excluida de IA), donde si no la información quedaría
+                 inalcanzable. En una tarjeta normal ya no se renderiza: era el segundo "?" al lado
+                 del primero. -->
+            <span
+              v-if="!hayModalDeAyuda && (fuenteCampo || (advertenciasCampo && advertenciasCampo.length > 0))"
+              class="relative inline-flex shrink-0"
+            >
               <button
                 type="button"
                 @click.stop="mostrarFuenteInfo = !mostrarFuenteInfo"
@@ -395,15 +469,16 @@ const claseLabelEjemplo = computed(() => {
                 </div>
               </div>
             </span>
+            <!-- Ya no dispara la IA directo: abre el modal con la descripción del campo, y desde ahí
+                 el usuario decide. Ver CampoAyudaModal.vue. El botón queda habilitado aunque el plan
+                 no incluya IA — la explicación del campo se lee igual; lo que se deshabilita es la
+                 acción de IA dentro del modal. -->
             <button
               v-if="mostrarAyudaIA"
               type="button"
-              @click.stop="emit('ayuda-ia-campo', modoAyudaIA)"
-              :disabled="!permiteMejoraIA"
-              :title="!permiteMejoraIA
-                ? 'Disponible desde Nivel 1 — actualiza tu plan'
-                : (modoAyudaIA === 'llenar' ? 'Ayúdame a llenar este campo con IA' : 'Ayúdame a verificar este campo con IA')"
-              class="w-4 h-4 rounded-full flex items-center justify-center text-violet-400 hover:text-violet-700 hover:bg-violet-50 transition-colors shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+              @click.stop="mostrarAyudaCampo = true"
+              title="¿Qué va en este campo?"
+              class="w-4 h-4 rounded-full flex items-center justify-center text-violet-400 hover:text-violet-700 hover:bg-violet-50 transition-colors shrink-0"
             >
               <FontAwesomeIcon :icon="faCircleQuestion" class="w-3 h-3" />
             </button>
@@ -509,6 +584,12 @@ const claseLabelEjemplo = computed(() => {
             @update:model-value="emit('update-default-value', $event)"
             @update:config="emit('update-config-tabla', $event)"
           />
+          <CampoListaInput
+            v-else-if="tieneLista"
+            :value="mostrado(valorDefaultMostrado)"
+            :opciones="opcionesExcel ?? []"
+            @change="emit('update-default-value', $event)"
+          />
           <div v-else-if="isBooleanoField" class="mt-1.5">
             <CampoBooleanoInput
               :value="valorDefaultMostrado"
@@ -517,12 +598,6 @@ const claseLabelEjemplo = computed(() => {
               @change="emit('update-default-value', $event)"
             />
           </div>
-          <CampoListaInput
-            v-else-if="tieneLista"
-            :value="mostrado(valorDefaultMostrado)"
-            :opciones="opcionesExcel ?? []"
-            @change="emit('update-default-value', $event)"
-          />
           <CampoFechaInput
             v-else-if="isFechaField"
             :value="valorDefaultMostrado"
@@ -565,35 +640,15 @@ const claseLabelEjemplo = computed(() => {
                 <FontAwesomeIcon :icon="faCheck" class="w-2.5 h-2.5" />
                 Confirmar
               </button>
-              <button
-                v-if="editableExample && esCampoTexto && permiteMejoraIA !== undefined"
-                @click.stop="pedirMejoraIA"
-                :disabled="!permiteMejoraIA || cargandoIA || !(displayValue || '').trim()"
-                type="button"
-                :title="!permiteMejoraIA ? 'Disponible desde Nivel 1 — actualiza tu plan' : undefined"
-                class="inline-flex items-center gap-1 text-[10px] font-medium text-violet-600 hover:text-violet-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
-                <FontAwesomeIcon :icon="cargandoIA ? faSpinner : faWandMagicSparkles" class="w-2.5 h-2.5" :class="cargandoIA ? 'animate-spin' : ''" />
-                Mejorar con IA
-              </button>
-              <button
-                v-if="editableExample && isTableField && !tablaAncha && permiteMejoraIA !== undefined && !tablaExcluidaDeIA"
-                @click.stop="emit('llenar-tabla-ia')"
-                :disabled="!permiteMejoraIA || cargandoTablaIA"
-                type="button"
-                :title="!permiteMejoraIA ? 'Disponible desde Nivel 1 — actualiza tu plan' : undefined"
-                class="inline-flex items-center gap-1 text-[10px] font-medium text-violet-600 hover:text-violet-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
-                <FontAwesomeIcon :icon="cargandoTablaIA ? faSpinner : faWandMagicSparkles" class="w-2.5 h-2.5" :class="cargandoTablaIA ? 'animate-spin' : ''" />
-                Llenar con IA
-              </button>
+              <!-- Los botones de texto "Mejorar con IA" / "Llenar con IA" que vivían acá se quitaron:
+                   la única entrada a la IA es el "?" de la cabecera (ver CampoAyudaModal.vue), que
+                   además muestra la descripción del campo antes de ofrecer la acción. -->
               <button
                 v-if="editableExample && isTableField && !tablaAncha && permiteMejoraIA !== undefined && !tablaExcluidaDeIA"
                 type="button"
-                @click.stop="emit('ayuda-ia-tabla')"
-                :disabled="!permiteMejoraIA || cargandoTablaIA"
-                :title="!permiteMejoraIA ? 'Disponible desde Nivel 1 — actualiza tu plan' : 'Ayúdame a llenar esta tabla con IA'"
-                class="w-4 h-4 rounded-full flex items-center justify-center text-violet-400 hover:text-violet-700 hover:bg-violet-50 transition-colors shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                @click.stop="mostrarAyudaCampo = true"
+                title="¿Qué va en esta tabla?"
+                class="w-4 h-4 rounded-full flex items-center justify-center text-violet-400 hover:text-violet-700 hover:bg-violet-50 transition-colors shrink-0"
               >
                 <FontAwesomeIcon :icon="faCircleQuestion" class="w-3 h-3" />
               </button>
@@ -685,24 +740,6 @@ const claseLabelEjemplo = computed(() => {
               @click.stop="emit('update-example-value', referenciaValor)"
               type="button"
               class="text-[11px] font-medium text-blue-600 hover:text-blue-800 shrink-0"
-            >
-              Usar
-            </button>
-          </div>
-          <div v-if="sugerenciaIA !== null && esCampoTexto && editableExample" class="mt-2 flex items-start gap-2 p-2 rounded-lg bg-violet-50 border border-violet-100">
-            <FontAwesomeIcon :icon="faWandMagicSparkles" class="w-3 h-3 text-violet-400 mt-0.5 shrink-0" />
-            <div class="flex-1 min-w-0">
-              <p class="text-[10px] font-bold uppercase tracking-wider text-violet-500">Sugerencia de IA</p>
-              <p v-if="sugerenciaIA === (displayValue || '').trim()" class="text-xs text-violet-700 mt-0.5 italic">
-                Tu redacción ya está clara — no encontramos mejoras.
-              </p>
-              <p v-else class="text-xs text-violet-900 mt-0.5 break-words whitespace-pre-wrap">{{ sugerenciaIA }}</p>
-            </div>
-            <button
-              v-if="sugerenciaIA !== (displayValue || '').trim()"
-              @click.stop="usarSugerencia"
-              type="button"
-              class="text-[11px] font-medium text-violet-600 hover:text-violet-800 shrink-0"
             >
               Usar
             </button>
@@ -801,24 +838,13 @@ const claseLabelEjemplo = computed(() => {
             <FontAwesomeIcon :icon="faCheck" class="w-2.5 h-2.5" />
             Confirmar
           </button>
-          <button
-            v-if="editableExample && permiteMejoraIA !== undefined && !tablaExcluidaDeIA"
-            @click.stop="emit('llenar-tabla-ia')"
-            :disabled="!permiteMejoraIA || cargandoTablaIA"
-            type="button"
-            :title="!permiteMejoraIA ? 'Disponible desde Nivel 1 — actualiza tu plan' : undefined"
-            class="inline-flex items-center gap-1 text-[10px] font-medium text-violet-600 hover:text-violet-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          >
-            <FontAwesomeIcon :icon="cargandoTablaIA ? faSpinner : faWandMagicSparkles" class="w-2.5 h-2.5" :class="cargandoTablaIA ? 'animate-spin' : ''" />
-            Llenar con IA
-          </button>
+          <!-- Igual que en la variante angosta: sin botón de texto, la IA se pide desde el "?". -->
           <button
             v-if="editableExample && permiteMejoraIA !== undefined && !tablaExcluidaDeIA"
             type="button"
-            @click.stop="emit('ayuda-ia-tabla')"
-            :disabled="!permiteMejoraIA || cargandoTablaIA"
-            :title="!permiteMejoraIA ? 'Disponible desde Nivel 1 — actualiza tu plan' : 'Ayúdame a llenar esta tabla con IA'"
-            class="w-4 h-4 rounded-full flex items-center justify-center text-violet-400 hover:text-violet-700 hover:bg-violet-50 transition-colors shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+            @click.stop="mostrarAyudaCampo = true"
+            title="¿Qué va en esta tabla?"
+            class="w-4 h-4 rounded-full flex items-center justify-center text-violet-400 hover:text-violet-700 hover:bg-violet-50 transition-colors shrink-0"
           >
             <FontAwesomeIcon :icon="faCircleQuestion" class="w-3 h-3" />
           </button>
@@ -839,4 +865,34 @@ const claseLabelEjemplo = computed(() => {
       </fieldset>
     </div>
   </div>
+
+  <!-- Fuera del contenedor de la tarjeta: el modal es `fixed`, y la tarjeta tiene
+       `content-visibility: auto` (ver el style de abajo), que crea contexto de contención y le
+       recortaría el overlay a los límites de la tarjeta. -->
+  <CampoAyudaModal
+    :is-open="mostrarAyudaCampo"
+    :etiqueta="campo.etiqueta"
+    :descripcion="campo.descripcion"
+    :modo="modoAyudaModal"
+    :fuente="fuenteCampo"
+    :advertencias="advertenciasCampo"
+    :permite-ia="permiteMejoraIA"
+    :cargando="isTableField && cargandoTablaIA"
+    @llenar-ia="pedirIADesdeModal"
+    @close="mostrarAyudaCampo = false"
+  />
 </template>
+
+<style scoped>
+/* Una sección puede traer decenas de campos (Ficha Estándar real: 81) renderizados de una — sin
+   esto, cualquier reflow que atraviese la página (ej. el margin-left del sidebar al
+   colapsar/expandir) recalcula el layout de los 81 de una sola vez. `content-visibility: auto`
+   deja que el navegador se salte layout/paint de las tarjetas fuera de pantalla; `auto` en
+   contain-intrinsic-size solo usa el alto de reserva la primera vez (antes de haberse mostrado
+   nunca) y luego recuerda el alto real ya medido, así que no hay salto visible de scroll en el
+   uso normal (abrir la sección, bajar, y recién ahí tocar el sidebar). */
+.campo-card-cv {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 220px;
+}
+</style>
