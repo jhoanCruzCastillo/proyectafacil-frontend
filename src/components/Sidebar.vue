@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faHouse, faLayerGroup, faAnglesLeft, faAnglesRight, faUserGear, faCalendarWeek, faCalendarCheck, faCircleInfo, faCircleExclamation, faListCheck, faHeadset, faPeopleGroup, faUserPlus, faMoneyBillTransfer, faClock, faFolderOpen, faChevronUp, faChevronDown, faLock, faVideo, faComments, faStar, instrumentoIcons } from '@/lib/icons';
+import { faHouse, faLayerGroup, faAnglesLeft, faAnglesRight, faUserGear, faCalendarWeek, faCalendarCheck, faCircleInfo, faCircleExclamation, faListCheck, faHeadset, faPeopleGroup, faUserPlus, faMoneyBillTransfer, faClock, faFolderOpen, faChevronUp, faChevronDown, faLock, faVideo, faComments, faStar, faWandMagicSparkles, instrumentoIcons } from '@/lib/icons';
 import UserMenu from '@/features/settings/UserMenu.vue';
 import MejorarPlanCard from '@/features/settings/MejorarPlanCard.vue';
 import NotificacionesBell from '@/features/asesoria/NotificacionesBell.vue';
@@ -113,6 +113,7 @@ const navItems = computed(() => {
   }
   if (session.sesion?.rol === 'superusuario') {
     items.push({ to: '/about', label: 'About', icon: faCircleInfo });
+    items.push({ to: '/test', label: 'Sandbox IA', icon: faWandMagicSparkles });
   }
   return items;
 });
@@ -281,7 +282,7 @@ const colapsadoEfectivo = computed(() => isDesktop.value && !!props.collapsed);
             <li v-if="item.locked">
               <div
                 :title="colapsadoEfectivo ? `${item.label} — elige un plan para desbloquear` : 'Elige un plan para desbloquear'"
-                class="flex items-center px-3 py-2.5 rounded-lg text-sm font-medium text-white/30 cursor-not-allowed"
+                class="flex items-center px-3 py-2.5 text-sm font-medium text-white/30 cursor-not-allowed"
                 :class="colapsadoEfectivo ? 'justify-center px-0' : 'gap-3'"
               >
                 <FontAwesomeIcon :icon="item.icon" class="w-4 text-center shrink-0" />
@@ -295,7 +296,7 @@ const colapsadoEfectivo = computed(() => isDesktop.value && !!props.collapsed);
                   <a
                     :href="href"
                     :title="child.label"
-                    class="flex items-center justify-center px-0 py-2.5 rounded-lg text-sm font-medium transition-colors"
+                    class="flex items-center justify-center px-0 py-2.5 text-sm font-medium transition-colors"
                     :class="isExactActive ? 'bg-sidebar-active text-white shadow-card' : 'text-white/65 hover:bg-sidebar-hover hover:text-white'"
                     @click="navigate"
                   >
@@ -410,7 +411,7 @@ const colapsadoEfectivo = computed(() => isDesktop.value && !!props.collapsed);
           <li v-else-if="item.locked">
             <div
               :title="colapsadoEfectivo ? `${item.label} — elige un plan para desbloquear` : 'Elige un plan para desbloquear'"
-              class="flex items-center px-3 py-2.5 rounded-lg text-sm font-medium text-white/30 cursor-not-allowed"
+              class="flex items-center px-3 py-2.5 text-sm font-medium text-white/30 cursor-not-allowed"
               :class="colapsadoEfectivo ? 'justify-center px-0' : 'gap-3'"
             >
               <FontAwesomeIcon :icon="item.icon" class="w-4 text-center shrink-0" />
@@ -425,7 +426,7 @@ const colapsadoEfectivo = computed(() => isDesktop.value && !!props.collapsed);
               <a
                 :href="href"
                 :title="colapsadoEfectivo ? item.label : undefined"
-                class="relative flex items-center px-3 py-2.5 rounded-lg text-sm font-medium transition-colors"
+                class="relative flex items-center px-3 py-2.5 text-sm font-medium transition-colors"
                 :class="[
                   isExactActive ? 'bg-primary-dim text-text-primary font-semibold' : 'text-white/65 hover:bg-sidebar-hover hover:text-white',
                   colapsadoEfectivo ? 'justify-center px-0' : 'gap-3',

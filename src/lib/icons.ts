@@ -399,6 +399,7 @@ export const columnTypePrimitivos: TipoColumna[] = [
 
 export {
   faHouse,
+  faScrewdriverWrench,
   faFilePdf,
   faUpload,
   faLayerGroup,

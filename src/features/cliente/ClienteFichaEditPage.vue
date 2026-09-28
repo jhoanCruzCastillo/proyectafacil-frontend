@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faGraduationCap, faChevronLeft, faChevronRight } from '@/lib/icons';
+import { faGraduationCap, faChevronLeft, faChevronRight, faSpinner } from '@/lib/icons';
 import ResizeHandle from '@/components/ResizeHandle.vue';
 import SectionIndex from '@/features/editor/SectionIndex.vue';
 import SectionContent from '@/features/editor/SectionContent.vue';
@@ -10,32 +10,30 @@ import SectionLoadingSkeleton from '@/features/editor/SectionLoadingSkeleton.vue
 import { useTransicionSeccion } from '@/composables/useTransicionSeccion';
 import ExcelPreviewModal from '@/features/editor/ExcelPreviewModal.vue';
 import ConfirmModal from '@/components/ConfirmModal.vue';
+import AppLoadingScreen from '@/components/AppLoadingScreen.vue';
 import ClienteFichaTopBar from './ClienteFichaTopBar.vue';
 import EjemplosReferenciaPanel from './EjemplosReferenciaPanel.vue';
 import FuenteVerdadModal from './FuenteVerdadModal.vue';
-import ProcesamientoIAModal from './ProcesamientoIAModal.vue';
-import type { SeccionProgresoIA } from './ProcesamientoIAModal.vue';
-import ResultadoLlenadoIAModal from './ResultadoLlenadoIAModal.vue';
+import LlenadoIAProgresoModal from './LlenadoIAProgresoModal.vue';
 import AsesorIAChat from './AsesorIAChat.vue';
 import HistorialFichaModal from './HistorialFichaModal.vue';
 import { useClienteFichaEditor } from '@/composables/useClienteFichaEditor';
-import { useLlenadoIAProgreso } from '@/composables/useLlenadoIAProgreso';
+import { useLlenadoIAAsyncQuery, useIniciarLlenadoIAAsync, useCancelarLlenadoIAAsync } from '@/composables/useLlenadoIAAsync';
 import { useLlenadoTablaIA } from '@/composables/useLlenadoTablaIA';
 import { opcionesLlenadoCascada } from '@/lib/cascadaProblemaObjetivo';
 import { opcionesEstaticasPorColumna } from '@/lib/opcionesEstaticasTabla';
 import { valorTablaPareceVacio, valoresTablaSonIguales } from '@/lib/tableRowHelpers';
-import { esTablaExcluidaDeIA } from '@/lib/camposTablaExcluidosIA';
 import { useUiStore } from '@/stores/ui';
 
 const route = useRoute();
 const ejemploId = computed(() => route.params.ejemploId as string);
 
 const {
-  ejemplo, plantilla, archivoEjemplo, esNivel0, diasRestantes,
+  ejemplo, plantilla, cargandoFicha, archivoEjemplo, esNivel0, diasRestantes,
   soloLectura, permiteMejoraIA, muestraHistorial, showHistorial, showFuenteVerdad,
   esPropietario, ejemplosReferencia, referenciaId, referenciaEjemplo,
   editedValores, leftWidth, activeTab, examplesWidth, showPreview, showInsertConfirm, isInserting, insertProgress, insertProgressLabel,
-  modoEdicion, borradoresPorCampo, confirmarBorradorCampo, confirmarTodosLosBorradores, fuentesPorCampo, setFuenteCampo, marcarAutocompletadoPorIA, advertenciasPorCampo, setAdvertenciasCampo,
+  modoEdicion, borradoresPorCampo, confirmarBorradorCampo, fuentesPorCampo, origenPorCampo, setFuenteCampo, marcarAutocompletadoPorIA, advertenciasPorCampo, setAdvertenciasCampo,
   errores, erroresCount, progreso, erroresPorSeccion,
   secciones, safeIdx, seccionActiva, isFirst, isLast,
   handleLeftResize, handleExamplesResize, handleSectionSelect, goToPrevSection, goToNextSection, handleValueChange,
@@ -44,36 +42,13 @@ const {
   excelVivo,
 } = useClienteFichaEditor(ejemploId);
 
-const {
-  showProgreso: showProcesamientoIA,
-  showResultado: showResultadoLlenadoIA,
-  fase: faseLlenadoIA,
-  secciones: seccionesProgresoIA,
-  mensajeError: mensajeErrorLlenadoIA,
-  resumenResultado,
-  estadosCamposIA,
-  esperandoServidor: esperandoServidorLlenadoIA,
-  enRevisionIA,
-  resaltarVerResumen,
-  iniciar: iniciarLlenadoIAJob,
-  abrirSiHaySesion,
-  cerrarProgreso: cerrarProcesamientoIA,
-  verResultados: verResultadosLlenadoIA,
-  cerrarResultado: cerrarResultadoLlenadoIA,
-  terminarProceso: terminarProcesoLlenadoIA,
-  confirmarCampoIA,
-  alEditarCampoIA,
-  cancelar: cancelarLlenadoIAJob,
-  // Temporal (2026-08-30): la Batch API de OpenAI está caída para cualquier organización desde el
-  // 19/08 ("Cannot find file... organization does not have access to it", confirmado reproduciendo
-  // el error con una llamada cruda a la API, sin nada de nuestro código de por medio — ver
-  // https://community.openai.com/t/batch-api-batches-create-intermittently-fails-with-cannot-find-file-for-hours-after-upload-despite-files-retrieve-showing-status-processed/1393234).
-  // Mientras dure, se usa este composable síncrono (llama /llenar-ia una vez por sección, en vez de
-  // useLlenadoIALote que arma un batch) — ya probado en vivo, 20/20 secciones + 1 tabla exitosas. NO
-  // llena tablas automáticamente al terminar por sí solo — por eso el watch de faseLlenadoIA de más
-  // abajo encadena la fase 2 (llenarTablasFaltantes), que recorre TODAS las tablas elegibles con su
-  // propia llamada, usando el mismo useLlenadoTablaIA de abajo que nunca usó Batch API.
-} = useLlenadoIAProgreso(plantilla, ejemploId);
+const { data: trabajoLlenadoIA } = useLlenadoIAAsyncQuery(ejemploId);
+const iniciarLlenadoIAAsync = useIniciarLlenadoIAAsync();
+const cancelarLlenadoIAAsync = useCancelarLlenadoIAAsync();
+const trabajoLlenadoIAActivo = computed(
+  () => trabajoLlenadoIA.value?.estado === 'pendiente' || trabajoLlenadoIA.value?.estado === 'procesando',
+);
+const showCancelarLlenadoConfirm = ref(false);
 
 const { cargandoPorCampo: cargandoTablaIAPorCampo, erroresPorCampo: erroresTablaIAPorCampo, llenarTabla } = useLlenadoTablaIA(ejemploId);
 const ui = useUiStore();
@@ -84,55 +59,15 @@ const ui = useUiStore();
 const claveSeccion = computed(() => (seccionActiva.value ? `${seccionActiva.value.id}:${activeTab.value}` : null));
 const { cargando: cargandoSeccion, claveMostrada: claveSeccionMostrada } = useTransicionSeccion(claveSeccion);
 
-const showCancelarLlenadoConfirm = ref(false);
-/** Parpadeo de "Guardar" en la topbar tras un llenado con IA — se prende cuando el sistema termina
- * de auto-confirmar los borradores de una fase (ver el watch de faseLlenadoIA y el final de
- * llenarTablasFaltantes) y se apaga al hacer clic en Guardar (ver onGuardar). Reemplaza al
- * botón "Terminar" que existía antes: ya no hace falta un paso explícito de "terminar de revisar",
- * el propio Guardar cumple ese rol. */
-const resaltarGuardar = ref(false);
-/** Qué lista muestra el modal de progreso: secciones de texto (fase 1, vía lote) o tablas (fase 2)
- * — ver llenarTablasFaltantes(). Sin esto, el modal reutilizado mostraba "Progreso por sección" con
- * nombres de tablas adentro, y alguien que eligió 2 secciones veía "4" ítems sin entender por qué. */
-const modoProgresoIA = ref<'secciones' | 'tablas'>('secciones');
-
-/** useLlenadoIALote no expone un `cancelado` propio (su cancelar() solo deja de pollear en esta
- * pestaña — el lote sigue en OpenAI) — la fase 2 síncrona de tablas, que corre en esta misma página
- * después de que el lote termina, necesita su propia bandera de cancelación. */
-const canceladoFaseTablasIA = ref(false);
-/** Evita reentradas: llenarTablasFaltantes() vuelve a poner faseLlenadoIA en 'completado' al
- * terminar, lo que re-dispara el watch de abajo si no se protege. */
-const faseTablasYaEjecutada = ref(false);
-const seccionIdsPendientesFaseTablas = ref<string[] | null>(null);
-
-function marcarItemProgresoIA(id: string, patch: Partial<SeccionProgresoIA>) {
-  seccionesProgresoIA.value = seccionesProgresoIA.value.map((s) => (s.id === id ? { ...s, ...patch } : s));
-}
-
-// Mientras Batch API esté caída (ver el comentario junto a useLlenadoIAProgreso arriba), el llenado
-// de secciones de texto es síncrono y NO propone tablas por su cuenta — por eso encadena la fase 2
-// acá: recorre TODAS las tablas elegibles de la ficha (mismo criterio de exclusión que el backend,
-// ver camposTablaExcluidosIA.ts) y las llena una por una, igual que hacía el lote antes de que se
-// quitara aplicarTablasPropuestasDelLote de este archivo.
-watch(faseLlenadoIA, (fase) => {
-  if (fase !== 'completado' || faseTablasYaEjecutada.value) return;
-  faseTablasYaEjecutada.value = true;
-  // Proceso de sistema, no de IA (no cuesta nada): confirma los campos de texto que la IA propuso,
-  // sin esperar a que el usuario haga clic en "Confirmar" uno por uno. Lo único pendiente después de
-  // esto es persistir con Guardar, por eso se prende su parpadeo.
-  confirmarTodosLosBorradores();
-  resaltarGuardar.value = true;
-  void llenarTablasFaltantes(seccionIdsPendientesFaseTablas.value);
-});
-
-function confirmarCancelarLlenadoIA() {
-  showCancelarLlenadoConfirm.value = false;
-  canceladoFaseTablasIA.value = true;
-  cancelarLlenadoIAJob();
-}
-
+const showLlenadoIAProgreso = ref(false);
+// Mientras hay un llenado async en curso, "Contexto IA" muestra en qué va ese trabajo en vez de
+// abrir el modal para INICIAR uno nuevo (confuso mientras uno ya está corriendo — y el backend
+// igual lo rechazaría con 409 "ya hay un llenado en curso").
 function abrirContextoIA() {
-  if (abrirSiHaySesion()) return;
+  if (trabajoLlenadoIAActivo.value) {
+    showLlenadoIAProgreso.value = true;
+    return;
+  }
   showFuenteVerdad.value = true;
 }
 
@@ -161,6 +96,12 @@ async function onLlenarTablaIA(campoId: string, identificador: string, seccionId
 
   const sinCambios = valoresTablaSonIguales(antes, resultado.valorJson);
   onValueChange(campoId, identificador, resultado.valorJson);
+  // Lo que llena la IA se confirma solo; lo que escribe el usuario sigue pidiendo Confirmar (pedido
+  // explícito). Sin esto, onValueChange dejaba la propuesta como BORRADOR —la misma vía que una
+  // edición a mano— y el usuario tenía que ir tabla por tabla apretando Confirmar para algo que ni
+  // siquiera escribió él. El indicador azul de origen no se ve afectado: sigue saliendo de
+  // marcarAutocompletadoPorIA() de abajo, vía calcularCambios().
+  confirmarBorradorCampo(campoId, identificador);
   setFuenteCampo(identificador, resultado.fuente);
   // Aparte de setFuenteCampo: esa función descarta fuentes vacías, pero la tabla sí se llenó con
   // IA — sin esto el historial de cambios la registraba como "Editó" (ver calcularCambios).
@@ -183,102 +124,32 @@ function onAyudaIATabla(campoId: string, identificador: string, seccionId: strin
 }
 
 async function iniciarLlenadoIA(payload?: { seccionIds?: string[] }) {
-  modoProgresoIA.value = 'secciones';
-  canceladoFaseTablasIA.value = false;
-  faseTablasYaEjecutada.value = false;
-  seccionIdsPendientesFaseTablas.value = payload?.seccionIds ?? null;
-  // useLlenadoIAProgreso.iniciar() SÍ espera a que termine la última sección antes de resolver (a
-  // diferencia del lote, que resolvía apenas se agendaba el primer poll) — el `await` de acá ya
-  // podría encadenar la fase 2 directamente, pero se deja el watch de faseLlenadoIA de arriba para no
-  // tocar esa mecánica (funciona igual sin importar cuándo resuelva esta promesa).
-  await iniciarLlenadoIAJob(ejemploId.value, payload?.seccionIds);
+  try {
+    await iniciarLlenadoIAAsync.mutateAsync({ ejemploId: ejemploId.value, seccionIds: payload?.seccionIds });
+    ui.toast('Llenado con IA iniciado en segundo plano — puedes seguir navegando; te avisaremos por correo cuando termine');
+  } catch (e) {
+    ui.toast(e instanceof Error ? e.message : 'No se pudo iniciar el llenado con IA', 'error');
+  }
 }
 
-async function llenarTablasFaltantes(seccionIds: string[] | null) {
-  if (!plantilla.value) return;
-  const filtro = seccionIds && seccionIds.length > 0 ? new Set(seccionIds) : null;
-  const tablas: { campoId: string; identificador: string; seccionId: string; etiqueta: string }[] = [];
-  for (const seccion of plantilla.value.secciones) {
-    if (filtro && !filtro.has(seccion.id)) continue;
-    for (const sub of seccion.subsecciones) {
-      for (const campo of sub.campos) {
-        if (
-          (campo.tipo === 'tabla' || campo.tipo === 'tabla_jerarquica')
-          && campo.editable
-          && campo.configTabla
-          && !esTablaExcluidaDeIA(plantilla.value.codigo, campo.identificador)
-        ) {
-          tablas.push({ campoId: campo.id, identificador: campo.identificador, seccionId: seccion.id, etiqueta: campo.etiqueta });
-        }
-      }
-    }
+async function confirmarCancelarLlenadoIA() {
+  try {
+    await cancelarLlenadoIAAsync.mutateAsync(ejemploId.value);
+    ui.toast('Llenado con IA cancelado.');
+  } catch (e) {
+    ui.toast(e instanceof Error ? e.message : 'No se pudo cancelar el llenado con IA', 'error');
+  } finally {
+    showCancelarLlenadoConfirm.value = false;
+    showLlenadoIAProgreso.value = false;
   }
-  if (tablas.length === 0) return;
-
-  // Reabre el modal de progreso (mismo componente que ya usan las secciones de texto), ahora con las
-  // tablas en la lista en vez de las secciones — sin esto, el modal ya se habría cerrado (o estaría
-  // mostrando el resumen de texto) mientras las tablas siguen procesándose en silencio, sin ninguna
-  // forma visible de cancelarlas.
-  seccionesProgresoIA.value = tablas.map((t) => ({ id: t.campoId, nombre: t.etiqueta, estado: 'pendiente' as const }));
-  modoProgresoIA.value = 'tablas';
-  showResultadoLlenadoIA.value = false;
-  faseLlenadoIA.value = 'procesando';
-  showProcesamientoIA.value = true;
-
-  let hechas = 0;
-  let conError = 0;
-  for (const t of tablas) {
-    if (canceladoFaseTablasIA.value) break;
-    marcarItemProgresoIA(t.campoId, { estado: 'procesando' });
-    // Secuencial (no Promise.all): cada tabla es su propia consulta al modelo — en paralelo
-    // saturaríamos el backend/la API y perderíamos el orden en que se ve el progreso por campo.
-    await onLlenarTablaIA(t.campoId, t.identificador, t.seccionId);
-    // valoresPorCelda (useMapaValoresExcelDebounced) recalcula el Excel vivo con 300ms de debounce —
-    // sin esperar aquí, la SIGUIENTE tabla de una cascada (ej. 5.02.02 justo después de 5.01.02) podía
-    // pedir sus opciones antes de que ese recálculo aterrizara, y veía la tabla anterior como si aún
-    // estuviera vacía. Encontrado en vivo: con el fix de leer borradores en resolverValorExcel, 3 de
-    // 4 filas de medios/acciones ya salían bien, pero la primera (procesada inmediatamente después de
-    // 5.01.02, sin ningún await de por medio) seguía en blanco — exactamente el patrón de una
-    // condición de carrera con el debounce, no del contexto en sí.
-    await new Promise((resolve) => setTimeout(resolve, 350));
-    if (erroresTablaIAPorCampo.value[t.campoId]) {
-      conError++;
-      marcarItemProgresoIA(t.campoId, { estado: 'error' });
-    } else {
-      hechas++;
-      marcarItemProgresoIA(t.campoId, { estado: 'completada' });
-    }
-  }
-
-  if (canceladoFaseTablasIA.value) {
-    // Deja el modal abierto mostrando el aviso, igual que al cancelar durante las secciones de texto.
-    mensajeErrorLlenadoIA.value = `Cancelaste el llenado con IA. ${hechas} tabla${hechas === 1 ? '' : 's'} ya completada${hechas === 1 ? '' : 's'} se conserva${hechas === 1 ? '' : 'n'}.`;
-    faseLlenadoIA.value = 'error';
-    return;
-  }
-
-  // Mismo proceso de sistema que la fase 1: confirma las tablas solas, sin pedirle al usuario que
-  // las apruebe una por una — solo queda persistir con Guardar.
-  confirmarTodosLosBorradores();
-  resaltarGuardar.value = true;
-
-  faseLlenadoIA.value = 'completado';
-  showProcesamientoIA.value = false;
-  ui.toast(
-    conError > 0
-      ? `${hechas} de ${tablas.length} tablas llenadas con IA (${conError} con error) — revísalas y guarda los cambios`
-      : `${hechas} tabla${hechas === 1 ? '' : 's'} llenada${hechas === 1 ? '' : 's'} con IA — guarda los cambios cuando quieras`,
-  );
 }
 
 function onValueChange(campoId: string, campoIdentificador: string, value: string) {
   handleValueChange(campoId, campoIdentificador, value);
-  alEditarCampoIA(campoIdentificador, value);
 }
 
 function onConfirmarBorrador(campoId: string, identificador: string) {
   confirmarBorradorCampo(campoId, identificador);
-  alEditarCampoIA(identificador, editedValores.value[identificador] ?? '');
 }
 
 // Asesor de IA (chat flotante) — "ayúdame a llenar el campo X": un solo campo resaltado a la vez,
@@ -297,22 +168,17 @@ function onAplicarValorDesdeChat(payload: { campoId: string; identificador: stri
   onConfirmarBorrador(payload.campoId, payload.identificador);
 }
 
-// El botón "Guardar" de la topbar ahora hace las veces del antiguo botón "Terminar": los borradores
-// de la IA ya se confirmaron solos (ver los dos puntos de confirmarTodosLosBorradores() más arriba),
-// así que Guardar solo necesita persistir — y, si había una revisión de IA en curso, cerrarla (apaga
-// las marcas Extraído/Inferido/No encontrado y el rótulo "Ver resumen" vuelve a "Contexto IA").
 async function onGuardar() {
-  resaltarGuardar.value = false;
-  const habiaRevisionIA = enRevisionIA.value;
-  // estadosCamposIA (de useLlenadoIAProgreso) le dice a calcularCambios() qué campos trae puestos
-  // el llenado automático — así el historial los etiqueta "Autocompletó" en vez de "Editó".
-  await handleSave(estadosCamposIA.value);
-  if (habiaRevisionIA) terminarProcesoLlenadoIA();
+  await handleSave();
 }
 </script>
 
 <template>
-  <div v-if="!ejemplo || !esPropietario" class="p-8 flex flex-col items-center justify-center text-center h-full">
+  <!-- `cargandoFicha` distingue "todavía no llegó la respuesta" de "no existe" — sin esto, se veía
+       "Ficha no encontrada" por un instante real en cada entrada, antes de que ejemplo/plantilla
+       terminaran de resolver (ver useClienteFichaEditor.ts). -->
+  <AppLoadingScreen v-if="cargandoFicha" />
+  <div v-else-if="!ejemplo || !esPropietario" class="p-8 flex flex-col items-center justify-center text-center h-full">
     <p class="text-sm font-medium text-heading">Ficha no encontrada</p>
     <p class="text-xs text-muted mt-1">Puede que haya sido eliminada o que el enlace no sea válido</p>
   </div>
@@ -330,10 +196,8 @@ async function onGuardar() {
       :progreso="progreso"
       :solo-lectura="soloLectura"
       :show-historial="muestraHistorial"
-      :en-revision-i-a="enRevisionIA"
-      :resaltar-ver-resumen="resaltarVerResumen"
-      :resaltar-guardar="resaltarGuardar"
       :cargando-accion-archivo="isInserting"
+      :llenadoIAActivo="trabajoLlenadoIAActivo"
       @change-tab="activeTab = $event"
       @historial="showHistorial = true"
       @fuente-verdad="abrirContextoIA"
@@ -341,6 +205,20 @@ async function onGuardar() {
       @download="iniciarDescarga"
       @preview="abrirVistaPrevia"
     />
+
+    <button
+      v-if="trabajoLlenadoIAActivo"
+      type="button"
+      @click="showLlenadoIAProgreso = true"
+      class="shrink-0 border-b border-violet-100 bg-violet-50/60 hover:bg-violet-100/70 px-6 py-2 flex items-center gap-2 text-xs text-violet-700 text-left transition-colors duration-75"
+    >
+      <FontAwesomeIcon :icon="faSpinner" class="w-3.5 h-3.5 shrink-0 animate-spin" />
+      <span>
+        Llenado con IA en progreso{{ trabajoLlenadoIA?.progresoTexto ? ` — ${trabajoLlenadoIA.progresoTexto}` : '' }}.
+        Puedes seguir navegando; te avisaremos por correo cuando termine.
+        <span class="underline">Ver detalle</span>
+      </span>
+    </button>
 
     <div v-if="esNivel0" class="shrink-0 border-b px-6 py-2 flex items-center gap-2 text-xs" :class="soloLectura ? 'bg-red-50 border-red-100 text-red-700' : 'bg-blue-50/60 border-gray-100 text-blue-700'">
       <FontAwesomeIcon :icon="faGraduationCap" class="w-3.5 h-3.5 shrink-0" />
@@ -384,18 +262,17 @@ async function onGuardar() {
             :errores-validacion="activeTab === 'mi-ficha' ? errores : undefined"
             :referencia-valores="activeTab === 'mi-ficha' ? referenciaEjemplo?.valores : undefined"
             :permite-mejora-i-a="activeTab === 'mi-ficha' && permiteMejoraIA"
-            :estados-i-a="activeTab === 'mi-ficha' ? estadosCamposIA : undefined"
             :modo-edicion="activeTab === 'mi-ficha' ? modoEdicion : undefined"
             :borradores-por-campo="activeTab === 'mi-ficha' ? borradoresPorCampo : undefined"
             :plantilla-codigo="plantilla.codigo"
             :cargando-tabla-i-a-por-campo="activeTab === 'mi-ficha' ? cargandoTablaIAPorCampo : undefined"
             :errores-tabla-i-a-por-campo="activeTab === 'mi-ficha' ? erroresTablaIAPorCampo : undefined"
             :fuentes-por-campo="activeTab === 'mi-ficha' ? fuentesPorCampo : undefined"
+            :origen-por-campo="activeTab === 'mi-ficha' ? origenPorCampo : undefined"
             :advertencias-por-campo="activeTab === 'mi-ficha' ? advertenciasPorCampo : undefined"
             :campo-resaltado-identificador="activeTab === 'mi-ficha' ? campoResaltadoIdentificador : undefined"
             @update-example-value="(campoId, identificador, value) => onValueChange(campoId, identificador, value)"
             @confirmar-borrador="onConfirmarBorrador"
-            @confirmar-ia="confirmarCampoIA"
             @llenar-tabla-ia="onLlenarTablaIA"
             @ayuda-ia-campo="onAyudaIACampo"
             @ayuda-ia-tabla="onAyudaIATabla"
@@ -452,14 +329,6 @@ async function onGuardar() {
       @close="showInsertConfirm = false"
     />
 
-    <ConfirmModal
-      :is-open="showCancelarLlenadoConfirm"
-      title="Cancelar llenado con IA"
-      message="Se detendrá el llenado automático (textos y tablas). Lo que ya se completó hasta ahora se conserva; lo que falta quedará pendiente."
-      confirm-label="Cancelar llenado"
-      @confirm="confirmarCancelarLlenadoIA"
-      @close="showCancelarLlenadoConfirm = false"
-    />
 
     <ExcelPreviewModal
       :is-open="showPreview"
@@ -478,27 +347,23 @@ async function onGuardar() {
       @close="showFuenteVerdad = false"
       @iniciar-llenado="iniciarLlenadoIA"
     />
+
+    <LlenadoIAProgresoModal
+      :is-open="showLlenadoIAProgreso"
+      :trabajo="trabajoLlenadoIA ?? null"
+      @close="showLlenadoIAProgreso = false"
+      @cancelar="showCancelarLlenadoConfirm = true"
+    />
+
+    <ConfirmModal
+      :is-open="showCancelarLlenadoConfirm"
+      title="¿Cancelar llenado con IA?"
+      message="Se detendrá el llenado en el servidor. Los campos que ya se hayan completado antes de cancelar NO se guardarán."
+      confirm-label="Sí, cancelar"
+      loading-label="Cancelando…"
+      :loading="cancelarLlenadoIAAsync.isPending.value"
+      @confirm="confirmarCancelarLlenadoIA"
+      @close="showCancelarLlenadoConfirm = false"
+    />
   </div>
-
-  <!-- Fuera del v-else del editor: sobreviven un refetch de ejemplo y no cortan la transición al informe. -->
-  <ProcesamientoIAModal
-    v-if="faseLlenadoIA === 'procesando' || faseLlenadoIA === 'error'"
-    :is-open="showProcesamientoIA"
-    :secciones="seccionesProgresoIA"
-    :fase="faseLlenadoIA === 'error' ? 'error' : 'procesando'"
-    :mensaje-error="mensajeErrorLlenadoIA"
-    :esperando-servidor="esperandoServidorLlenadoIA"
-    :modo="modoProgresoIA"
-    @close="cerrarProcesamientoIA()"
-    @ver-resultados="verResultadosLlenadoIA()"
-    @cancelar="showCancelarLlenadoConfirm = true"
-    @terminar="terminarProcesoLlenadoIA()"
-  />
-
-  <ResultadoLlenadoIAModal
-    :is-open="showResultadoLlenadoIA"
-    :resumen="resumenResultado"
-    @close="cerrarResultadoLlenadoIA()"
-    @revisar="cerrarResultadoLlenadoIA()"
-  />
 </template>

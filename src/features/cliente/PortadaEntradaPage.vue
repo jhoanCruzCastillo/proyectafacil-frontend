@@ -3,11 +3,12 @@ import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import {
-  faFolderOpen, faHeadset, faLock, faArrowRight, faCircleCheck, faVideo, faComments,
+  faFolderOpen, faHeadset, faLock, faArrowRight, faChevronRight, faCircleCheck, faVideo, faComments,
   faClock, instrumentoIcons, instrumentoLabelsPlural,
 } from '@/lib/icons';
 import PageShell from '@/components/PageShell.vue';
 import Avatar from '@/components/Avatar.vue';
+import AppLoadingScreen from '@/components/AppLoadingScreen.vue';
 import { useSessionStore } from '@/stores/session';
 import { puedeAccederProyectosIA, cuentaEfectivaDe, puedeVerFicha, tieneServicioIlpiieLive } from '@/lib/permisos';
 import { useEjemplosQuery } from '@/composables/useEjemplos';
@@ -45,13 +46,13 @@ function irAVideollamada() {
 
 // --- Mis fichas: misma lógica de filtrado/progreso que MisFichasLista.vue, para las 4 tarjetas
 //     de módulo, "Tu progreso" y (implícitamente) el candado de arriba. ---
-const { data: ejemplosData } = useEjemplosQuery();
-const { data: plantillasData } = usePlantillasQuery();
-const { data: usuariosData } = useUsuariosQuery();
+const { data: ejemplosData, isPending: cargandoEjemplos } = useEjemplosQuery();
+const { data: plantillasData, isPending: cargandoPlantillas } = usePlantillasQuery();
+const { data: usuariosData, isPending: cargandoUsuarios } = useUsuariosQuery();
 const usuarios = computed(() => usuariosData.value ?? []);
 const cuentaId = computed(() => (session.sesion ? cuentaEfectivaDe(usuarios.value, session.sesion) : null));
 const esTitular = computed(() => !!session.sesion && session.sesion.usuarioId === cuentaId.value);
-const { data: ticketsConsulta } = useTicketsConsultaQuery(() => cuentaId.value ?? '');
+const { data: ticketsConsulta, isPending: cargandoTickets } = useTicketsConsultaQuery(() => cuentaId.value ?? '');
 const tieneIlpiieLive = computed(() => tieneServicioIlpiieLive(ticketsConsulta.value));
 
 const misFichas = computed(() => {
@@ -77,10 +78,66 @@ const RUTA_TIPO: Record<TipoInstrumento, string> = {
   perfil: '/perfiles',
 };
 const DESCRIPCION_TIPO: Record<TipoInstrumento, string> = {
-  formato: 'Formatos oficiales listos para llenar con ayuda de la IA.',
-  ficha_tecnica: 'Fichas 6A y 6B con asistencia paso a paso.',
-  ioarr: 'Formatos de operación y mantenimiento.',
-  perfil: 'Perfiles por sector productivo.',
+  formato: 'Formatos oficiales listos para llenar con ayuda de la IA. Ahorra tiempo con preguntas guiadas y validaciones automáticas.',
+  ficha_tecnica: 'Fichas 6A y 6B con asistencia paso a paso. La IA te guía en cada sección según la normativa vigente.',
+  ioarr: 'Formatos de operación y mantenimiento. Completa con ayuda de la IA y verifica criterios automáticamente.',
+  perfil: 'Perfiles por sector productivo con estructura validada. La IA te ayuda a desarrollar un perfil completo y listo para revisión.',
+};
+
+/**
+ * Texto del contador de cada tarjeta, escrito entero en vez de armarlo en el template.
+ *
+ * Antes salía de `instrumentoLabelsPlural[tipo].toLowerCase()` + " creados", lo que producía dos
+ * errores visibles: "0 ioarr creados" (IOARR es una sigla, no se escribe en minúscula) y
+ * "4 fichas técnicas creados" (concordancia de género equivocada). Como son cuatro y no cambian,
+ * el literal es más claro que cualquier regla de pluralización.
+ */
+const CONTEO_TIPO: Record<TipoInstrumento, string> = {
+  formato: 'formatos creados',
+  ficha_tecnica: 'fichas creadas',
+  ioarr: 'IOARR creados',
+  perfil: 'perfiles creados',
+};
+
+/**
+ * Identidad visual por módulo (mockup del cliente): imagen de fondo decorativa
+ * (docs/images/webp/crd1-4.webp, copiadas a frontend/public/bg-card-*.webp) + color propio.
+ *
+ * Rediseño 2026-09-28: la tarjeta vuelve a ser BLANCA. Antes la imagen se estiraba con
+ * `bg-cover bg-right` y teñía la tarjeta entera, así que las cuatro competían entre sí y el botón
+ * —el único elemento que de verdad hay que ver— perdía peso. Ahora el gráfico ocupa solo la esquina
+ * superior derecha (ver `bg-[length:...]` en el template) y el color vive en tres puntos: el badge
+ * del ícono (pastel, no sólido), el contador y el botón (degradado).
+ */
+const ESTILO_TIPO: Record<TipoInstrumento, { badge: string; icono: string; boton: string; contador: string; fondo: string }> = {
+  formato: {
+    badge: 'bg-brand-50 text-brand-600',
+    icono: 'text-brand-600',
+    boton: 'bg-gradient-to-r from-brand-500 to-brand-600 hover:from-brand-600 hover:to-brand-700',
+    contador: 'bg-brand-50 text-brand-600',
+    fondo: 'url(/bg-card-formatos.webp)',
+  },
+  ficha_tecnica: {
+    badge: 'bg-blue-50 text-blue-600',
+    icono: 'text-blue-600',
+    boton: 'bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700',
+    contador: 'bg-blue-50 text-blue-600',
+    fondo: 'url(/bg-card-fichas-tecnicas.webp)',
+  },
+  ioarr: {
+    badge: 'bg-orange-50 text-orange-600',
+    icono: 'text-orange-600',
+    boton: 'bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700',
+    contador: 'bg-orange-50 text-orange-600',
+    fondo: 'url(/bg-card-ioarr.webp)',
+  },
+  perfil: {
+    badge: 'bg-violet-50 text-violet-600',
+    icono: 'text-violet-600',
+    boton: 'bg-gradient-to-r from-violet-500 to-violet-600 hover:from-violet-600 hover:to-violet-700',
+    contador: 'bg-violet-50 text-violet-600',
+    fondo: 'url(/bg-card-perfiles.webp)',
+  },
 };
 
 const modulos = computed(() =>
@@ -94,6 +151,7 @@ const modulos = computed(() =>
       descripcion: DESCRIPCION_TIPO[tipo],
       total: fichas.length,
       enProgreso,
+      estilo: ESTILO_TIPO[tipo],
     };
   }),
 );
@@ -106,7 +164,16 @@ const fichaEnProgreso = computed(() => misFichas.value.find((f) => !f.completo) 
 // Las del seed/demo ya vencidas (ej. "24 ago") no cuentan — si no hay una real por delante,
 // el bloque no se renderiza.
 const clienteId = computed(() => session.sesion?.usuarioId ?? '');
-const { data: misSolicitudes } = useMisSolicitudesQuery(clienteId, 'cliente');
+const { data: misSolicitudes, isPending: cargandoSolicitudes } = useMisSolicitudesQuery(clienteId, 'cliente');
+
+// Todas las consultas de las que depende esta portada (fichas, plantillas, usuarios, tickets,
+// solicitudes de videollamada) — mientras cualquiera siga sin resolver, los conteos/candados que se
+// arman a partir de datos parciales (ej. "Ninguna creada todavía" antes de que ejemplosData llegue,
+// aunque el usuario sí tenga fichas) muestran un estado incorrecto que luego "salta" al correcto.
+// Se espera a que TODO esté listo antes de mostrar nada, en vez de corregir el parpadeo a medias.
+const cargando = computed(
+  () => cargandoEjemplos.value || cargandoPlantillas.value || cargandoUsuarios.value || cargandoTickets.value || cargandoSolicitudes.value,
+);
 const proximaVideollamada = computed(() => {
   const candidatas = (misSolicitudes.value ?? [])
     .filter((s) => s.tipo === 'video' && s.estado === 'agendado' && s.horarioFecha && s.horarioHoraInicio)
@@ -135,7 +202,9 @@ const asesoresExtra = computed(() => Math.max(0, asesoresDisponibles.value.lengt
 </script>
 
 <template>
+  <AppLoadingScreen v-if="cargando" />
   <PageShell
+    v-else
     :icon="faFolderOpen"
     compact
     title="¿Qué quieres hacer hoy?"
@@ -156,22 +225,49 @@ const asesoresExtra = computed(() => Math.max(0, asesoresDisponibles.value.lengt
          si no, tarjeta gris con candado — se puede entrar igual. -->
     <template v-if="desbloqueadoProyectosIA">
       <p class="text-[11px] font-semibold uppercase tracking-widest text-muted mb-3 md:col-span-2">Proyectos de inversión con IA</p>
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:col-span-2">
-        <div v-for="modulo in modulos" :key="modulo.tipo" class="flex flex-col rounded-2xl border border-border-light bg-white p-5 shadow-card">
-          <div class="w-11 h-11 rounded-xl flex items-center justify-center mb-3 bg-brand-100 text-brand-600">
+      <!-- 4 columnas recién en `xl`, no en `lg`: con el sidebar abierto, a 1100px de ventana cada
+           tarjeta quedaba en 155px — el contador se truncaba a "0.. C.." y "Abrir Fichas técnicas"
+           se partía en tres líneas. Entre 1024 y 1280 se ven mejor dos columnas anchas. -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 md:col-span-2">
+        <!-- El gráfico decorativo se ancla arriba a la derecha y se limita al 55 % del ancho, en vez
+             del `bg-cover` que antes lo estiraba sobre toda la tarjeta. -->
+        <div
+          v-for="modulo in modulos"
+          :key="modulo.tipo"
+          class="group flex flex-col rounded-2xl border border-border-light p-5 shadow-card bg-white bg-no-repeat bg-right-top bg-[length:55%_auto] overflow-hidden transition-shadow duration-100 hover:shadow-modal"
+          :style="{ backgroundImage: modulo.estilo.fondo }"
+        >
+          <div class="w-12 h-12 rounded-xl flex items-center justify-center mb-4" :class="modulo.estilo.badge">
             <FontAwesomeIcon :icon="instrumentoIcons[modulo.tipo]" class="w-5 h-5" />
           </div>
           <p class="text-lg font-heading font-semibold text-heading">{{ modulo.label }}</p>
-          <p class="text-xs text-muted mt-1 mb-3 flex-1">{{ modulo.descripcion }}</p>
-          <p class="text-[11px] text-muted mb-3">
-            <template v-if="modulo.total === 0">Ninguna creada todavía</template>
-            <template v-else>{{ modulo.total }} {{ modulo.total === 1 ? 'ficha' : 'fichas' }}<template v-if="modulo.enProgreso"> · {{ modulo.enProgreso }} en progreso</template></template>
-          </p>
+          <p class="text-xs text-muted leading-relaxed mt-1.5 mb-4 flex-1">{{ modulo.descripcion }}</p>
+          <!-- El contador pasa a ser su propio bloque enmarcado y navegable: en el diseño anterior
+               era texto suelto y se leía como parte de la descripción. Lleva al mismo destino que el
+               botón, así que la tarjeta ofrece dos entradas al mismo sitio, no dos acciones. -->
           <RouterLink
             :to="modulo.to"
-            class="flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-brand-600 text-white text-xs font-semibold hover:bg-brand-700 transition-colors duration-75"
+            class="flex items-center gap-2.5 rounded-xl border border-border-light bg-surface/70 px-3 py-2.5 mb-3 transition-colors duration-75 hover:bg-surface"
           >
-            Abrir
+            <span class="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" :class="modulo.estilo.contador">
+              <FontAwesomeIcon :icon="instrumentoIcons[modulo.tipo]" class="w-3.5 h-3.5" />
+            </span>
+            <span class="leading-tight min-w-0 flex-1 text-[11px]">
+              <span class="block font-semibold text-heading truncate">{{ modulo.total }} {{ CONTEO_TIPO[modulo.tipo] }}</span>
+              <span class="block text-muted truncate">
+                <template v-if="modulo.total === 0">Comienza tu primer proyecto</template>
+                <template v-else-if="modulo.enProgreso">{{ modulo.enProgreso }} en progreso</template>
+                <template v-else>Todas completas</template>
+              </span>
+            </span>
+            <FontAwesomeIcon :icon="faChevronRight" class="w-2.5 h-2.5 text-gray-300 shrink-0" />
+          </RouterLink>
+          <RouterLink
+            :to="modulo.to"
+            class="flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-white text-xs font-semibold shadow-sm transition-colors duration-75"
+            :class="modulo.estilo.boton"
+          >
+            Abrir {{ modulo.label }}
             <FontAwesomeIcon :icon="faArrowRight" class="w-3 h-3" />
           </RouterLink>
         </div>

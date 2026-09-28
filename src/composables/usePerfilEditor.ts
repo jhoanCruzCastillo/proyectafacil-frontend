@@ -22,8 +22,8 @@ function deepClone<T>(value: T): T {
 // bajo el límite de 200 líneas. A diferencia del editor de Ficha Técnica, Perfil navega por
 // apartados dentro de UNA sección visible a la vez, con scroll-spy sobre esos apartados.
 export function usePerfilEditor(plantillaId: Ref<string>, sectorId: Ref<string>) {
-  const { data: plantillaOriginal } = usePlantillaQuery(plantillaId);
-  const { data: sector } = useSectorQuery(sectorId);
+  const { data: plantillaOriginal, isPending: cargandoPlantilla } = usePlantillaQuery(plantillaId);
+  const { data: sector, isPending: cargandoSector } = useSectorQuery(sectorId);
   const actualizarPlantilla = useActualizarPlantilla();
   const { data: ejemplosData } = useEjemplosByPlantillaQuery(plantillaId);
   const crearEjemplo = useCrearEjemplo();
@@ -163,8 +163,13 @@ export function usePerfilEditor(plantillaId: Ref<string>, sectorId: Ref<string>)
     () => seccionActiva.value?.subsecciones.flatMap((s) => s.campos).find((c) => c.id === selectedCampoId.value) ?? null,
   );
 
+  // Ambas queries corren en paralelo desde el inicio (ninguna depende de la otra) — mientras
+  // cualquiera siga sin resolver, "no existe" (editData/sector null) es indistinguible de "está
+  // cargando" (ver mismo fix en useClienteFichaEditor.ts/usePlantillaEditor.ts).
+  const cargando = computed(() => cargandoPlantilla.value || cargandoSector.value);
+
   return {
-    editData, sector, activeTab, activeSectionIndex, selectedCampoId, selectedCampo,
+    editData, sector, cargando, activeTab, activeSectionIndex, selectedCampoId, selectedCampo,
     ejemplos, activeEjemplo, editedValores, showNuevoEjemplo,
     leftWidth, rightWidth, secciones, safeIdx, seccionActiva, isFirst, isLast, showExamples,
     activeItemId, containerRef,

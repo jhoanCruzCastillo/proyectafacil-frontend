@@ -1,4 +1,5 @@
 import JSZip from 'jszip';
+import { indiceColumna, parseCeldasTexto, parseSharedStringsTexto, separarSheetData } from './xlsxCeldasTexto';
 
 // Lector de celdas de un .xlsx/.xlsm — el inverso exacto de xlsxXmlPatcher.ts. Abre el archivo
 // como ZIP y extrae el valor "plano" de cada celda de cada hoja, resolviendo las tres formas en que
@@ -7,10 +8,9 @@ import JSZip from 'jszip';
 //
 // No usa SheetJS por la misma razón que el patcher: aquí solo se necesita leer valores, y hacerlo
 // sobre el XML crudo evita cargar toda la maquinaria de una librería completa de hojas de cálculo.
+// Las celdas y los sharedStrings se leen por texto (xlsxCeldasTexto.ts, ~70x más rápido que
+// DOMParser en hojas gigantes); DOMParser queda solo para las partes chicas del libro.
 const R_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
-
-// Formatos de número integrados de OOXML que representan fecha y/u hora (ECMA-376, §18.8.30).
-const BUILTIN_FECHA = new Set([14, 15, 16, 17, 18, 19, 20, 21, 22, 45, 46, 47]);
 
 export interface CeldaLeida {
   /** Texto tal como se guardó (o el número serial, si `esFecha`) */
@@ -80,20 +80,31 @@ export interface LibroLeido {
   /** Fila más alta usada en la hoja, o undefined si la hoja no existe — acota un rango de columna
    * completa (`A:M`) a su tamaño real en vez del límite teórico de Excel. */
   filaMaxima(hoja: string): number | undefined;
+  /** Estructura interna completa de una hoja ya parseada (todos sus Maps de celdas, fórmulas,
+   * fusiones, formatos, estilos y validaciones) — a diferencia del resto de métodos de arriba (una
+   * consulta puntual por celda), esto expone TODO de una vez. Existe para serializar el libro hacia
+   * un Web Worker (ver frontend/src/lib/excelVivoSnapshot.ts): el worker no puede usar DOMParser
+   * (confirmado en el spike de la Fase 0, no está disponible en WorkerGlobalScope), así que el
+   * parseo se queda en el hilo principal y solo se transfieren estos datos ya puros. */
+  hojaCompleta(hoja: string): HojaParseada | undefined;
+  /** Lo necesario para reconstruir el libro dentro del Web Worker SIN parsear las celdas acá: el XML
+   * crudo de cada `<sheetData>` (copiarlo a otro hilo es casi gratis — 20 ms para 47 MB — mientras
+   * que copiar 1.2M celdas ya parseadas costaba 1.8 s) más lo ya chico y resuelto (fusiones,
+   * validaciones, estilos, sharedStrings). Ver frontend/src/lib/excelVivoSnapshot.ts. */
+  datosParaWorker(): DatosLibroCrudo;
 }
 
-function textoDe(el: Element): string {
-  // Un <si>/<is> puede tener varios <t> cuando el texto tiene formato mixto (negritas parciales,
-  // etc.) — se concatenan en orden para reconstruir la cadena completa.
-  return Array.from(el.getElementsByTagName('t'))
-    .map((t) => t.textContent ?? '')
-    .join('');
+export interface HojaCruda {
+  xmlCeldas: string;
+  fusiones: Map<string, FusionLeida>;
+  validaciones: ValidacionParseada[];
 }
 
-function parseSharedStrings(xml: string | null): string[] {
-  if (!xml) return [];
-  const doc = new DOMParser().parseFromString(xml, 'application/xml');
-  return Array.from(doc.getElementsByTagName('si')).map(textoDe);
+export interface DatosLibroCrudo {
+  shared: string[];
+  numFmtPorEstilo: number[];
+  codigoPorNumFmt: Map<number, string>;
+  hojas: Map<string, HojaCruda>;
 }
 
 // Índice de estilo (atributo s="N" de la celda) -> numFmtId, más el diccionario de formatos
@@ -118,62 +129,6 @@ function parseEstilos(xml: string | null): { numFmtPorEstilo: number[]; codigoPo
     }
   }
   return { numFmtPorEstilo, codigoPorNumFmt };
-}
-
-// Códigos de los formatos numéricos integrados que declaran decimales o porcentaje (ECMA-376,
-// §18.8.30). El archivo puede redefinirlos en <numFmts>; esta tabla es el respaldo cuando no lo hace.
-const BUILTIN_CODIGOS: Record<number, string> = {
-  2: '0.00', 4: '#,##0.00', 9: '0%', 10: '0.00%', 39: '#,##0.00', 40: '#,##0.00', 43: '#,##0.00', 44: '#,##0.00',
-};
-
-// El código de formato aplicado a la celda: el que declare el archivo tiene prioridad sobre el
-// integrado, porque un .xlsx puede redefinir cualquier numFmtId en <numFmts>.
-function codigoDeFormato(numFmtId: number, codigoPorNumFmt: Map<number, string>): string | undefined {
-  return codigoPorNumFmt.get(numFmtId) ?? BUILTIN_CODIGOS[numFmtId];
-}
-
-// Los literales entre comillas y las secciones [entre corchetes] no son tokens de formato: un
-// código como `0.00" %"` muestra un "%" pero NO escala el número por 100.
-function tokensDeFormato(code: string): string {
-  return code.replace(/"[^"]*"/g, '').replace(/\[[^\]]*\]/g, '').replace(/\\./g, '');
-}
-
-/**
- * Cuántos decimales muestra el formato de la celda, o undefined si no lo declara.
- *
- * Hace falta para presentar el resultado de una fórmula como lo presenta Excel: una división da
- * 1.4054794520547946, pero si la celda tiene formato `#,##0.00` lo que se ve en el Excel es 1.41.
- */
-function decimalesDeFormato(numFmtId: number, codigoPorNumFmt: Map<number, string>): number | undefined {
-  const code = codigoDeFormato(numFmtId, codigoPorNumFmt);
-  if (!code) return undefined;
-  const m = tokensDeFormato(code).split(';')[0].match(/\.(0+)/);
-  return m ? m[1].length : undefined;
-}
-
-/**
- * ¿El formato es de porcentaje? Un "%" entre los tokens del código hace que Excel muestre el número
- * multiplicado por 100: la celda guarda 0.011 y en la hoja se lee 1.10%.
- */
-function esPorcentajeFormato(numFmtId: number, codigoPorNumFmt: Map<number, string>): boolean {
-  const code = codigoDeFormato(numFmtId, codigoPorNumFmt);
-  return code ? tokensDeFormato(code).split(';')[0].includes('%') : false;
-}
-
-// Un formato es de fecha si es uno de los integrados, o si su código contiene tokens de fecha
-// (d/m/y) fuera de los literales entre comillas y de las secciones [entre corchetes].
-function analizarFormato(numFmtId: number, codigoPorNumFmt: Map<number, string>): { esFecha: boolean; soloAnio: boolean } {
-  if (BUILTIN_FECHA.has(numFmtId)) return { esFecha: true, soloAnio: false };
-  const code = codigoPorNumFmt.get(numFmtId);
-  if (!code) return { esFecha: false, soloAnio: false };
-
-  const limpio = tokensDeFormato(code);
-  const esFecha = /[dmy]/i.test(limpio);
-  if (!esFecha) return { esFecha: false, soloAnio: false };
-
-  // "yyyy;@" -> primera sección "yyyy" -> solo año
-  const primeraSeccion = limpio.split(';')[0].trim();
-  return { esFecha: true, soloAnio: /^y+$/i.test(primeraSeccion) };
 }
 
 async function leerMapaHojas(zip: JSZip): Promise<{ rutaPorHoja: Map<string, string>; nombresDefinidos: Map<string, string> }> {
@@ -204,7 +159,7 @@ async function leerMapaHojas(zip: JSZip): Promise<{ rutaPorHoja: Map<string, str
   return { rutaPorHoja: nombreToPath, nombresDefinidos: parseNombresDefinidos(wbDoc) };
 }
 
-interface HojaParseada {
+export interface HojaParseada {
   celdas: Map<string, CeldaLeida>;
   /** Fórmula de cada celda que la tenga, sin el `=` inicial. La usa el evaluador en vivo
    * (excelFormulaEval) para reproducir lo que el Excel calcularía. */
@@ -231,15 +186,9 @@ interface Rect {
   f2: number;
 }
 
-interface ValidacionParseada {
+export interface ValidacionParseada {
   rects: Rect[];
   formula: string;
-}
-
-function indiceColumna(letra: string): number {
-  let n = 0;
-  for (const ch of letra.toUpperCase()) n = n * 26 + (ch.charCodeAt(0) - 64);
-  return n;
 }
 
 function parseFusiones(doc: Document): Map<string, FusionLeida> {
@@ -256,54 +205,6 @@ function parseFusiones(doc: Document): Map<string, FusionLeida> {
   return out;
 }
 
-// Referencia A1 dentro de una fórmula, con sus `$` opcionales. Se usa para trasladar las fórmulas
-// compartidas; por eso importa distinguir la parte absoluta (con `$`, no se mueve) de la relativa.
-const RE_REF_EN_FORMULA = /(\$?)([A-Z]{1,3})(\$?)([0-9]{1,7})/g;
-
-function letraColumna(n: number): string {
-  let s = '';
-  let i = n;
-  while (i > 0) {
-    const r = (i - 1) % 26;
-    s = String.fromCharCode(65 + r) + s;
-    i = Math.floor((i - 1) / 26);
-  }
-  return s;
-}
-
-/**
- * Traslada las referencias RELATIVAS de una fórmula, como hace Excel al copiarla a otra celda.
- *
- * Hace falta para las fórmulas compartidas (`<f t="shared">`): Excel guarda el texto UNA sola vez,
- * en la celda maestra, y las demás celdas del rango solo apuntan a ella con su `si`. Sin expandirlas
- * esas celdas parecen no tener fórmula — en el formato oficial son 109, casi todas columnas de
- * totales que se repiten fila a fila.
- */
-function trasladarFormula(formula: string, dCol: number, dFila: number): string {
-  if (dCol === 0 && dFila === 0) return formula;
-  let out = '';
-  let i = 0;
-  // Lo que va entre comillas es texto literal y no se toca.
-  const partes = formula.split(/("(?:[^"]|"")*")/);
-  for (const parte of partes) {
-    if (i++ % 2 === 1) {
-      out += parte;
-      continue;
-    }
-    out += parte.replace(RE_REF_EN_FORMULA, (todo, absCol, col, absFila, fila, offset: number) => {
-      // Un nombre de función (`LOG10(`) o un identificador más largo no es una referencia
-      const siguiente = parte[offset + todo.length];
-      const anterior = parte[offset - 1];
-      if (siguiente === '(' || (anterior && /[A-Za-z0-9_.]/.test(anterior))) return todo;
-
-      const nCol = absCol ? col : letraColumna(Math.max(indiceColumna(col) + dCol, 1));
-      const nFila = absFila ? fila : String(Math.max(Number(fila) + dFila, 1));
-      return `${absCol}${nCol}${absFila}${nFila}`;
-    });
-  }
-  return out;
-}
-
 function parseSqref(sqref: string): Rect[] {
   const out: Rect[] = [];
   // Un sqref son varios rangos separados por espacios: "O66:O81 G66:G81", "H8 H18".
@@ -315,6 +216,26 @@ function parseSqref(sqref: string): Rect[] {
     out.push({ c1, f1, c2: m[3] ? indiceColumna(m[3]) : c1, f2: m[4] ? Number(m[4]) : f1 });
   }
   return out;
+}
+
+// Una validación de datos con `sqref` de varias filas (ej. "D69:D200") guarda UNA sola fórmula de
+// texto, escrita en relación a la fila ancla (la primera del rango) — igual que una fórmula normal
+// de Excel: al consultar D70 hay que leerla como si dijera C70, no C69 literal. Sin este ajuste, una
+// lista en cascada (Departamento->Provincia->Distrito) solo funciona en la fila ancla de su propia
+// validación y falla en silencio en cualquier otra fila de una tabla de filas dinámicas — encontrado
+// en vivo en "Ubicación geográfica" (Ficha Estandar D69:D70): la fila 2 (Destino) evaluaba la
+// referencia a Departamento de la fila 1 (vacía) en vez de la suya propia.
+// Solo se desplazan referencias de fila RELATIVA (sin "$" antes del número); una fila absoluta
+// (`C$69`) se queda igual, como en Excel real. El lookbehind/lookahead evitan tocar el número de un
+// identificador que no es una referencia de celda (ej. un nombre definido como "ZONA5").
+const RE_REF_FILA_RELATIVA = /(?<![A-Za-z0-9_])(\$?)([A-Za-z]{1,3})(\$)?(\d{1,7})(?![A-Za-z0-9_])/g;
+
+function desplazarFilasEnFormula(formula: string, deltaFilas: number): string {
+  if (deltaFilas === 0) return formula;
+  return formula.replace(RE_REF_FILA_RELATIVA, (_m, dolarCol, col, dolarFila, filaStr) => {
+    if (dolarFila) return _m; // fila absoluta ($69): no se mueve, igual que en Excel
+    return `${dolarCol}${col}${Number(filaStr) + deltaFilas}`;
+  });
 }
 
 function hijoLocal(el: Element | null | undefined, nombre: string): Element | undefined {
@@ -354,109 +275,12 @@ function parseValidaciones(doc: Document): ValidacionParseada[] {
   return out;
 }
 
-function parseHoja(
-  xml: string,
-  shared: string[],
-  numFmtPorEstilo: number[],
-  codigoPorNumFmt: Map<number, string>,
-): HojaParseada {
-  const celdas = new Map<string, CeldaLeida>();
-  const estilos = new Map<string, number>();
-  const formulas = new Map<string, string>();
-  const formatos = new Map<string, { esFecha: boolean; soloAnio: boolean; esPorcentaje: boolean; decimales?: number; codigo?: string }>();
-  // Fórmulas compartidas: `si` -> celda que sí trae el texto, y las que solo la referencian.
-  const maestras = new Map<string, { formula: string; ref: string }>();
-  const pendientes: { ref: string; si: string }[] = [];
-  const doc = new DOMParser().parseFromString(xml, 'application/xml');
-  let filaMaxima = 0;
-
-  for (const c of Array.from(doc.getElementsByTagName('c'))) {
-    const ref = c.getAttribute('r');
-    if (!ref) continue;
-    const tipo = c.getAttribute('t');
-
-    const filaDeRef = Number(ref.match(/[0-9]+$/)?.[0]);
-    if (Number.isFinite(filaDeRef) && filaDeRef > filaMaxima) filaMaxima = filaDeRef;
-
-    const estiloAttr = c.getAttribute('s');
-    if (estiloAttr !== null) estilos.set(ref, Number(estiloAttr));
-
-    // El formato se guarda para TODA celda, tenga valor o no: una celda con fórmula todavía sin
-    // calcular aparece vacía, y aun así su resultado debe mostrarse con su formato (R53 = TODAY()
-    // con formato "yyyy;@" se ve como el año, no como una fecha completa).
-    const numFmtCelda = estiloAttr !== null ? (numFmtPorEstilo[Number(estiloAttr)] ?? 0) : 0;
-    const codigo = codigoDeFormato(numFmtCelda, codigoPorNumFmt);
-    const decimales = decimalesDeFormato(numFmtCelda, codigoPorNumFmt);
-    const esPorcentaje = esPorcentajeFormato(numFmtCelda, codigoPorNumFmt);
-    const formatoCelda = { ...analizarFormato(numFmtCelda, codigoPorNumFmt), esPorcentaje, decimales, codigo };
-    // General (0) y Texto (49) no aportan máscara; el resto sí (fecha, %, `"E-"00`, `0.00`, …).
-    if (formatoCelda.esFecha || esPorcentaje || decimales !== undefined || (codigo && numFmtCelda !== 0 && numFmtCelda !== 49)) {
-      formatos.set(ref, formatoCelda);
-    }
-
-    const f = c.getElementsByTagName('f')[0];
-    if (f) {
-      const textoFormula = f.textContent?.trim() ?? '';
-      const si = f.getAttribute('t') === 'shared' ? f.getAttribute('si') : null;
-      if (si !== null && textoFormula === '') {
-        // Celda que solo referencia una fórmula compartida: se resuelve al final, cuando ya se
-        // conocen todas las maestras.
-        pendientes.push({ ref, si });
-      } else if (textoFormula) {
-        formulas.set(ref, textoFormula);
-        if (si !== null) maestras.set(si, { formula: textoFormula, ref });
-      }
-    }
-
-    let valor: string | null = null;
-    if (tipo === 'inlineStr') {
-      const is = c.getElementsByTagName('is')[0];
-      valor = is ? textoDe(is) : '';
-    } else {
-      const v = c.getElementsByTagName('v')[0];
-      if (!v) continue; // celda solo con estilo, sin valor
-      const raw = v.textContent ?? '';
-      if (tipo === 's') valor = shared[Number(raw)] ?? '';
-      else if (tipo === 'b') valor = raw === '1' ? 'true' : 'false';
-      else valor = raw; // 'n' (número), 'str' (resultado textual de fórmula), o sin tipo
-    }
-
-    if (valor === null || valor === '') continue;
-
-    // Solo tiene sentido interpretar el formato de fecha o de porcentaje sobre un número: una celda
-    // de texto con ese formato heredado seguiría siendo texto.
-    const esNumero = tipo == null || tipo === 'n';
-    const { esFecha, soloAnio, esPorcentaje: pct } = esNumero
-      ? formatoCelda
-      : { esFecha: false, soloAnio: false, esPorcentaje: false };
-
-    celdas.set(ref, {
-      valor,
-      esFecha,
-      soloAnio,
-      esPorcentaje: pct,
-      decimales: formatoCelda.decimales,
-      codigoFormato: codigo && numFmtCelda !== 0 && numFmtCelda !== 49 ? codigo : undefined,
-      esTexto: tipo === 's' || tipo === 'inlineStr',
-    });
-  }
-  // Expansión de las fórmulas compartidas: cada celda recibe la fórmula de su maestra trasladada
-  // por la diferencia de fila y columna entre ambas, que es exactamente lo que hace Excel.
-  for (const { ref, si } of pendientes) {
-    const maestra = maestras.get(si);
-    if (!maestra) continue;
-    const destino = partirRef(ref);
-    const origen = partirRef(maestra.ref);
-    if (!destino || !origen) continue;
-    formulas.set(ref, trasladarFormula(maestra.formula, destino.col - origen.col, destino.fila - origen.fila));
-  }
-
-  return { celdas, estilos, formulas, formatos, fusiones: parseFusiones(doc), validaciones: parseValidaciones(doc), filaMaxima };
-}
-
-function partirRef(ref: string): { col: number; fila: number } | undefined {
-  const m = ref.match(/^([A-Z]+)([0-9]+)$/i);
-  return m ? { col: indiceColumna(m[1]), fila: Number(m[2]) } : undefined;
+/** Todo lo de la hoja que NO son celdas (fusiones, validaciones), vía DOMParser sobre el XML sin su
+ * `<sheetData>` — unos pocos KB aunque la hoja pese 47 MB. Las celdas se leen aparte, por texto. */
+function hojaCrudaDe(xml: string): HojaCruda {
+  const { celdas, resto } = separarSheetData(xml);
+  const doc = new DOMParser().parseFromString(resto, 'application/xml');
+  return { xmlCeldas: celdas, fusiones: parseFusiones(doc), validaciones: parseValidaciones(doc) };
 }
 
 // Nombres definidos de ámbito global. Se descartan los internos de Excel (`_xlnm.Print_Area`, que
@@ -480,25 +304,41 @@ export async function leerLibroXlsx(fuente: string): Promise<LibroLeido> {
   const { fetchBinarioOrFalla } = await import('./fetchBinario');
   const zip = await JSZip.loadAsync(await (await fetchBinarioOrFalla(fuente)).arrayBuffer());
 
-  const shared = parseSharedStrings((await zip.file('xl/sharedStrings.xml')?.async('string')) ?? null);
+  const shared = parseSharedStringsTexto((await zip.file('xl/sharedStrings.xml')?.async('string')) ?? null);
   const { numFmtPorEstilo, codigoPorNumFmt } = parseEstilos((await zip.file('xl/styles.xml')?.async('string')) ?? null);
   const { rutaPorHoja, nombresDefinidos } = await leerMapaHojas(zip);
 
   // Las hojas se parsean bajo demanda (y se memorizan): un libro real trae ~24 hojas y la plantilla
   // solo consulta las que tiene mapeadas.
   const cache = new Map<string, HojaParseada>();
+  const cacheCruda = new Map<string, HojaCruda>();
   const pendientes = new Map<string, string>(); // hoja -> xml sin parsear
   for (const [nombre, ruta] of rutaPorHoja) {
     const file = zip.file(ruta);
     if (file) pendientes.set(nombre, await file.async('string'));
   }
 
+  function hojaCruda(hoja: string): HojaCruda | undefined {
+    let cruda = cacheCruda.get(hoja);
+    if (!cruda) {
+      const xml = pendientes.get(hoja);
+      if (xml === undefined) return undefined;
+      cruda = hojaCrudaDe(xml);
+      cacheCruda.set(hoja, cruda);
+    }
+    return cruda;
+  }
+
   function hojaParseada(hoja: string): HojaParseada | undefined {
     let parseada = cache.get(hoja);
     if (!parseada) {
-      const xml = pendientes.get(hoja);
-      if (xml === undefined) return undefined;
-      parseada = parseHoja(xml, shared, numFmtPorEstilo, codigoPorNumFmt);
+      const cruda = hojaCruda(hoja);
+      if (!cruda) return undefined;
+      parseada = {
+        ...parseCeldasTexto(cruda.xmlCeldas, shared, numFmtPorEstilo, codigoPorNumFmt),
+        fusiones: cruda.fusiones,
+        validaciones: cruda.validaciones,
+      };
       cache.set(hoja, parseada);
     }
     return parseada;
@@ -542,9 +382,21 @@ export async function leerLibroXlsx(fuente: string): Promise<LibroLeido> {
       const col = indiceColumna(m[1]);
       const fila = Number(m[2]);
       for (const v of hojaParseada(hoja)?.validaciones ?? []) {
-        if (v.rects.some((r) => col >= r.c1 && col <= r.c2 && fila >= r.f1 && fila <= r.f2)) return v.formula;
+        const r = v.rects.find((r) => col >= r.c1 && col <= r.c2 && fila >= r.f1 && fila <= r.f2);
+        if (r) return desplazarFilasEnFormula(v.formula, fila - r.f1);
       }
       return undefined;
+    },
+    hojaCompleta(hoja: string): HojaParseada | undefined {
+      return hojaParseada(hoja);
+    },
+    datosParaWorker(): DatosLibroCrudo {
+      const hojas = new Map<string, HojaCruda>();
+      for (const nombre of rutaPorHoja.keys()) {
+        const cruda = hojaCruda(nombre);
+        if (cruda) hojas.set(nombre, cruda);
+      }
+      return { shared, numFmtPorEstilo, codigoPorNumFmt, hojas };
     },
   };
 }

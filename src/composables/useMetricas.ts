@@ -5,9 +5,9 @@ import { useSectoresQuery } from './useSectores';
 // derivan de los contadores denormalizados en cada Sector, no de los recursos `plantillas`/`ejemplos`
 // (todavía no migrados).
 export function useMetricas() {
-  const { data: sectores } = useSectoresQuery();
+  const { data: sectores, isPending } = useSectoresQuery();
 
-  return computed(() => {
+  const metricas = computed(() => {
     const lista = sectores.value ?? [];
     return {
       totalSectores: lista.filter((s) => s.activo).length,
@@ -15,4 +15,6 @@ export function useMetricas() {
       totalEjemplos: lista.reduce((sum, s) => sum + s.cantidadEjemplos, 0),
     };
   });
+
+  return { metricas, isPending };
 }

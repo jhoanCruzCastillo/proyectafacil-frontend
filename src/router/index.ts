@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import { useSessionStore } from '@/stores/session';
 import { puedeAccederGestionUsuarios, puedeAccederProyectosIA } from '@/lib/permisos';
+import { estaEnMantenimiento } from '@/lib/estadoMantenimiento';
 
 // Rutas agregadas en fases posteriores (sectores/:id, editor, usuarios, cliente, etc.) — ver
 // C:\Users\anton\.claude\plans\reactive-forging-wren.md. Cada meta.* controla el guard único de abajo,
@@ -9,6 +10,13 @@ import { puedeAccederGestionUsuarios, puedeAccederProyectosIA } from '@/lib/perm
 const router = createRouter({
   history: createWebHistory(),
   routes: [
+    {
+      // Standalone, sin MainLayout/sidebar ni requiresAuth — ver estaEnMantenimiento() y el
+      // beforeEach de abajo, que redirige acá CUALQUIER otra ruta mientras esté activo.
+      path: '/mantenimiento',
+      name: 'mantenimiento',
+      component: () => import('@/features/errores/MaintenancePage.vue'),
+    },
     {
       path: '/login',
       name: 'login',
@@ -263,7 +271,21 @@ const router = createRouter({
           component: () => import('@/features/about/AboutPage.vue'),
           meta: { soloSuperusuario: true },
         },
+        {
+          path: 'test',
+          name: 'prueba-ia',
+          component: () => import('@/features/pruebas/PruebaIAPage.vue'),
+          meta: { soloSuperusuario: true },
+        },
       ],
+    },
+    {
+      // Catch-all: cualquier URL que no matchee ninguna ruta de arriba (typo, enlace viejo,
+      // etc.) — standalone, sin MainLayout/sidebar ni requiresAuth, para que funcione sin
+      // sesión también.
+      path: '/:pathMatch(.*)*',
+      name: 'not-found',
+      component: () => import('@/features/errores/NotFoundPage.vue'),
     },
   ],
 });
@@ -277,6 +299,17 @@ const RUTAS_SIN_PLAN = new Set([
 ]);
 
 router.beforeEach((to) => {
+  // Máxima prioridad, antes que cualquier chequeo de sesión/rol: con el mantenimiento activo,
+  // CUALQUIER dirección cae acá — sin excepción (pedido explícito del usuario, ni siquiera
+  // superusuario). El estado se consultó una sola vez al arrancar la SPA (ver main.ts) — sin
+  // polling, quien ya tenía la pestaña abierta lo ve recién al navegar o recargar.
+  if (estaEnMantenimiento() && to.name !== 'mantenimiento') {
+    return { name: 'mantenimiento' };
+  }
+  if (!estaEnMantenimiento() && to.name === 'mantenimiento') {
+    return { name: 'home' };
+  }
+
   const session = useSessionStore();
 
   if (to.meta.requiresAuth && !session.sesion) {

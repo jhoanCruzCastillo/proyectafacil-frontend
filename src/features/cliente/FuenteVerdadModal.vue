@@ -154,10 +154,11 @@ const puedeLlenar = computed(
 const mensajeConfirmLlenar = computed(() => {
   const n = seccionIdsSeleccionados.value.length;
   const total = seccionesDisponibles.value.length;
-  if (n >= total && total > 0) {
-    return 'Esto BORRARÁ los valores actuales de todas las secciones seleccionadas y los volverá a llenar desde la fuente de la verdad. Puede tardar varios minutos. Esta acción no se puede deshacer.';
-  }
-  return `Se llenarán ${n} sección${n === 1 ? '' : 'es'} con IA. Solo se reemplazarán los campos de esas secciones; el resto de la ficha se conserva. Puede tardar unos minutos.`;
+  const base =
+    n >= total && total > 0
+      ? 'Esto BORRARÁ los valores actuales de todas las secciones seleccionadas y los volverá a llenar desde la fuente de la verdad. Esta acción no se puede deshacer.'
+      : `Se llenarán ${n} sección${n === 1 ? '' : 'es'} con IA. Solo se reemplazarán los campos de esas secciones; el resto de la ficha se conserva.`;
+  return `${base} El llenado corre en segundo plano en el servidor — puedes cerrar esta ficha, cerrar sesión o apagar tu computadora; te avisaremos por correo (y en la campanita de notificaciones) cuando termine.`;
 });
 
 async function handleLlenarFicha() {
@@ -342,10 +343,10 @@ async function handleLlenarFicha() {
                     <span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-violet-200 text-violet-700 tracking-wide">BETA</span>
                   </p>
                   <p class="text-xs text-muted mt-1">
-                    <template v-if="todasSeleccionadas">La IA completará todas las secciones de la ficha técnica.</template>
-                    <template v-else-if="seccionIdsSeleccionados.length === 0">Selecciona al menos una sección para continuar.</template>
+                    <template v-if="seccionIdsSeleccionados.length === 0">Selecciona al menos una sección para continuar.</template>
+                    <template v-else-if="todasSeleccionadas">La IA completará todas las secciones en segundo plano — te avisamos por correo cuando termine.</template>
                     <template v-else>
-                      La IA completará {{ seccionIdsSeleccionados.length }} sección{{ seccionIdsSeleccionados.length === 1 ? '' : 'es' }} seleccionada{{ seccionIdsSeleccionados.length === 1 ? '' : 's' }}.
+                      La IA completará {{ seccionIdsSeleccionados.length }} sección{{ seccionIdsSeleccionados.length === 1 ? '' : 'es' }} seleccionada{{ seccionIdsSeleccionados.length === 1 ? '' : 's' }} en segundo plano — te avisamos por correo cuando termine.
                     </template>
                   </p>
                 </div>

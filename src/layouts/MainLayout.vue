@@ -11,6 +11,8 @@ import { useInvalidarMisBeneficios } from '@/composables/useBeneficios';
 import { useIsDesktop, SIDEBAR_WIDTH, SIDEBAR_WIDTH_COLLAPSED } from '@/composables/useViewport';
 import { pagosHttp } from '@/api/http/pagos.http';
 import { useMisSolicitudesQuery } from '@/composables/useAsesoria';
+import { useUsuariosQuery } from '@/composables/useUsuarios';
+import { cuentaEfectivaDe } from '@/lib/permisos';
 import Sidebar from '@/components/Sidebar.vue';
 import Avatar from '@/components/Avatar.vue';
 import AsesoriaChatPanel from '@/features/asesoria/AsesoriaChatPanel.vue';
@@ -24,6 +26,7 @@ const router = useRouter();
 const queryClient = useQueryClient();
 const invalidarMisBeneficios = useInvalidarMisBeneficios();
 const isDesktop = useIsDesktop();
+const { data: usuariosData } = useUsuariosQuery();
 
 // El drawer móvil se cierra solo al navegar — si no, cada link forzaría al usuario a cerrarlo a
 // mano después de cada tap.
@@ -84,7 +87,17 @@ onMounted(async () => {
       confirmado ? 'success' : 'error',
     );
     if (session.sesion) {
-      queryClient.invalidateQueries({ queryKey: ['facturacion', session.sesion.usuarioId] });
+      // Cuenta EFECTIVA (titular, no necesariamente `usuarioId` para un colaborador) — la misma que
+      // arman ElegirPlanPage.vue/AsesoriasPage.vue para leer facturación y tickets. Usar solo
+      // `usuarioId` acá dejaba la invalidación de facturación sin efecto para un colaborador, y la de
+      // tickets directamente faltaba: comprar un add-on de consulta (chat o videollamada) confirmaba
+      // el pago y lo insertaba bien en `tickets_consulta` (ver PagosController::procesarSesionCompletada),
+      // pero como nadie invalidaba ['tickets-consulta', cuentaId], el contador de consultas
+      // disponibles se quedaba pegado en el valor cacheado antes de la compra — encontrado en vivo
+      // (2026-09-27): el pago confirmaba éxito en Stripe pero el usuario volvía a ver "0 disponibles".
+      const cuentaId = cuentaEfectivaDe(usuariosData.value ?? [], session.sesion);
+      queryClient.invalidateQueries({ queryKey: ['facturacion', cuentaId] });
+      queryClient.invalidateQueries({ queryKey: ['tickets-consulta', cuentaId] });
       // `tienePlan`/`alumnoVigente` (lo que de verdad desbloquea "Proyectos de Inversión con IA" en
       // el sidebar/portada — ver puedeAccederProyectosIA en lib/permisos.ts) viven en `session.sesion`,
       // no en la query de facturación de arriba — invalidar esa query no los actualiza. Sin este
@@ -147,8 +160,8 @@ onMounted(async () => {
          reserva espacio), así que ahí quedan pegados al borde de la pantalla nomás. -->
     <div
       v-if="chatsEnCursoSinAbrir.length > 0"
-      class="fixed bottom-6 z-20 flex flex-col-reverse gap-3 transition-[left] duration-150 ease-out"
-      :style="{ left: isDesktop ? `${(ui.sidebarCollapsed ? SIDEBAR_WIDTH_COLLAPSED : SIDEBAR_WIDTH) + 12}px` : '16px' }"
+      class="fixed bottom-6 left-0 z-20 flex flex-col-reverse gap-3 transition-transform duration-150 ease-out"
+      :style="{ transform: `translateX(${isDesktop ? (ui.sidebarCollapsed ? SIDEBAR_WIDTH_COLLAPSED : SIDEBAR_WIDTH) + 12 : 16}px)` }"
     >
       <button
         v-for="s in chatsEnCursoSinAbrir"

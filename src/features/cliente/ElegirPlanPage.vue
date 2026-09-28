@@ -11,15 +11,13 @@ import {
 import PageShell from '@/components/PageShell.vue';
 import PlanIcono from './PlanIcono.vue';
 import PlanDetalleModal from './PlanDetalleModal.vue';
-import ComprarAddOnModal from '@/features/settings/ComprarAddOnModal.vue';
 import { useSessionStore } from '@/stores/session';
 import { useCheckoutPlan } from '@/composables/usePagos';
 import { useFacturacionQuery } from '@/composables/useFacturacion';
 import { useUsuariosQuery } from '@/composables/useUsuarios';
-import { useTicketsConsultaQuery } from '@/composables/useTicketsConsulta';
 import { useUiStore } from '@/stores/ui';
-import { cuentaEfectivaDe, puedeAccederProyectosIA, tieneServicioIlpiieLive } from '@/lib/permisos';
-import { planes, addOns } from '@/data/planes';
+import { cuentaEfectivaDe, puedeAccederProyectosIA } from '@/lib/permisos';
+import { planes } from '@/data/planes';
 import type { Plan } from '@/types';
 
 // Sirve tanto para un cliente que todavía no eligió ningún plan (Sesion.tienePlan === false — ver
@@ -29,8 +27,6 @@ const session = useSessionStore();
 const ui = useUiStore();
 const router = useRouter();
 const checkoutPlan = useCheckoutPlan();
-const ADDON_CONSULTA = addOns.find((a) => a.id === 'consultoria-1a1') ?? null;
-const showComprarLive = ref(false);
 
 // Sin plan todavía: no consultar facturación (no hace falta: no hay fila). El alta de membresía
 // es Checkout o el panel admin; GET /facturacion es solo lectura.
@@ -41,13 +37,7 @@ const cuentaIdFacturacion = computed(() => {
 });
 const { data: facturacion } = useFacturacionQuery(cuentaIdFacturacion);
 
-const cuentaIdTickets = computed(() => {
-  if (!session.sesion) return '';
-  return cuentaEfectivaDe(usuariosData.value ?? [], session.sesion);
-});
-const { data: ticketsConsulta } = useTicketsConsultaQuery(cuentaIdTickets);
 const desbloqueadoProyectosIA = computed(() => (session.sesion ? puedeAccederProyectosIA(session.sesion) : false));
-const tieneIlpiieLive = computed(() => tieneServicioIlpiieLive(ticketsConsulta.value));
 
 function irAProyectosIA() {
   router.push({ name: 'formatos' });
@@ -443,15 +433,11 @@ const CONFIANZA: { icono: IconDefinition; titulo: string; texto: string }[] = [
         <p class="text-[0.8rem] mt-1 mb-5 text-muted">
           Asesoría en vivo por chat o videollamada sobre temas y subtemas puntuales de tu proyecto.
         </p>
-        <p
-          class="text-[0.75rem] font-medium mb-5 flex items-center justify-center gap-1.5"
-          :class="tieneIlpiieLive ? 'text-red-600' : 'text-gray-400'"
-        >
-          <FontAwesomeIcon :icon="tieneIlpiieLive ? faCircleCheck : faLock" class="w-3 h-3" />
-          {{ tieneIlpiieLive ? 'Siempre disponible' : 'Aún no has adquirido este servicio' }}
+        <p class="text-[0.75rem] font-medium mb-5 flex items-center justify-center gap-1.5 text-red-600">
+          <FontAwesomeIcon :icon="faCircleCheck" class="w-3 h-3" />
+          Siempre disponible
         </p>
         <button
-          v-if="tieneIlpiieLive"
           @click="irAIlpiieLive"
           type="button"
           class="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-red-600 text-white text-[0.8rem] font-semibold hover:bg-red-700 transition-colors duration-75"
@@ -459,22 +445,7 @@ const CONFIANZA: { icono: IconDefinition; titulo: string; texto: string }[] = [
           Entrar
           <FontAwesomeIcon :icon="faArrowRight" class="w-3 h-3" />
         </button>
-        <button
-          v-else
-          @click="showComprarLive = true"
-          type="button"
-          class="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-red-600 text-white text-[0.8rem] font-semibold hover:bg-red-700 transition-colors duration-75"
-        >
-          Contratar
-        </button>
       </div>
-
-      <ComprarAddOnModal
-        :is-open="showComprarLive"
-        :usuario-id="cuentaIdTickets"
-        :addon="ADDON_CONSULTA"
-        @close="showComprarLive = false"
-      />
     </div>
   </PageShell>
 </template>

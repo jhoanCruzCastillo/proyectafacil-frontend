@@ -32,7 +32,7 @@ import ImportarExcelModal from '@/components/ImportarExcelModal.vue';
 import UsuarioModal from './UsuarioModal.vue';
 import GestionarRolesModal from './GestionarRolesModal.vue';
 import PermisosUsuarioModal from './PermisosUsuarioModal.vue';
-import { importarAlumnosExcel } from '@/api/http/usuarios.http';
+import { descargarPlantillaAlumnos, importarAlumnosExcel } from '@/api/http/usuarios.http';
 import { useCursosQuery } from '@/composables/useCursos';
 import NuevoCursoModal from './NuevoCursoModal.vue';
 import type { Usuario, RolUsuario, OrigenCliente, ActividadReciente, ResultadoImportacion } from '@/types';
@@ -561,11 +561,16 @@ function handleNuevo() {
   showModal.value = true;
 }
 
+// Espejo de UsuariosController::COLUMNAS_ALUMNOS. Curso y Beneficio van POR FILA en el archivo
+// (con desplegable en la plantilla descargable), no como un valor único del formulario: así un
+// mismo Excel puede repartir alumnos entre varios cursos o planes.
 const COLUMNAS_IMPORT_ALUMNOS = [
   { nombre: 'Nombre', detalle: 'Nombres y apellidos (obligatorio)' },
   { nombre: 'Correo', detalle: 'Correo electrónico único (obligatorio)' },
   { nombre: 'Teléfono', detalle: 'Opcional' },
   { nombre: 'Vigencia hasta', detalle: 'Fecha AAAA-MM-DD hasta la que tendrá acceso como alumno (opcional)' },
+  { nombre: 'Curso', detalle: 'Elige uno de la lista desplegable (opcional)' },
+  { nombre: 'Beneficio', detalle: 'Elige uno de la lista desplegable; se otorga sin cobro (opcional)' },
 ];
 const mostrarImportarAlumnos = ref(false);
 function importacionAlumnosCompletada(_resultado: ResultadoImportacion) {
@@ -719,8 +724,13 @@ async function handleDelete() {
       </div>
     </div>
 
-    <!-- Filtro de cursos — solo en la pestaña Clientes - Alumnos -->
-    <div v-if="tabActiva === 'alumnos'" class="flex flex-wrap items-center gap-3 px-6 pb-4">
+    <!-- Tabla + panel de detalles -->
+    <div class="flex items-start gap-5 px-6 pb-6">
+      <div class="flex-1 min-w-0">
+        <!-- Filtro de cursos — solo en la pestaña Clientes - Alumnos. Vive DENTRO de la columna de
+             la tabla (y no a lo ancho de la página) para que "Crear curso", que se empuja con
+             ml-auto, quede alineado al borde derecho de la tabla y no encima del panel de detalles. -->
+        <div v-if="tabActiva === 'alumnos'" class="flex flex-wrap items-center gap-3 mb-3">
       <label class="flex items-center gap-2 text-sm text-muted shrink-0">
         Curso
         <select
@@ -757,11 +767,9 @@ async function handleDelete() {
         <FontAwesomeIcon :icon="faPlus" class="w-3.5 h-3.5" />
         Crear curso
       </button>
-    </div>
+        </div>
 
-    <!-- Tabla + panel de detalles -->
-    <div class="flex items-start gap-5 px-6 pb-6">
-      <div class="flex-1 min-w-0 rounded-xl border border-gray-200 overflow-hidden overflow-x-auto">
+      <div class="rounded-xl border border-gray-200 overflow-hidden overflow-x-auto">
         <table class="w-full">
           <thead>
             <tr class="border-b border-gray-100 bg-gray-50">
@@ -910,6 +918,7 @@ async function handleDelete() {
             </select>
           </label>
         </div>
+      </div>
       </div>
 
       <Teleport to="body">
@@ -1373,6 +1382,7 @@ async function handleDelete() {
       titulo="Importar clientes-alumnos desde Excel"
       :columnas="COLUMNAS_IMPORT_ALUMNOS"
       :subir="importarAlumnosExcel"
+      :descargar-plantilla="descargarPlantillaAlumnos"
       @importado="importacionAlumnosCompletada"
       @close="mostrarImportarAlumnos = false"
     />

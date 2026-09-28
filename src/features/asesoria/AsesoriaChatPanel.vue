@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
+import { useQueryClient } from '@tanstack/vue-query';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import {
   faXmark, faPaperPlane, faVideo, faArrowUpRightFromSquare, faCircleCheck,
-  faPaperclip, faFileLines, faDownload, faSpinner, faCheck, faCheckDouble,
+  faPaperclip, faFileLines, faDownload, faSpinner, faCheck, faCheckDouble, faClock,
 } from '@/lib/icons';
 import { formatHora } from '@/lib/tiempoRelativo';
 import { abrirArchivoUrl } from '@/lib/fetchBinario';
@@ -154,10 +155,46 @@ function onDragEnd() {
   window.removeEventListener('mouseup', onDragEnd);
 }
 
+// ─── Temporizador de la asesoría por chat ────────────────────────────────────────────────────
+// El reloj lo define el backend (`chatVenceEn`, que arranca con el PRIMER mensaje del asesor, no
+// con la aceptación — ver SolicitudAsesoriaHelpersTrait::ventanaChat). Acá solo se muestra la
+// cuenta regresiva; quien realmente cierra la asesoría es el backend cuando alguien lee la
+// solicitud, así que al llegar a cero basta con refrescar el listado para que se entere.
+const ahora = ref(Date.now());
+const tickId = window.setInterval(() => { ahora.value = Date.now(); }, 1000);
+
+const segundosRestantes = computed(() => {
+  if (props.solicitud.tipo !== 'chat' || !props.solicitud.chatVenceEn) return null;
+  return Math.max(0, Math.floor((new Date(props.solicitud.chatVenceEn).getTime() - ahora.value) / 1000));
+});
+const temporizador = computed(() => {
+  const s = segundosRestantes.value;
+  if (s === null) return null;
+  const mm = String(Math.floor(s / 60)).padStart(2, '0');
+  const ss = String(s % 60).padStart(2, '0');
+  return `${mm}:${ss}`;
+});
+/** Últimos 5 minutos: se resalta para que el asesor sepa que tiene que ir cerrando. */
+const temporizadorEnAlerta = computed(() => segundosRestantes.value !== null && segundosRestantes.value <= 300);
+
+// Al llegar a 0 se pide el listado una sola vez: esa lectura dispara el cierre en el backend y el
+// panel se entera por el cambio de estado, sin que el frontend decida nada por su cuenta.
+const queryClient = useQueryClient();
+let vencimientoNotificado = false;
+watch(segundosRestantes, (s) => {
+  if (s !== 0 || vencimientoNotificado) return;
+  vencimientoNotificado = true;
+  queryClient.invalidateQueries({ queryKey: ['asesoria', 'solicitudes'] });
+});
+watch(() => props.solicitud.estado, (estado) => {
+  if (estado === 'completado') emit('finalizada');
+});
+
 onUnmounted(() => {
   window.removeEventListener('mousemove', onDragMove);
   window.removeEventListener('mouseup', onDragEnd);
   if (dragRafId !== null) cancelAnimationFrame(dragRafId);
+  window.clearInterval(tickId);
 });
 
 watch(mensajes, () => {
@@ -345,6 +382,15 @@ const mensajesConDivisor = computed(() => {
             </div>
           </div>
           <div class="flex items-center gap-1 shrink-0">
+            <span
+              v-if="temporizador"
+              class="px-2.5 py-1 rounded-full text-xs font-bold tabular-nums flex items-center gap-1.5 transition-colors duration-100"
+              :class="temporizadorEnAlerta ? 'bg-red-500 text-white' : 'bg-white/20 text-white'"
+              :title="`La asesoría se cierra sola cuando llega a 00:00 (${solicitud.chatDuracionMinutos} min en total)`"
+            >
+              <FontAwesomeIcon :icon="faClock" class="w-3 h-3" />
+              {{ temporizador }}
+            </span>
             <button
               @click="mostrarConfirmarFinalizar = true"
               :disabled="finalizando"

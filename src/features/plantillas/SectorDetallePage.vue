@@ -15,12 +15,13 @@ import { useCrearPlantilla } from '@/composables/useSectorPlantillaActions';
 import { usePushActividad } from '@/composables/useActividad';
 import { useSessionStore } from '@/stores/session';
 import { useUiStore } from '@/stores/ui';
+import AppLoadingScreen from '@/components/AppLoadingScreen.vue';
 import type { Seccion, TipoInstrumento, TipologiaIoarr } from '@/types';
 
 const route = useRoute();
 const sectorId = computed(() => route.params.sectorId as string);
 
-const { data: sector } = useSectorQuery(sectorId);
+const { data: sector, isPending: cargandoSector } = useSectorQuery(sectorId);
 const { data: plantillas } = usePlantillasBySectorQuery(sectorId);
 const { data: todasPlantillas } = usePlantillasQuery();
 const { data: todosSectores } = useSectoresQuery();
@@ -90,7 +91,8 @@ async function handleImport(data: {
 </script>
 
 <template>
-  <div v-if="!sector" class="p-8 text-white/60">Sector no encontrado</div>
+  <AppLoadingScreen v-if="cargandoSector" />
+  <div v-else-if="!sector" class="p-8 text-white/60">Sector no encontrado</div>
   <PageShell
     v-else
     :icon="icon"

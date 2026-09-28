@@ -5,6 +5,7 @@ import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { faChevronLeft, faChevronRight } from '@/lib/icons';
 import ResizeHandle from '@/components/ResizeHandle.vue';
 import ConfirmModal from '@/components/ConfirmModal.vue';
+import AppLoadingScreen from '@/components/AppLoadingScreen.vue';
 import SectionIndex from './SectionIndex.vue';
 import SectionContent from './SectionContent.vue';
 import SectionLoadingSkeleton from './SectionLoadingSkeleton.vue';
@@ -32,7 +33,7 @@ const { data: sector } = useSectorQuery(sectorId);
 
 const {
   estadoGuardado,
-  editData, activeTab, selectedCampo, isNewCampo, editingHojaSeccionId,
+  editData, cargandoPlantilla, activeTab, selectedCampo, isNewCampo, editingHojaSeccionId,
   leftWidth, rightWidth, examplesWidth, highlightMissingCaptura, campoErrorInsercionId, ejemplosCount, jsonPreview,
   showImportEstructura,
   modoEdicion, setModoEdicion, borradoresPorCampo, confirmarBorradorCampo,
@@ -92,7 +93,8 @@ function confirmarEliminarSeccion() {
 </script>
 
 <template>
-  <div v-if="!editData" class="p-8 text-muted">Plantilla no encontrada</div>
+  <AppLoadingScreen v-if="cargandoPlantilla" />
+  <div v-else-if="!editData" class="p-8 text-muted">Plantilla no encontrada</div>
   <div v-else class="flex flex-col h-screen">
     <EditorTopBar
       :plantilla="editData"

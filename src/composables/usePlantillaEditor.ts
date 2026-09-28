@@ -39,14 +39,14 @@ function deepClone<T>(value: T): T {
 // PlantillaEditPage.vue — separada del componente para mantenerlo bajo el límite de 200 líneas
 // (ver CLAUDE.md).
 export function usePlantillaEditor(plantillaId: Ref<string>) {
-  const { data: plantillaOriginal } = usePlantillaQuery(plantillaId);
+  const { data: plantillaOriginal, isPending: cargandoPlantillaQuery } = usePlantillaQuery(plantillaId);
   const actualizarPlantilla = useActualizarPlantilla();
   const { data: ejemplosData } = useEjemplosByPlantillaQuery(plantillaId);
   const crearEjemplo = useCrearEjemplo();
   const actualizarEjemplo = useActualizarEjemplo();
   const eliminarEjemplo = useEliminarEjemplo();
   const marcarReferenciaIA = useMarcarReferenciaIA();
-  const { data: catalogoExcel } = useCatalogoExcelQuery(plantillaId);
+  const { data: catalogoExcel, isPending: cargandoCatalogoExcel } = useCatalogoExcelQuery(plantillaId);
   const setExcelEjemplo = useSetExcelEjemplo();
   const pushActividad = usePushActividad();
   const ui = useUiStore();
@@ -205,11 +205,26 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
   // Entradas del cálculo en vivo. Se reindexan con debounce: indexar Anexo 2 entero en cada
   // persist de tabla trababa el hilo principal; las fórmulas/listas pueden ir ~300 ms detrás.
   const excelMapTrigger = ref(0);
+  // En modo "Confirmar" lo editado queda como borrador hasta confirmarse, pero las listas en cascada
+  // y las fórmulas tienen que reaccionar a lo que el usuario VE: si no, al elegir CUSCO en
+  // Departamento la Provincia seguía calculándose con el valor confirmado anterior. Mismo criterio
+  // que useClienteFichaEditor.ts. Los borradores siempre son del tab activo (limpiarBorradores).
   const resolverValorExcel = computed<ResolverValorCampo>(() => {
     const enEjemplos = activeTab.value === 'ejemplos';
     const valores = editedValores.value;
+    const borradores = borradoresPorCampo.value;
+    const borradoresPorIdentificador: Record<string, string> = {};
+    if (Object.keys(borradores).length > 0) {
+      for (const seccion of editData.value?.secciones ?? []) {
+        for (const sub of seccion.subsecciones) {
+          for (const campo of sub.campos) {
+            if (campo.id in borradores) borradoresPorIdentificador[campo.identificador] = borradores[campo.id];
+          }
+        }
+      }
+    }
     return (identificador, valorEjemplo) =>
-      (enEjemplos ? valores[identificador] : undefined) ?? valorEjemplo ?? '';
+      borradoresPorIdentificador[identificador] ?? (enEjemplos ? valores[identificador] : undefined) ?? valorEjemplo ?? '';
   });
   const valoresPorCelda = useMapaValoresExcelDebounced(
     editData,
@@ -222,8 +237,16 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
   // Se lee el Excel del catálogo (no la copia del ejemplo): es el mismo archivo en cuanto a opciones
   // y fórmulas, pero no cambia al insertar valores, así que la caché sigue válida toda la sesión.
   // Se comparte con las tarjetas de campo por inject.
-  const excelVivo = useExcelVivo(fuenteExcel, valoresPorCelda, modoCalculo);
+  const { excelVivo, listo: excelVivoListo } = useExcelVivo(fuenteExcel, valoresPorCelda, modoCalculo);
   provide(EXCEL_VIVO, excelVivo);
+
+  // Gate único de "la plantilla está lista para mostrarse" (ver mismo criterio en
+  // useClienteFichaEditor.ts): cubre la consulta de la plantilla, su catálogo de Excel, Y que el
+  // worker de Excel vivo ya haya calculado su primer lote — sin esto, los campos "Calculado" se
+  // veían en blanco/editables hasta que el cálculo alcanzaba la sección que se estuviera mirando.
+  const cargandoPlantilla = computed(
+    () => cargandoPlantillaQuery.value || (!!plantillaOriginal.value && cargandoCatalogoExcel.value) || !excelVivoListo.value,
+  );
 
   // Sincroniza `tipo`/`editable` con lo que el Excel asignado dice de verdad: si la celda de captura
   // de un campo tiene fórmula pero el campo no está declarado `calculado`, se corrige solo. Sin esto
@@ -1215,7 +1238,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
 
   return {
     estadoGuardado: autoguardado.estado,
-    editData, activeTab, activeSectionIndex, selectedCampo, isNewCampo, editingHojaSeccionId,
+    editData, cargandoPlantilla, activeTab, activeSectionIndex, selectedCampo, isNewCampo, editingHojaSeccionId,
     leftWidth, rightWidth, examplesWidth, highlightMissingCaptura, campoErrorInsercionId, ejemplosCount, jsonPreview,
     showImportEstructura, modoCalculo, setModoCalculo,
     modoEdicion, setModoEdicion, borradoresPorCampo, confirmarBorradorCampo,

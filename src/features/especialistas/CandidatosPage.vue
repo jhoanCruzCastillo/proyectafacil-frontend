@@ -39,18 +39,19 @@ function importacionCompletada(_resultado: ResultadoImportacion) {
   ui.toast('Especialistas importados a Docentes / Asesores');
 }
 
-type Tab = 'todos' | EstadoCandidato;
+// "Todos" y "Aprobados" se sacaron de los tabs a propósito: como la tabla se filtra por la pestaña
+// activa, sin esas dos pestañas un candidato ya aprobado deja de ser alcanzable desde esta pantalla
+// —que es justo lo que se busca— sin tocar el backend ni el estado de nadie. Un aprobado sigue
+// existiendo y se gestiona desde "Docentes / Asesores".
+type Tab = EstadoCandidato;
 const TABS: { value: Tab; label: string }[] = [
-  { value: 'todos', label: 'Todos' },
   { value: 'registrado', label: 'Registrados' },
   { value: 'en_evaluacion', label: 'En evaluación' },
   { value: 'para_entrevista', label: 'Para entrevista' },
-  { value: 'aprobado', label: 'Aprobados' },
   { value: 'desaprobado', label: 'Desaprobados' },
 ];
 
 const conteoPorTab = computed<Record<Tab, number>>(() => ({
-  todos: resumen.value?.total ?? 0,
   registrado: resumen.value?.porEstado.registrado ?? 0,
   en_evaluacion: resumen.value?.porEstado.en_evaluacion ?? 0,
   para_entrevista: resumen.value?.porEstado.para_entrevista ?? 0,
@@ -66,7 +67,7 @@ const KPIS = computed(() => [
   { key: 'desaprobado', icon: faCircleXmark, label: 'Desaprobados', valor: resumen.value?.porEstado.desaprobado ?? '—', caption: 'No continúan el proceso', iconBg: 'bg-red-100', iconColor: 'text-red-600' },
 ]);
 
-const tabActiva = ref<Tab>('todos');
+const tabActiva = ref<Tab>('registrado');
 const busqueda = ref('');
 const paginaActual = ref(1);
 const porPagina = 10;
@@ -81,8 +82,9 @@ function buscar(valor: string) {
 }
 
 const candidatosFiltrados = computed(() => {
-  let lista = candidatos.value ?? [];
-  if (tabActiva.value !== 'todos') lista = lista.filter((c) => c.estado === tabActiva.value);
+  // Siempre por estado: ya no hay pestaña "Todos", así que la lista nunca mezcla estados y los
+  // aprobados no aparecen por ningún camino, tampoco al buscar.
+  let lista = (candidatos.value ?? []).filter((c) => c.estado === tabActiva.value);
   const q = busqueda.value.trim().toLowerCase();
   if (q) {
     lista = lista.filter((c) => (

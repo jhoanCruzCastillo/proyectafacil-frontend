@@ -5,6 +5,7 @@ import './style.css'
 import App from './App.vue'
 import router from './router'
 import { useSessionStore } from './stores/session'
+import { cargarEstadoMantenimiento } from './lib/estadoMantenimiento'
 
 // DEBUG TEMPORAL — quitar cuando se resuelva el issue de producción devolviendo datos mock.
 // Cada flag usa el patrón `!== 'false'`: si la variable no está definida en el ambiente de build,
@@ -30,9 +31,12 @@ const app = createApp(App)
 const pinia = createPinia()
 app.use(pinia)
 
-// IMPORTANTE: restaurar la sesión ANTES de instalar el router.
-// `app.use(router)` dispara la navegación inicial de inmediato; si el guard corre con
-// sesion=null (aunque el token ya esté en localStorage), redirige a /login y se queda ahí.
+// IMPORTANTE: consultar el modo mantenimiento y restaurar la sesión ANTES de instalar el router.
+// `app.use(router)` dispara la navegación inicial de inmediato; si el guard de mantenimiento corre
+// antes de que este await resuelva, siempre ve "false" y deja pasar aunque esté activo. Mismo
+// motivo que ya aplicaba a restaurar la sesión (si corre con sesion=null aunque el token ya esté en
+// localStorage, redirige a /login y se queda ahí).
+await cargarEstadoMantenimiento()
 try {
   await useSessionStore().restaurar()
 } catch (e) {
@@ -40,7 +44,22 @@ try {
 }
 
 app.use(router)
-app.use(VueQueryPlugin)
+app.use(VueQueryPlugin, {
+  queryClientConfig: {
+    defaultOptions: {
+      queries: {
+        // Default de la librería es 0 (todo "obsoleto" apenas llega) — con decenas de componentes
+        // llamando la MISMA query (ej. useUsuariosQuery() en Sidebar.vue, useClienteFichaEditor.ts,
+        // topbar, modales…), cada nueva pantalla montada volvía a pedir usuarios/plantillas/ejemplos
+        // aunque ya se hubieran cargado hace instantes — confirmado en vivo: /api/usuarios pedido 3
+        // veces y /api/notificaciones 2 veces en una sola entrada a una ficha. 30s alcanza para que
+        // no se note un catálogo desactualizado, y no interfiere con las mutaciones existentes
+        // (invalidateQueries() sigue forzando el refetch de inmediato sin importar este valor).
+        staleTime: 30_000,
+      },
+    },
+  },
+})
 app.mount('#app')
 
 // Permite otro auto-reload si vuelve a aparecer un chunk stale tras un rebuild futuro.

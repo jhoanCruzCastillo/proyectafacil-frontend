@@ -7,6 +7,7 @@ import VersionTabs from '@/components/VersionTabs.vue';
 import ResizeHandle from '@/components/ResizeHandle.vue';
 import SectionIndex from './SectionIndex.vue';
 import SectionContent from './SectionContent.vue';
+import AppLoadingScreen from '@/components/AppLoadingScreen.vue';
 import { usePlantillaQuery } from '@/composables/usePlantillas';
 import { useSectorQuery } from '@/composables/useSectores';
 import type { VersionTab } from '@/types';
@@ -15,8 +16,11 @@ const route = useRoute();
 const sectorId = computed(() => route.params.sectorId as string);
 const plantillaId = computed(() => route.params.plantillaId as string);
 
-const { data: plantilla } = usePlantillaQuery(plantillaId);
-const { data: sector } = useSectorQuery(sectorId);
+const { data: plantilla, isPending: cargandoPlantilla } = usePlantillaQuery(plantillaId);
+const { data: sector, isPending: cargandoSector } = useSectorQuery(sectorId);
+// Ambas queries corren en paralelo desde el inicio — mientras cualquiera siga sin resolver, "no
+// existe" es indistinguible de "está cargando" (mismo fix que en el resto de páginas de plantilla).
+const cargando = computed(() => cargandoPlantilla.value || cargandoSector.value);
 
 const activeTab = ref<VersionTab>('estructura');
 const activeSectionIndex = ref(0);
@@ -40,7 +44,8 @@ function handleSectionSelect(seccionId: string) {
 </script>
 
 <template>
-  <div v-if="!plantilla || !sector" class="p-8 text-muted">Plantilla no encontrada</div>
+  <AppLoadingScreen v-if="cargando" />
+  <div v-else-if="!plantilla || !sector" class="p-8 text-muted">Plantilla no encontrada</div>
   <div v-else class="flex flex-col h-screen">
     <div class="shrink-0 border-b border-gray-100 bg-white px-6 py-3">
       <div class="flex items-center justify-between">

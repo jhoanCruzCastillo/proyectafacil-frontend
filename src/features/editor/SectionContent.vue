@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faCircleQuestion, faTrash, faPlus, faNoteSticky, faGear } from '@/lib/icons';
+import { faCircleQuestion, faTrash, faPlus, faNoteSticky, faGear, faCheck, faWandMagicSparkles } from '@/lib/icons';
 import FieldCard from './FieldCard.vue';
 import AyudaSubseccionModal from './AyudaSubseccionModal.vue';
 import EditarCodigoSubseccionModal from './EditarCodigoSubseccionModal.vue';
 import type { ModoEdicionEditor } from '@/composables/usePlantillaEditor';
-import type { Campo, ConfigTabla, EstadoCampoIA, Seccion, Subseccion } from '@/types';
+import type { Campo, ConfigTabla, EstadoCampoIA, OrigenCampo, Seccion, Subseccion } from '@/types';
 
 // Edición de nombre de sección/subsección, hoja de Excel, agregar/eliminar subsecciones y campos,
 // y edición del valor por defecto y del valor de ejemplo (tab Ejemplos).
@@ -42,6 +42,10 @@ const props = defineProps<{
   erroresTablaIAPorCampo?: Record<string, string>;
   /** Origen breve por identificador de campo ("¿de dónde salió este dato?") */
   fuentesPorCampo?: Record<string, string>;
+  /** Quién puso/tocó por última vez cada valor ('ia'|'usuario', solo ficha del cliente) — indicador
+   * verde/azul + leyenda de la sección, ver OrigenCampo. Su sola presencia (aunque venga {}) activa
+   * la leyenda de abajo — el editor de plantillas/estructura del admin no pasa esta prop. */
+  origenPorCampo?: Record<string, OrigenCampo>;
   /** Advertencias del último llenado con IA de una tabla (ej. fila con UBIGEO sin resolver — ver
    * "?" del editor), por identificador de campo */
   advertenciasPorCampo?: Record<string, string[]>;
@@ -95,6 +99,30 @@ function abrirEditorCodigo(sub: Subseccion) {
     <div class="flex items-center justify-between mb-1">
       <p class="text-sm font-semibold text-brand-600">Sección {{ seccion.numero }}</p>
       <span class="text-xs text-muted">{{ seccion.cantidadCampos }} campos</span>
+    </div>
+
+    <!-- Leyenda de origen del dato (solo ficha del cliente, ver prop origenPorCampo) — a propósito
+         sin un 4to estado "requiere revisión": pedido explícito del usuario, solo estos 3. -->
+    <div v-if="origenPorCampo" class="flex flex-wrap items-center gap-x-5 gap-y-2 mb-4 p-3 rounded-lg bg-gray-50 border border-gray-100">
+      <!-- Mismo tamaño e ícono que el indicador montado sobre el ícono de tipo de dato en
+           FieldCard.vue — la leyenda solo sirve si el círculo que describe es idéntico al que el
+           usuario va a buscar en las tarjetas. -->
+      <span class="inline-flex items-center gap-1.5">
+        <span class="w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0">
+          <FontAwesomeIcon :icon="faCheck" class="w-3 h-3" />
+        </span>
+        <span class="text-xs font-medium text-heading">Editado por el usuario</span>
+      </span>
+      <span class="inline-flex items-center gap-1.5">
+        <span class="w-6 h-6 rounded-full bg-violet-500 text-white flex items-center justify-center shrink-0">
+          <FontAwesomeIcon :icon="faWandMagicSparkles" class="w-3 h-3" />
+        </span>
+        <span class="text-xs font-medium text-heading">Valor sugerido (IA)</span>
+      </span>
+      <span class="inline-flex items-center gap-1.5">
+        <span class="w-6 h-6 rounded-full bg-white border-2 border-gray-300 shrink-0" />
+        <span class="text-xs font-medium text-heading">Sin completar</span>
+      </span>
     </div>
     <input
       v-if="editable"
@@ -176,6 +204,7 @@ function abrirEditorCodigo(sub: Subseccion) {
           :referencia-valor="referenciaValores?.[campo.identificador]"
           :permite-mejora-i-a="permiteMejoraIA"
           :estado-i-a="estadosIA?.[campo.identificador] ?? null"
+          :origen-campo="origenPorCampo ? (origenPorCampo[campo.identificador] ?? null) : undefined"
           :modo-edicion="modoEdicion"
           :valor-borrador="borradoresPorCampo?.[campo.id]"
           :plantilla-codigo="plantillaCodigo"

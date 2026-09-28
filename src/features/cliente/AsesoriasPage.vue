@@ -4,7 +4,7 @@ import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import {
   faCalendarCheck, faComments, faVideo, faXmark,
   faTriangleExclamation, faCartShopping, faClock, faStar,
-  faChevronLeft, faChevronRight,
+  faChevronLeft, faChevronRight, faSearch,
 } from '@/lib/icons';
 import PageShell from '@/components/PageShell.vue';
 import LoadingSpinner from '@/components/LoadingSpinner.vue';
@@ -58,12 +58,85 @@ const duracionFicha = computed(() => fichasDisponibles.value[0]?.duracionMinutos
 const { data: solicitudes, isLoading } = useMisSolicitudesQuery(clienteId, 'cliente');
 const cancelarSolicitud = useCancelarSolicitud();
 
-const solicitudesFiltradas = computed(() => (solicitudes.value ?? []).filter((s) => s.tipo === props.modalidad));
+const solicitudesModalidad = computed(() => (solicitudes.value ?? []).filter((s) => s.tipo === props.modalidad));
+
+// Tabs de estado, distintos por modalidad porque el ciclo de vida no es el mismo: una consulta de
+// chat se asigna y se atiende ahí mismo, mientras que una videollamada además se agenda y puede
+// vencer si nadie se conecta.
+//
+// "Todas" va primero y es la pestaña por defecto A PROPÓSITO: los tabs pedidos no cubren los 8
+// estados posibles (en chat quedan fuera agendado, en_espera, observado, vencido y cancelado; en
+// video, asignado, agendado y en_espera). Sin una pestaña que lo muestre todo, esas consultas
+// desaparecerían de la vista del alumno sin que nada lo indique.
+type FiltroEstado = { valor: string; label: string };
+const TABS_ESTADO: Record<TipoAsesoria, FiltroEstado[]> = {
+  chat: [
+    { valor: 'todas', label: 'Todas' },
+    { valor: 'pendiente', label: 'Pendientes' },
+    { valor: 'asignado', label: 'Asignados' },
+    { valor: 'completado', label: 'Completados' },
+  ],
+  video: [
+    { valor: 'todas', label: 'Todas' },
+    { valor: 'pendiente', label: 'Pendientes' },
+    { valor: 'completado', label: 'Completados' },
+    { valor: 'observado', label: 'Observados' },
+    { valor: 'vencido', label: 'Vencidos' },
+    { valor: 'cancelado', label: 'Cancelados' },
+  ],
+};
+const tabsEstado = computed(() => TABS_ESTADO[props.modalidad]);
+const estadoActivo = ref('todas');
+
+function contarEstado(valor: string): number {
+  return valor === 'todas'
+    ? solicitudesModalidad.value.length
+    : solicitudesModalidad.value.filter((s) => s.estado === valor).length;
+}
+
+const busqueda = ref('');
+/** Sin tildes ni mayúsculas: el alumno escribe "logistica" y debe encontrar "Logística". */
+function normalizar(texto: string): string {
+  return texto
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '');
+}
+
+/**
+ * Texto sobre el que busca el input: fecha, categoría y docente asignado.
+ *
+ * La fecha se indexa en las DOS formas en que alguien la puede escribir — la que se ve en la tabla
+ * ("16 set. 2026") y la ISO ("2026-09-16") —, porque cualquiera de las dos es una búsqueda
+ * razonable y solo una está a la vista.
+ */
+function textoBuscable(s: SolicitudAsesoria): string {
+  return normalizar([
+    formatFecha(s.creadoEn),
+    s.creadoEn.slice(0, 10),
+    etiquetaCategoriaConsulta(s),
+    s.docenteNombre ?? 'sin asignar',
+  ].join(' '));
+}
+
+const solicitudesFiltradas = computed(() => {
+  const termino = normalizar(busqueda.value.trim());
+
+  return solicitudesModalidad.value.filter((s) => {
+    if (estadoActivo.value !== 'todas' && s.estado !== estadoActivo.value) return false;
+
+    return termino === '' || textoBuscable(s).includes(termino);
+  });
+});
 
 const showSolicitar = ref(false);
 const showComprarAddon = ref(false);
 const detalle = ref<SolicitudAsesoria | null>(null);
-const chatAbierto = ref<SolicitudAsesoria | null>(null);
+// Por id y no guardando el objeto, igual que MainLayout y DocenteHomePage: cada refetch del
+// listado crea objetos nuevos, así que una copia guardada se queda congelada — y el panel de chat
+// necesita ver el reloj (`chatVenceEn`) en cuanto el asesor manda su primer mensaje.
+const chatAbiertoId = ref<string | null>(null);
+const chatAbierto = computed(() => solicitudesModalidad.value.find((s) => s.id === chatAbiertoId.value) ?? null);
 const videollamadaConfirmada = ref<SolicitudAsesoria | null>(null);
 const showConfirmarCancelar = ref(false);
 const calificando = ref<SolicitudAsesoria | null>(null);
@@ -98,7 +171,10 @@ const solicitudesPagina = computed(() => {
   const inicio = (pagina.value - 1) * POR_PAGINA;
   return solicitudesFiltradas.value.slice(inicio, inicio + POR_PAGINA);
 });
-watch([solicitudes, () => props.modalidad], () => { pagina.value = 1; });
+watch([solicitudes, () => props.modalidad, estadoActivo, busqueda], () => { pagina.value = 1; });
+// Los tabs no son los mismos en chat y video, así que al cambiar de modalidad se vuelve a "Todas":
+// dejar "Vencidos" seleccionado al saltar a chat mostraría una pestaña que ahí no existe.
+watch(() => props.modalidad, () => { estadoActivo.value = 'todas'; busqueda.value = ''; });
 
 function verDetalle(s: SolicitudAsesoria) {
   if (s.estado === 'completado' && s.calificacion == null) {
@@ -106,7 +182,7 @@ function verDetalle(s: SolicitudAsesoria) {
   } else if (s.estado === 'agendado') {
     videollamadaConfirmada.value = s;
   } else if (s.estado === 'asignado') {
-    chatAbierto.value = s;
+    chatAbiertoId.value = s.id;
   } else {
     detalle.value = s;
   }
@@ -187,10 +263,53 @@ function formatFechaHoraAgendada(s: SolicitudAsesoria): string | null {
     <p class="text-sm text-muted mb-4">Historial de tus consultas por {{ NOMBRE_FICHA_MODALIDAD[modalidad] }} y su estado actual.</p>
 
     <LoadingSpinner v-if="isLoading" />
-    <p v-else-if="solicitudesFiltradas.length === 0" class="text-sm text-muted py-8 text-center">
+    <p v-else-if="solicitudesModalidad.length === 0" class="text-sm text-muted py-8 text-center">
       Todavía no has solicitado ninguna asesoría por {{ NOMBRE_FICHA_MODALIDAD[modalidad] }}.
     </p>
     <div v-else>
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div class="flex items-center gap-1 flex-wrap">
+          <button
+            v-for="tab in tabsEstado"
+            :key="tab.valor"
+            @click="estadoActivo = tab.valor"
+            type="button"
+            class="px-3.5 py-1.5 rounded-lg text-sm font-medium transition-colors duration-75 flex items-center gap-1.5"
+            :class="estadoActivo === tab.valor ? 'bg-brand-50 text-brand-700' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700'"
+          >
+            {{ tab.label }}
+            <span
+              class="px-1.5 py-0.5 rounded-full text-[10px] font-semibold"
+              :class="estadoActivo === tab.valor ? 'bg-brand-100 text-brand-700' : 'bg-gray-100 text-gray-500'"
+            >
+              {{ contarEstado(tab.valor) }}
+            </span>
+          </button>
+        </div>
+
+        <div class="relative shrink-0">
+          <FontAwesomeIcon :icon="faSearch" class="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+          <input
+            v-model="busqueda"
+            type="text"
+            placeholder="Buscar por fecha, categoría o docente..."
+            class="w-72 pl-10 pr-9 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500"
+          />
+          <button
+            v-if="busqueda"
+            @click="busqueda = ''"
+            type="button"
+            class="absolute right-2.5 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 flex items-center justify-center transition-colors duration-75"
+          >
+            <FontAwesomeIcon :icon="faXmark" class="w-3 h-3" />
+          </button>
+        </div>
+      </div>
+
+      <p v-if="solicitudesFiltradas.length === 0" class="text-sm text-muted py-8 text-center">
+        Ninguna consulta coincide con este filtro.
+      </p>
+      <template v-else>
       <div class="rounded-xl border border-gray-200 overflow-hidden overflow-x-auto">
         <table class="w-full text-sm">
           <thead>
@@ -283,6 +402,7 @@ function formatFechaHoraAgendada(s: SolicitudAsesoria): string | null {
           </button>
         </div>
       </div>
+      </template>
     </div>
   </PageShell>
 
@@ -386,8 +506,8 @@ function formatFechaHoraAgendada(s: SolicitudAsesoria): string | null {
     :usuario-actual-id="clienteId"
     :otra-parte-nombre="chatAbierto.docenteNombre ?? 'Asesor'"
     :otra-parte-foto-url="chatAbierto.docenteFotoUrl"
-    @close="chatAbierto = null"
-    @finalizada="chatAbierto = null"
+    @close="chatAbiertoId = null"
+    @finalizada="chatAbiertoId = null"
   />
 </template>
 

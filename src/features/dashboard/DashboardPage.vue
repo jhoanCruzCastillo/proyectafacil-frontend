@@ -3,6 +3,7 @@ import { computed } from 'vue';
 import { faHouse, faLayerGroup, faFileAlt, faPencil, faComments, faUserCheck, faClock } from '@/lib/icons';
 import PageShell from '@/components/PageShell.vue';
 import StatCard from '@/components/StatCard.vue';
+import AppLoadingScreen from '@/components/AppLoadingScreen.vue';
 import QuickAccessItem from './QuickAccessItem.vue';
 import ActivityFeed from './ActivityFeed.vue';
 import { useMetricas } from '@/composables/useMetricas';
@@ -10,7 +11,6 @@ import { useSessionStore } from '@/stores/session';
 import { useDashboardAsesoriaQuery, useTicketsAsesoriaQuery } from '@/composables/useTicketsAsesoria';
 import { useUsuariosQuery } from '@/composables/useUsuarios';
 
-const metricas = useMetricas();
 const session = useSessionStore();
 const primerNombre = computed(() => session.sesion?.nombre.split(' ')[0] ?? '');
 
@@ -28,9 +28,17 @@ const esCoordinador = computed(() => session.sesion?.rol === 'administrativo_ase
 //     "Satisfacción 4.8★" pero no hay ninguna fuente de calificaciones en la app todavía, así que
 //     se omite en vez de mostrar un número inventado. Tampoco hay presencia en vivo por asesor:
 //     "asesores en línea" se aproxima con `disponible` (el mismo toggle real de Mis consultas). ---
-const { data: dashboardAsesoria } = useDashboardAsesoriaQuery();
-const { data: ticketsData } = useTicketsAsesoriaQuery();
-const { data: usuariosData } = useUsuariosQuery();
+const { data: dashboardAsesoria, isPending: cargandoDashboardAsesoria } = useDashboardAsesoriaQuery();
+const { data: ticketsData, isPending: cargandoTickets } = useTicketsAsesoriaQuery();
+const { data: usuariosData, isPending: cargandoUsuarios } = useUsuariosQuery();
+const { metricas, isPending: cargandoMetricas } = useMetricas();
+
+// Mientras cualquiera de las consultas del hero (stats + accesos directos) siga sin resolver, los
+// contadores en 0/undefined que se ven mientras tanto son un estado incorrecto que luego "salta" al
+// real (ver mismo fix en PortadaEntradaPage.vue) — se espera a que todo esté listo antes de mostrar.
+const cargando = computed(
+  () => cargandoDashboardAsesoria.value || cargandoTickets.value || cargandoUsuarios.value || cargandoMetricas.value,
+);
 
 const asesoresEnLinea = computed(() => (usuariosData.value ?? []).filter((u) => u.rol === 'asesor' && u.disponible).length);
 const HORA_MS = 60 * 60_000;
@@ -44,7 +52,9 @@ const porVencerSla = computed(() =>
 </script>
 
 <template>
+  <AppLoadingScreen v-if="cargando" />
   <PageShell
+    v-else
     :icon="faHouse"
     :title="`Bienvenido/a, ${primerNombre}`"
     :description="esCoordinador

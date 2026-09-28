@@ -145,15 +145,23 @@ function resolverFormula(
   visitados: Set<string>,
   valores: Map<string, string>,
   memoCompartido: Map<string, unknown> | undefined,
+  /** Se marca `dinamica` si el resultado dependió de `valores` (pasó por un INDIRECT). */
+  traza: { dinamica: boolean } = { dinamica: false },
 ): Lista | undefined {
   const texto = formula.replace(/^=/, '').trim();
   if (!texto) return undefined;
 
-  // Literal en línea: "Gobierno Nacional,Gobierno Regional,Gobierno Local"
+  // Literal en línea: "Gobierno Nacional,Gobierno Regional,Gobierno Local". El separador depende
+  // de la configuración regional de quien creó el archivo: en español (el caso normal para los
+  // formatos del MEF/MTC) el separador de listas de Windows es ";", no ",", así que Excel lo pide
+  // así en el cuadro "Origen" de Validación de datos y lo guarda tal cual (ej. "MEJORAMIENTO;
+  // RECUPERACIÓN;AMPLIACIÓN"). Un ";" en la lista es señal inequívoca de ese separador porque una
+  // opción real de un desplegable nunca lo necesita como texto.
   if (texto.startsWith('"')) {
-    const opciones = texto
-      .replace(/^"|"$/g, '')
-      .split(',')
+    const interior = texto.replace(/^"|"$/g, '');
+    const separador = interior.includes(';') ? ';' : ',';
+    const opciones = interior
+      .split(separador)
       .map((o) => o.trim())
       .filter((o) => o !== '');
     return opciones.length > 0 ? { estado: 'resuelta', opciones } : undefined;
@@ -166,13 +174,14 @@ function resolverFormula(
   // cambia sola cuando cambia el campo del que depende, igual que en Excel.
   const abre = /\b(?:INDIRECT|INDIRECTO)\s*\(/i.exec(texto);
   if (abre) {
+    traza.dinamica = true;
     const args = argumentoDe(texto, abre.index + abre[0].length - 1);
     const expr = args ? primerArgumento(args) : '';
     const destino = expr ? evaluarTexto(libro, valores, hojaBase, expr, memoCompartido) : null;
     // Sin destino todavía (el campo del que depende está vacío, o da #N/A) no hay opciones que
     // ofrecer: se marca como dependiente y el campo queda como texto libre.
     if (!destino) return { estado: 'dependiente' };
-    return resolverFormula(libro, destino, hojaBase, visitados, valores, memoCompartido);
+    return resolverFormula(libro, destino, hojaBase, visitados, valores, memoCompartido, traza);
   }
 
   // Otras formas que no se resuelven (ver cabecera del archivo)
@@ -187,7 +196,7 @@ function resolverFormula(
     const destino = libro.nombresDefinidos.get(clave);
     if (destino) {
       visitados.add(clave);
-      return resolverFormula(libro, destino, hojaBase, visitados, valores, memoCompartido);
+      return resolverFormula(libro, destino, hojaBase, visitados, valores, memoCompartido, traza);
     }
   }
 
@@ -264,8 +273,12 @@ export function catalogoDeListas(
     if (resuelta) return resuelta;
     if (cacheDependientes.has(clave)) return cacheDependientes.get(clave);
 
-    const resultado = resolverFormula(libro, formula, hoja, new Set(), valores, memoCompartido);
-    if (resultado?.estado === 'resuelta' && permanente) permanente.set(clave, resultado);
+    // Una lista en cascada (INDIRECT) que SÍ logró resolverse sigue dependiendo de `valores`: no va
+    // a la cache permanente. Antes se guardaba ahí por ser 'resuelta', y al cambiar el Departamento
+    // de LIMA a AYACUCHO la Provincia seguía ofreciendo las provincias de Lima para siempre.
+    const traza = { dinamica: false };
+    const resultado = resolverFormula(libro, formula, hoja, new Set(), valores, memoCompartido, traza);
+    if (resultado?.estado === 'resuelta' && !traza.dinamica && permanente) permanente.set(clave, resultado);
     else cacheDependientes.set(clave, resultado);
     return resultado;
   }

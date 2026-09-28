@@ -34,8 +34,12 @@ withDefaults(
     /** true mientras Descargar/Vista previa están guardando o insertando en el Excel de fondo —
      * deshabilita ambos íconos para evitar un segundo clic a mitad del proceso. */
     cargandoAccionArchivo?: boolean;
+    /** true mientras hay un llenado con IA en segundo plano corriendo para esta ficha — halo
+     * arcoíris girando alrededor de "Contexto IA" (mismo lenguaje visual que un indicador de IA
+     * "pensando", ej. la estrella de Gemini) para que se note sin tener que abrir el modal. */
+    llenadoIAActivo?: boolean;
   }>(),
-  { enRevisionIA: false, resaltarVerResumen: false, resaltarGuardar: false, cargandoAccionArchivo: false },
+  { enRevisionIA: false, resaltarVerResumen: false, resaltarGuardar: false, cargandoAccionArchivo: false, llenadoIAActivo: false },
 );
 
 const emit = defineEmits<{
@@ -92,16 +96,18 @@ const tabs: { key: 'mi-ficha' | 'ejemplos'; label: string; icon: typeof faFileLi
         </span>
       </div>
       <div class="flex items-center gap-3 shrink-0">
-        <button
-          type="button"
-          :title="enRevisionIA ? 'Ver resumen del llenado con IA' : 'Fuente de la verdad / Contexto IA'"
-          class="px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 border border-violet-400/30 text-violet-100 bg-gradient-to-r from-violet-500/30 to-fuchsia-500/25 hover:from-violet-500/40 hover:to-fuchsia-500/35 transition-colors"
-          :class="resaltarVerResumen ? 'pf-blink-ver-resumen' : ''"
-          @click="emit('fuente-verdad')"
-        >
-          <FontAwesomeIcon :icon="faWandMagicSparkles" class="w-3.5 h-3.5" />
-          {{ enRevisionIA ? 'Ver resumen' : 'Contexto IA' }}
-        </button>
+        <div class="relative shrink-0" :class="llenadoIAActivo ? 'pf-halo-arcoiris rounded-lg' : ''">
+          <button
+            type="button"
+            :title="enRevisionIA ? 'Ver resumen del llenado con IA' : llenadoIAActivo ? 'Llenado con IA en progreso — ver detalle' : 'Fuente de la verdad / Contexto IA'"
+            class="relative px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 border border-violet-400/30 text-violet-100 bg-gradient-to-r from-violet-500/30 to-fuchsia-500/25 hover:from-violet-500/40 hover:to-fuchsia-500/35 transition-colors"
+            :class="resaltarVerResumen ? 'pf-blink-ver-resumen' : ''"
+            @click="emit('fuente-verdad')"
+          >
+            <FontAwesomeIcon :icon="faWandMagicSparkles" class="w-3.5 h-3.5" />
+            {{ enRevisionIA ? 'Ver resumen' : 'Contexto IA' }}
+          </button>
+        </div>
         <div class="flex rounded-lg border border-white/15 overflow-hidden">
           <button
             v-for="tab in tabs"
@@ -189,5 +195,46 @@ const tabs: { key: 'mi-ficha' | 'ejemplos'; label: string; icon: typeof faFileLi
      de fondo, así que el parpadeo refuerza ese mismo color en vez de contrastar con otro distinto. */
   animation: pf-blink-guardar 0.85s ease-in-out infinite;
   box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.7);
+}
+
+@property --pf-angulo-arcoiris {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+@keyframes pf-girar-arcoiris {
+  to {
+    --pf-angulo-arcoiris: 360deg;
+  }
+}
+/* Halo giratorio detrás del botón "Contexto IA" mientras hay un llenado con IA corriendo en
+   segundo plano (ver ClienteFichaEditPage.vue::trabajoLlenadoIAActivo) — mismo lenguaje visual
+   que un indicador de IA "pensando" (ej. la estrella de Gemini). El botón en sí queda intacto: el
+   halo vive en el ::before del wrapper, detrás (z-index -1), así que solo asoma como un borde. */
+.pf-halo-arcoiris::before {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  background: conic-gradient(
+    from var(--pf-angulo-arcoiris),
+    #f43f5e,
+    #f59e0b,
+    #eab308,
+    #22c55e,
+    #06b6d4,
+    #6366f1,
+    #d946ef,
+    #f43f5e
+  );
+  filter: blur(3px);
+  z-index: -1;
+  animation: pf-girar-arcoiris 2.5s linear infinite;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pf-halo-arcoiris::before {
+    animation-duration: 8s;
+  }
 }
 </style>
