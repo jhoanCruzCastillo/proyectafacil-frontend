@@ -29,9 +29,19 @@ const COLUMNAS_IMPORT_ESPECIALISTAS = [
   { nombre: 'Teléfono', detalle: 'Opcional' },
   { nombre: 'Especialidades', detalle: 'Nombres de sectores separados por coma, ej. "Educación, Salud" (opcional)' },
 ];
+const NOTA_IMPORT_RESPALDO =
+  'También puedes subir aquí el Excel de "Exportar a Excel" para restaurar candidatos como copia de respaldo: '
+  + 'se omiten los que ya existen (mismo correo o DNI). No se restauran el archivo del CV, las notas internas ni la cuenta de usuario de los aprobados (usa "promover" en la fila).';
 const mostrarImportar = ref(false);
-function importacionCompletada(_resultado: ResultadoImportacion) {
-  // Los importados entran directo como asesores (usuarios), no como candidatos — ver
+function importacionCompletada(resultado: ResultadoImportacion) {
+  // Excel de respaldo (el que baja "Exportar a Excel"): se restauran como candidatos.
+  if (resultado.tipo === 'candidatos') {
+    queryClient.invalidateQueries({ queryKey: ['candidatos'] });
+    queryClient.invalidateQueries({ queryKey: ['candidatos-resumen'] });
+    ui.toast(resultado.creados === 1 ? '1 candidato restaurado' : `${resultado.creados} candidatos restaurados`);
+    return;
+  }
+  // Carga masiva de 4 columnas: entran directo como asesores (usuarios), no como candidatos — ver
   // CandidatosController::importarExcel. Lo que cambia es Docentes/Asesores y Usuarios y permisos.
   queryClient.invalidateQueries({ queryKey: ['docentes-admin'] });
   queryClient.invalidateQueries({ queryKey: ['docentes'] });
@@ -39,10 +49,8 @@ function importacionCompletada(_resultado: ResultadoImportacion) {
   ui.toast('Especialistas importados a Docentes / Asesores');
 }
 
-// "Todos" y "Aprobados" se sacaron de los tabs a propósito: como la tabla se filtra por la pestaña
-// activa, sin esas dos pestañas un candidato ya aprobado deja de ser alcanzable desde esta pantalla
-// —que es justo lo que se busca— sin tocar el backend ni el estado de nadie. Un aprobado sigue
-// existiendo y se gestiona desde "Docentes / Asesores".
+// "Todos" y "Aprobados" se quitaron de los tabs a propósito (la tabla siempre se filtra por un solo
+// estado; los aprobados se gestionan desde "Docentes / Asesores").
 type Tab = EstadoCandidato;
 const TABS: { value: Tab; label: string }[] = [
   { value: 'registrado', label: 'Registrados' },
@@ -345,6 +353,7 @@ async function confirmarEliminar() {
     :is-open="mostrarImportar"
     titulo="Importar especialistas desde Excel"
     :columnas="COLUMNAS_IMPORT_ESPECIALISTAS"
+    :nota="NOTA_IMPORT_RESPALDO"
     :subir="importarEspecialistasExcel"
     @importado="importacionCompletada"
     @close="mostrarImportar = false"

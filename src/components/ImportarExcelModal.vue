@@ -13,6 +13,8 @@ const props = defineProps<{
   /** Si se pasa, aparece el botón para bajar el .xlsx de ejemplo. Opcional: no toda importación
    *  tiene plantilla que ofrecer. */
   descargarPlantilla?: () => Promise<void>;
+  /** Aviso extra bajo la lista de columnas (ej. un segundo formato de archivo que también se acepta). */
+  nota?: string;
 }>();
 const emit = defineEmits<{ close: []; importado: [ResultadoImportacion] }>();
 
@@ -91,6 +93,7 @@ function cerrar() {
                   <dd class="text-muted">{{ c.detalle }}</dd>
                 </div>
               </dl>
+              <p v-if="nota" class="text-xs text-muted mt-3 rounded-md bg-emerald-50 border border-emerald-100 p-2">{{ nota }}</p>
               <div class="flex items-center justify-between gap-3 mt-2">
                 <p class="text-xs text-muted">La primera fila debe ser el encabezado (se ignora).</p>
                 <button
