@@ -12,7 +12,9 @@ function esRutaPublicaAuth(path: string): boolean {
     path === 'auth/logout' || path.startsWith('auth/logout?') ||
     path === 'auth/registro' ||
     path.startsWith('auth/verificar/') ||
-    path === 'sectores/publico'
+    path === 'sectores/publico' ||
+    // Se consulta al arrancar la SPA, antes de saber si hay sesión — ver estadoMantenimiento.ts.
+    path === 'estado-sistema'
   );
 }
 
@@ -56,6 +58,42 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
 
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
+}
+
+/**
+ * GET de un archivo binario que el navegador debe DESCARGAR (no renderizar).
+ *
+ * No se puede resolver con un `<a href="/api/...">`: la API exige el Bearer en la cabecera y una
+ * navegación normal no la manda. Por eso se baja por fetch y se dispara la descarga desde un blob
+ * en memoria, revocando el object URL al terminar para no dejar el blob retenido.
+ */
+export async function apiDownloadBlob(path: string, nombreArchivo: string): Promise<void> {
+  const token = getAuthToken();
+  if (!token) throw new Error('No autenticado: falta token de sesión');
+
+  const res = await fetch(`/api/${path}`, {
+    credentials: 'same-origin',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    if (res.status === 401) clearAuthToken();
+    // El error del backend sí viaja como JSON aunque la respuesta feliz sea binaria.
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error ?? `Error ${res.status} en /api/${path}`);
+  }
+
+  const url = URL.createObjectURL(await res.blob());
+  try {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = nombreArchivo;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 /**

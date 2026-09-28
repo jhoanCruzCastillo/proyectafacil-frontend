@@ -1,4 +1,4 @@
-import { apiFetch, apiUploadFormData } from './_shared';
+import { apiDownloadBlob, apiFetch, apiUploadFormData } from './_shared';
 import type { UsuariosApi } from '../contracts/usuarios';
 import type { AsignarBeneficiosPayload, BeneficiosAsignados, ResultadoImportacion, Usuario } from '@/types';
 
@@ -42,10 +42,23 @@ export const usuariosHttp: UsuariosApi = {
   },
 };
 
-/** Carga masiva de clientes-alumnos desde Excel (ver UsuariosController::importarAlumnosExcel). */
+/**
+ * Carga masiva de clientes-alumnos desde Excel (ver UsuariosController::importarAlumnosExcel).
+ *
+ * Curso y beneficio van POR FILA dentro del archivo, no como parámetros: la plantilla descargable
+ * trae esas dos columnas con lista desplegable.
+ */
 export function importarAlumnosExcel(archivo: File): Promise<ResultadoImportacion> {
   const form = new FormData();
   form.append('archivo', archivo, archivo.name);
 
   return apiUploadFormData<ResultadoImportacion>('usuarios/importar-alumnos', form);
+}
+
+/**
+ * Descarga el .xlsx de ejemplo. Se genera en el servidor porque sus desplegables de Curso y
+ * Beneficio se arman con los datos vivos de la BD.
+ */
+export function descargarPlantillaAlumnos(): Promise<void> {
+  return apiDownloadBlob('usuarios/plantilla-alumnos', 'formato-alumnos.xlsx');
 }

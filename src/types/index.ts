@@ -943,6 +943,16 @@ export interface SolicitudAsesoria {
   actualizadoEn?: string | null;
   /** ISO datetime — se escribe una sola vez, al completarse; no se mueve con ediciones posteriores */
   completadoEn?: string | null;
+  /**
+   * Reloj de la asesoría por chat. Solo viene con valor mientras está en curso (tipo='chat' y
+   * estado='asignado') Y el asesor ya mandó su primer mensaje — antes de eso el reloj no arrancó.
+   * Es ISO datetime del primer mensaje del asesor.
+   */
+  chatIniciadoEn?: string | null;
+  /** ISO datetime — cuándo se cierra sola la asesoría si el asesor no le da a "Finalizar". */
+  chatVenceEn?: string | null;
+  /** Minutos que dura la asesoría, según el ticket que la reservó. */
+  chatDuracionMinutos?: number | null;
 }
 
 // Módulo 4 — vista del Administrativo de Asesorías.

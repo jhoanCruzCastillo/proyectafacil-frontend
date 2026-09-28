@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faFileExcel, faSpinner, faTriangleExclamation, faXmark } from '@/lib/icons';
+import { faDownload, faFileExcel, faSpinner, faTriangleExclamation, faXmark } from '@/lib/icons';
 import type { ResultadoImportacion } from '@/types';
 
 const props = defineProps<{
@@ -10,6 +10,9 @@ const props = defineProps<{
   /** Nombre de columna -> qué debe traer, en el orden exacto del Excel. */
   columnas: { nombre: string; detalle: string }[];
   subir: (archivo: File) => Promise<ResultadoImportacion>;
+  /** Si se pasa, aparece el botón para bajar el .xlsx de ejemplo. Opcional: no toda importación
+   *  tiene plantilla que ofrecer. */
+  descargarPlantilla?: () => Promise<void>;
 }>();
 const emit = defineEmits<{ close: []; importado: [ResultadoImportacion] }>();
 
@@ -17,6 +20,20 @@ const archivo = ref<File | null>(null);
 const subiendo = ref(false);
 const error = ref('');
 const resultado = ref<ResultadoImportacion | null>(null);
+const descargando = ref(false);
+
+async function descargar() {
+  if (!props.descargarPlantilla || descargando.value) return;
+  descargando.value = true;
+  error.value = '';
+  try {
+    await props.descargarPlantilla();
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : 'No se pudo descargar el formato.';
+  } finally {
+    descargando.value = false;
+  }
+}
 
 function elegirArchivo(e: Event) {
   const f = (e.target as HTMLInputElement).files?.[0] ?? null;
@@ -74,7 +91,19 @@ function cerrar() {
                   <dd class="text-muted">{{ c.detalle }}</dd>
                 </div>
               </dl>
-              <p class="text-xs text-muted mt-2">La primera fila debe ser el encabezado (se ignora).</p>
+              <div class="flex items-center justify-between gap-3 mt-2">
+                <p class="text-xs text-muted">La primera fila debe ser el encabezado (se ignora).</p>
+                <button
+                  v-if="descargarPlantilla"
+                  @click="descargar"
+                  type="button"
+                  :disabled="descargando"
+                  class="shrink-0 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 disabled:opacity-60 transition-colors duration-75 flex items-center gap-1.5"
+                >
+                  <FontAwesomeIcon :icon="descargando ? faSpinner : faDownload" class="w-3 h-3" :class="descargando && 'animate-spin'" />
+                  {{ descargando ? 'Generando…' : 'Descargar formato' }}
+                </button>
+              </div>
             </div>
 
             <label class="block border-2 border-dashed border-gray-200 rounded-xl p-6 text-center cursor-pointer hover:border-brand-400 transition-colors duration-75">
