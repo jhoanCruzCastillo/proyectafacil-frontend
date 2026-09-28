@@ -1152,6 +1152,9 @@ export interface ResumenCandidatos {
 export interface ResultadoImportacion {
   creados: number;
   omitidos: { fila: number; motivo: string }[];
+  /** Solo la importación de Especialistas lo manda: 'candidatos' = se restauró un Excel de
+   * respaldo exportado desde esa misma pantalla; 'asesores' = carga masiva de 4 columnas. */
+  tipo?: 'candidatos' | 'asesores';
 }
 
 export interface CandidatoDetalle {
