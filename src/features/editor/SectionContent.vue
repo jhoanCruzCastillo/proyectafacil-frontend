@@ -230,8 +230,12 @@ function abrirEditorCodigo(sub: Subseccion) {
         <!-- Mismos botones que los del final de la subsección, pero pegados al campo seleccionado:
              lo nuevo entra justo detrás de él, no al final. Si el seleccionado ya es el último
              campo, se omite — ahí abajo ya está el botón "Agregar campo" por defecto de la
-             subsección, duplicarlo confundía más de lo que ayudaba. -->
-        <div v-if="editable && selectedCampoId === campo.id && campoIndex < sub.campos.length - 1" class="flex gap-2">
+             subsección, duplicarlo confundía más de lo que ayudaba. `!showExampleValues`: sin esto
+             aparecía también en el tab "Ejemplos" (editable sigue true ahí, el admin puede
+             seleccionar un campo para editar su valor de ejemplo) — agregar campos/notas a la
+             ESTRUCTURA no tiene sentido parado en un ejemplo, eso es solo del tab "Estructura".
+             Pedido explícito del usuario (2026-09-29). -->
+        <div v-if="editable && !showExampleValues && selectedCampoId === campo.id && campoIndex < sub.campos.length - 1" class="flex gap-2">
           <button
             @click="emit('add-campo', sub.id, sub.codigo, campo.id)"
             type="button"

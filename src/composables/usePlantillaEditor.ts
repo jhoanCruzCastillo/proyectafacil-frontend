@@ -11,7 +11,6 @@ import { ColumnaExcelInvalidaError, insertarValoresEnExcel, type AvisoLista } fr
 import { usePushActividad } from '@/composables/useActividad';
 import { useExcelVivo, useAltoDeBloqueExcel, EXCEL_VIVO, type ModoCalculoExcel } from '@/composables/useListasExcel';
 import { useMapaValoresExcelDebounced, type ResolverValorCampo } from '@/composables/useMapaValoresExcelDebounced';
-import { mensajeAvisoListas } from '@/lib/xlsxListas';
 import { alturaFilaBase } from '@/lib/tableRowHelpers';
 import { useAutoguardado } from '@/composables/useAutoguardado';
 import { useUiStore } from '@/stores/ui';
@@ -90,6 +89,7 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
   const showNuevoEjemplo = ref(false);
   const deleteTarget = ref<Ejemplo | null>(null) as Ref<Ejemplo | null>;
   const volcarTarget = ref<Ejemplo | null>(null) as Ref<Ejemplo | null>;
+  const editarDatosTarget = ref<Ejemplo | null>(null) as Ref<Ejemplo | null>;
   /** Volcado en la versión Estructura: el origen es el Excel asignado y el destino son los valores
    * por defecto de la plantilla, no los de un ejemplo. */
   const volcarEstructura = ref(false);
@@ -435,6 +435,30 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     ui.toast(nuevoEstado === 'publicado' ? `Ejemplo "${ejemplo.nombre}" publicado` : `Ejemplo "${ejemplo.nombre}" movido a borrador`);
   }
 
+  // Nombre/subtítulo/detalle son metadata de catálogo (cómo se identifica el ejemplo en la lista),
+  // no un valor de campo de la ficha — por eso viven en su propio modal chico en vez de mezclarse
+  // con el editor de valores. Pedido explícito del usuario (2026-09-30), junto con consolidar los
+  // botones de acción del ejemplo en un solo menú (ver EjemploAccionesMenu.vue).
+  const editarDatosError = ref<string | null>(null);
+  async function handleActualizarDatosEjemplo(nombre: string, subtitulo: string, detalle: string) {
+    if (!editarDatosTarget.value) return;
+    const id = editarDatosTarget.value.id;
+    editarDatosError.value = null;
+    try {
+      await actualizarEjemplo.mutateAsync({ id, data: { nombre, subtitulo, detalle } });
+    } catch (e) {
+      // Antes esto fallaba en silencio (ej. 500 por un subtítulo de más de 200 caracteres — el
+      // límite real de la columna, ver maxlength en EditarDatosEjemploModal.vue): el modal se
+      // quedaba abierto sin ningún aviso y el usuario no tenía forma de saber que no se guardó.
+      // Se deja el modal abierto (no se limpia editarDatosTarget) para que pueda corregir y reintentar.
+      editarDatosError.value = e instanceof Error ? e.message : 'No se pudieron guardar los cambios';
+      return;
+    }
+    if (activeEjemplo.value?.id === id) activeEjemplo.value = { ...activeEjemplo.value, nombre, subtitulo, detalle };
+    ui.toast(`Datos de "${nombre}" actualizados`);
+    editarDatosTarget.value = null;
+  }
+
   /** A lo más un ejemplo de referencia por plantilla — el backend limpia cualquier otro al activar
    * este, así que basta invalidar la lista para que el desmarcado del anterior también se refleje
    * (ver useMarcarReferenciaIA). */
@@ -576,10 +600,11 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
       insertProgressLabel.value = 'Listo';
       await new Promise((r) => setTimeout(r, 250));
       ui.toast('Valores insertados en el Excel del ejemplo');
-      // El aviso llega aparte y en rojo: la inserción sí se hizo, pero conviene revisar esos valores.
-      const aviso = mensajeAvisoListas(avisosListas.value);
-      if (aviso) {
-        ui.toast(aviso, 'error');
+      // El aviso queda en un banner persistente (no un toast que se autodescarta a los 2.5s): trae
+      // botones para saltar directo a cada campo señalado — un toast de texto plano con 4 identifi-
+      // cadores obligaba al usuario a memorizarlos y buscarlos a mano. Pedido explícito del usuario
+      // (2026-09-30), mismo resaltado naranja que ya usa resaltarCampoError() para errores de inserción.
+      if (avisosListas.value.length > 0) {
         console.warn('[listas] valores fuera de las opciones del Excel:', avisosListas.value);
       }
     } catch (e) {
@@ -603,10 +628,32 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     isNewCampo.value = false;
     campoErrorInsercionId.value = objetivo.campo.id;
     setTimeout(() => { campoErrorInsercionId.value = null; }, 4000);
-    await nextTick();
-    await nextTick();
-    document.querySelector(`[data-campo-identificador="${objetivo.campo.identificador}"]`)
-      ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Si el campo objetivo está en OTRA sección, cambiar de sección remonta SectionContent detrás de
+    // un esqueleto de carga (useTransicionSeccion: nextTick + doble rAF) — un par de nextTick() acá no
+    // alcanza a esperarlo y el querySelector cae en el vacío mientras el esqueleto sigue en pantalla
+    // (encontrado al reusar esta función para el banner de avisos de listas, que sí salta de sección —
+    // el caso de columna mal configurada casi siempre se quedaba en la misma sección, por eso no se
+    // había notado). Se sondea el DOM en vez de adivinar cuántos frames hacen falta.
+    for (let intento = 0; intento < 40; intento++) {
+      const nodo = document.querySelector(`[data-campo-identificador="${objetivo.campo.identificador}"]`);
+      if (nodo) {
+        nodo.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
+
+  // Botón "Ir al campo" del banner de avisos de listas (ver AvisosListasBanner.vue) — mismo salto +
+  // resaltado que un error de inserción, ya que el aviso también surge de insertar en el Excel.
+  async function irAAvisoLista(aviso: AvisoLista) {
+    if (!editData.value) return;
+    const objetivo = buscarCampoPorIdentificador(editData.value, aviso.campo);
+    if (objetivo) await resaltarCampoError(objetivo);
+  }
+
+  function descartarAvisosListas() {
+    avisosListas.value = [];
   }
 
   async function señalarCampoDeErrorInsercion(error: unknown) {
@@ -1240,18 +1287,19 @@ export function usePlantillaEditor(plantillaId: Ref<string>) {
     estadoGuardado: autoguardado.estado,
     editData, cargandoPlantilla, activeTab, activeSectionIndex, selectedCampo, isNewCampo, editingHojaSeccionId,
     leftWidth, rightWidth, examplesWidth, highlightMissingCaptura, campoErrorInsercionId, ejemplosCount, jsonPreview,
+    avisosListas, irAAvisoLista, descartarAvisosListas,
     showImportEstructura, modoCalculo, setModoCalculo,
     modoEdicion, setModoEdicion, borradoresPorCampo, confirmarBorradorCampo,
     handleUpdateDefaultValue, handleUpdateExampleValue,
     secciones, safeIdx, seccionActiva, isFirst, isLast, showExamples,
-    ejemplos, activeEjemplo, editedValores, excelDesactualizado, showNuevoEjemplo, deleteTarget, volcarTarget, volcarEstructura,
+    ejemplos, activeEjemplo, editedValores, excelDesactualizado, showNuevoEjemplo, deleteTarget, volcarTarget, volcarEstructura, editarDatosTarget, editarDatosError,
     archivoExcelAsignado, showExcelCatalogModal, showPreview, showInsertConfirm, isInserting, insertProgress, insertProgressLabel,
     previewFileUrl, previewFileName, descargandoEjemploId,
     handleLeftResize, handleRightResize, handleExamplesResize, handleTabChange, handleSectionSelect,
     goToPrevSection, goToNextSection, handleFieldUpdate, handleAddCampo, handleAddNota, handleDuplicarCampo, handleDeleteCampo,
     handleSectionNameChange, handleSectionHojaChange, handleSubsectionNameChange,
     handleSubseccionAyudaChange, handleAddSubsection, handleSubsectionCodigoChange, handleDeleteSubsection, handleAddSection, handleDuplicarSeccion, handleDeleteSeccion,
-    handleExampleValueChange, handleCreateExample, handleDeleteEjemplo, handleToggleEjemploEstado, handleToggleReferenciaIA,
+    handleExampleValueChange, handleCreateExample, handleDeleteEjemplo, handleToggleEjemploEstado, handleToggleReferenciaIA, handleActualizarDatosEjemplo,
     handleDownloadExcel, handlePreviewExample, handleInsertExcel,
     handleVolcarExcel, handleVolcarEstructura, handleConfirmarVolcado, getDefaultValores,
     handleImportEstructura,

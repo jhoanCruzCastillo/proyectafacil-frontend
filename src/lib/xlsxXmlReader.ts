@@ -296,13 +296,36 @@ function parseNombresDefinidos(doc: Document): Map<string, string> {
   return out;
 }
 
+/** Encontrado en vivo (2026-09-29): el Excel oficial de la plantilla se descarga directo desde
+ * Cloudinary (no proxeado por el backend, a diferencia de la copia 1:1 de cada ejemplo). Un `fetch`
+ * sin `signal` no tiene límite de tiempo — si Cloudinary se demora (cache fría del archivo raw) o la
+ * conexión se cuelga sin cerrar ni fallar, la promesa nunca resuelve NI rechaza, y la pantalla de
+ * carga de la ficha (que espera a `intentoTerminado`, ver useListasExcel.ts) se queda así para
+ * siempre, sin ningún error visible. Reproducido: la misma ficha cargó en ~10s por navegación SPA y
+ * se quedó colgada más de 30s tras un login recién hecho, sin que el navegador llegara a intentar la
+ * descarga. Este timeout convierte ese cuelgue silencioso en un fallo real, que ya cae en el mismo
+ * camino de siempre (`useLibro` lo atrapa y degrada a "sin Excel", ver comentario de la interfaz
+ * `ExcelVivo` más arriba). */
+const TIMEOUT_DESCARGA_LIBRO_MS = 60_000;
+
 /** `fuente` puede ser un data URI (el archivo que el usuario acaba de soltar, leído con FileReader)
  * o una URL http(s) — el Excel de un ejemplo vive en Cloudinary. Se resuelve con `fetch`, que
  * entiende ambas, igual que hace el parcheador. Antes se asumía data URI y se intentaba decodificar
  * la URL como base64, lo que reventaba con "Invalid base64 input, bad content length". */
 export async function leerLibroXlsx(fuente: string): Promise<LibroLeido> {
   const { fetchBinarioOrFalla } = await import('./fetchBinario');
-  const zip = await JSZip.loadAsync(await (await fetchBinarioOrFalla(fuente)).arrayBuffer());
+  const controlador = new AbortController();
+  const timer = setTimeout(
+    () => controlador.abort(new Error(`La descarga del Excel tardó más de ${TIMEOUT_DESCARGA_LIBRO_MS / 1000}s — se aborta`)),
+    TIMEOUT_DESCARGA_LIBRO_MS,
+  );
+  let zip: JSZip;
+  try {
+    const respuesta = await fetchBinarioOrFalla(fuente, { signal: controlador.signal });
+    zip = await JSZip.loadAsync(await respuesta.arrayBuffer());
+  } finally {
+    clearTimeout(timer);
+  }
 
   const shared = parseSharedStringsTexto((await zip.file('xl/sharedStrings.xml')?.async('string')) ?? null);
   const { numFmtPorEstilo, codigoPorNumFmt } = parseEstilos((await zip.file('xl/styles.xml')?.async('string')) ?? null);

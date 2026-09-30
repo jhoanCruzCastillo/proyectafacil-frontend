@@ -28,7 +28,10 @@ const { data: usuariosData } = useUsuariosQuery();
 const { data: ejemplosData } = useEjemplosQuery();
 const { esNivel0, vencido, diasRestantes, limiteFichas } = useEstadoEntrenamiento();
 
-const plantillas = computed(() => (plantillasData.value ?? []).filter((p) => !props.tipo || p.instrumento === props.tipo));
+// `estado === 'publicado'`: el catálogo que ve el cliente no debe listar plantillas que el admin
+// todavía tiene en borrador — antes solo filtraba por tipo de instrumento. Pedido explícito del
+// usuario (2026-09-30), mismo criterio aplicado en NuevaFichaClienteModal.vue.
+const plantillas = computed(() => (plantillasData.value ?? []).filter((p) => p.estado === 'publicado' && (!props.tipo || p.instrumento === props.tipo)));
 const sectores = computed(() => sectoresData.value ?? []);
 
 const tab = ref<Tab>('proyecto');

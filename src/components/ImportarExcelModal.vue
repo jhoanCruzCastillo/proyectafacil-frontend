@@ -147,6 +147,15 @@ function cerrar() {
                 <li v-for="o in resultado.omitidos" :key="o.fila">Fila {{ o.fila }}: {{ o.motivo }}</li>
               </ul>
             </div>
+            <div v-if="(resultado.avisos?.length ?? 0) > 0" class="mt-3 rounded-lg border border-blue-100 bg-blue-50 p-3">
+              <p class="text-xs font-semibold text-blue-700 flex items-center gap-1.5 mb-2">
+                <FontAwesomeIcon :icon="faTriangleExclamation" class="w-3 h-3" />
+                {{ resultado.avisos!.length }} {{ resultado.avisos!.length === 1 ? 'aviso' : 'avisos' }} (se crearon igual)
+              </p>
+              <ul class="text-xs text-blue-800 space-y-1 max-h-40 overflow-y-auto">
+                <li v-for="a in resultado.avisos" :key="a.fila">Fila {{ a.fila }}: {{ a.motivo }}</li>
+              </ul>
+            </div>
             <div class="flex justify-end mt-6">
               <button @click="cerrar" type="button" class="px-5 py-2.5 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 transition-colors duration-75">
                 Cerrar

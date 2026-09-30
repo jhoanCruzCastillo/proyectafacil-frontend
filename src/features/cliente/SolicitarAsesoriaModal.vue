@@ -19,7 +19,15 @@ import { addOns } from '@/data/planes';
 import ComprarAddOnModal from '@/features/settings/ComprarAddOnModal.vue';
 import type { TipoAsesoria, SolicitudAsesoria, TemaEspecialidad, SubtemaEspecialidad } from '@/types';
 
-const props = defineProps<{ isOpen: boolean; ejemploId?: string }>();
+// `modalidad`: cuando quien abre el modal YA sabe si es chat o video (AsesoriasPage.vue — son dos
+// páginas separadas, una por modalidad) se pasa acá y el modal arranca derecho en el selector de
+// temas, sin preguntarlo de nuevo — pedido explícito del usuario (2026-09-29), reemplaza el botón
+// "Solicitar asesoría" de esa página por una copia de la tarjeta que antes vivía en este primer
+// paso (ver AsesoriasPage.vue). Se deja OPCIONAL a propósito: AsesoriaHumanaFAB.vue (el botón
+// flotante, disponible desde cualquier pantalla, no solo esas dos) sigue sin saber de antemano qué
+// modalidad quiere el cliente, así que para ese caller el paso de elegir modalidad se conserva tal
+// cual estaba.
+const props = defineProps<{ isOpen: boolean; modalidad?: TipoAsesoria; ejemploId?: string }>();
 const emit = defineEmits<{ close: []; creada: [solicitud: SolicitudAsesoria] }>();
 
 const DIAS_LARGO = ['', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
@@ -31,12 +39,18 @@ const { data: usuariosData } = useUsuariosQuery();
 const cuentaId = computed(() => (session.sesion ? cuentaEfectivaDe(usuariosData.value ?? [], session.sesion) : ''));
 const { data: tickets } = useTicketsConsultaQuery(cuentaId);
 const disponibles = computed(() => (tickets.value ?? []).filter((t) => t.estado === 'disponible'));
-const ticketsDisponibles = computed(() => disponibles.value.length);
-const sinSaldo = computed(() => ticketsDisponibles.value === 0);
 const fichasChat = computed(() => disponibles.value.filter((t) => t.modalidad === 'chat'));
 const fichasVideo = computed(() => disponibles.value.filter((t) => t.modalidad === 'video'));
 const duracionChat = computed(() => fichasChat.value[0]?.duracionMinutos ?? null);
 const duracionVideo = computed(() => fichasVideo.value[0]?.duracionMinutos ?? null);
+// Con modalidad fija (AsesoriasPage.vue) solo importa el saldo de ESA modalidad — esa página ya no
+// deja llegar hasta acá sin fichas (muestra su propio aviso en su lugar), pero se revalida igual
+// por si el saldo cambió justo entre que se pintó la página y se abrió el modal. Sin modalidad fija
+// (AsesoriaHumanaFAB.vue) importa el total: el selector de modalidad ya deshabilita por separado el
+// botón de la que no tenga saldo.
+const sinSaldo = computed(() => (
+  props.modalidad ? disponibles.value.filter((t) => t.modalidad === props.modalidad).length === 0 : disponibles.value.length === 0
+));
 const showComprarAddon = ref(false);
 
 const { data: temas } = useTemasEspecialidadCatalogoQuery();
@@ -46,10 +60,12 @@ const crearSolicitud = useCrearSolicitudAsesoria();
 type Paso = 'modalidad' | 'chatbot' | 'horario';
 type TemaConSubtemas = TemaEspecialidad & { subtemas: SubtemaEspecialidad[] };
 
-const paso = ref<Paso>('modalidad');
+const paso = ref<Paso>(props.modalidad ? 'chatbot' : 'modalidad');
 const subPaso = ref(1);
 const enSelectorTemas = computed(() => paso.value === 'chatbot' && subPaso.value === 1);
-const tipo = ref<TipoAsesoria | null>(null);
+// tipo: la modalidad EFECTIVA de esta solicitud en curso — copia de `props.modalidad` cuando viene
+// fija, o la que el cliente elige a mano en el paso 'modalidad' cuando no (ver elegirModalidad()).
+const tipo = ref<TipoAsesoria | null>(props.modalidad ?? null);
 const subtemaIdsSeleccionados = ref<Set<string>>(new Set());
 const temasExpandidos = ref<Set<string>>(new Set());
 const busqueda = ref('');
@@ -64,9 +80,9 @@ const diaOffset = ref(0);
 const horarioElegido = ref<{ horaInicio: string; horaFin: string } | null>(null);
 
 function reset() {
-  paso.value = 'modalidad';
+  paso.value = props.modalidad ? 'chatbot' : 'modalidad';
   subPaso.value = 1;
-  tipo.value = null;
+  tipo.value = props.modalidad ?? null;
   subtemaIdsSeleccionados.value = new Set();
   temasExpandidos.value = new Set();
   busqueda.value = '';
@@ -82,19 +98,37 @@ function handleClose() {
   emit('close');
 }
 
-function elegirModalidad(t: TipoAsesoria) {
-  tipo.value = t;
+const temasConSubtemas = computed<TemaConSubtemas[]>(() =>
+  (temas.value ?? []).map((t) => ({
+    ...t,
+    subtemas: (subtemas.value ?? []).filter((s) => s.temaId === t.id),
+  })),
+);
+
+function irAChatbot() {
   paso.value = 'chatbot';
   subPaso.value = 1;
   const primero = temasConSubtemas.value.find((tema) => tema.subtemas.length > 0);
   temasExpandidos.value = primero ? new Set([primero.id]) : new Set();
 }
 
-const temasConSubtemas = computed<TemaConSubtemas[]>(() =>
-  (temas.value ?? []).map((t) => ({
-    ...t,
-    subtemas: (subtemas.value ?? []).filter((s) => s.temaId === t.id),
-  })),
+function elegirModalidad(t: TipoAsesoria) {
+  tipo.value = t;
+  irAChatbot();
+}
+
+// Con modalidad fija: al abrir, directo al selector de temas (no hay paso 'modalidad' que lo
+// dispare con un clic, ver elegirModalidad()). `tipo` se resincroniza acá y no solo al cerrar
+// (reset()): AsesoriasPage.vue reutiliza esta misma instancia del modal al navegar entre /chat y
+// /videollamada (mismo componente de ruta, prop `modalidad` distinta) — sin esto, `tipo` se quedaba
+// con el valor de la página anterior hasta el próximo cierre manual.
+watch(
+  () => props.isOpen,
+  (open) => {
+    if (!open || !props.modalidad) return;
+    tipo.value = props.modalidad;
+    irAChatbot();
+  },
 );
 
 const temasFiltrados = computed<TemaConSubtemas[]>(() => {
@@ -358,7 +392,7 @@ function confirmarHorario() {
               </div>
             </div>
 
-            <!-- Paso 0: modalidad -->
+            <!-- Paso 0: modalidad — solo cuando no viene fija por prop (ver AsesoriaHumanaFAB.vue) -->
             <div v-else-if="paso === 'modalidad'" class="grid grid-cols-2 gap-3">
               <button
                 @click="elegirModalidad('chat')"

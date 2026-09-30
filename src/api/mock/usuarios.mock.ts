@@ -35,6 +35,15 @@ function vacio(id: string): BeneficiosAsignados {
   };
 }
 
+/** Espejo simplificado de UsuariosController::fechaVigenciaDesde (backend) — solo para que el modo
+ * mock no rompa cuando VITE_MOCK_USUARIOS está activo. */
+function vigenciaDesde(fechaBase: string, meses: number | null | undefined): string | null {
+  if (meses == null) return null;
+  const fecha = new Date(fechaBase);
+  fecha.setMonth(fecha.getMonth() + meses);
+  return fecha.toISOString().slice(0, 10);
+}
+
 export const usuariosMock: UsuariosApi = {
   async list() {
     await delay();
@@ -44,9 +53,17 @@ export const usuariosMock: UsuariosApi = {
   async create(usuario) {
     await delay();
     const data = load();
-    data.push(usuario);
+    const ahora = new Date().toISOString();
+    const esAlumno = usuario.origen === 'alumno';
+    const creado: Usuario = {
+      ...usuario,
+      fechaRegistro: ahora,
+      vigenciaAlumnoHasta: esAlumno ? vigenciaDesde(ahora, usuario.vigenciaMeses) : null,
+      correoEnviado: esAlumno && !!usuario.correo,
+    };
+    data.push(creado);
     save(data);
-    return usuario;
+    return creado;
   },
 
   async update(id, patch) {
@@ -54,7 +71,16 @@ export const usuariosMock: UsuariosApi = {
     const data = load();
     const idx = data.findIndex((u) => u.id === id);
     if (idx === -1) throw new Error(`Usuario ${id} no encontrado`);
-    data[idx] = { ...data[idx], ...patch };
+    const actual = data[idx];
+    const origenFinal = patch.origen ?? actual.origen;
+    const cambios = { ...patch };
+    if ('vigenciaMeses' in patch) {
+      cambios.vigenciaAlumnoHasta = origenFinal === 'alumno'
+        ? vigenciaDesde(actual.fechaRegistro ?? new Date().toISOString(), patch.vigenciaMeses)
+        : null;
+    }
+    delete cambios.vigenciaMeses;
+    data[idx] = { ...actual, ...cambios };
     save(data);
     return data[idx];
   },

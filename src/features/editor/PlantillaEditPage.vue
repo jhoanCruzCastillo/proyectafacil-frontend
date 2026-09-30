@@ -8,6 +8,7 @@ import ConfirmModal from '@/components/ConfirmModal.vue';
 import AppLoadingScreen from '@/components/AppLoadingScreen.vue';
 import SectionIndex from './SectionIndex.vue';
 import SectionContent from './SectionContent.vue';
+import AvisosListasBanner from './AvisosListasBanner.vue';
 import SectionLoadingSkeleton from './SectionLoadingSkeleton.vue';
 import { useTransicionSeccion } from '@/composables/useTransicionSeccion';
 import FieldPropertiesPanel from './FieldPropertiesPanel.vue';
@@ -17,6 +18,7 @@ import SeccionHojaModal from './SeccionHojaModal.vue';
 import ImportarEstructuraModal from './ImportarEstructuraModal.vue';
 import ExamplesPanel from './ExamplesPanel.vue';
 import NuevoEjemploModal from './NuevoEjemploModal.vue';
+import EditarDatosEjemploModal from './EditarDatosEjemploModal.vue';
 import JsonPreviewModal from './JsonPreviewModal.vue';
 import ExcelPreviewModal from './ExcelPreviewModal.vue';
 import VolcarExcelModal from './VolcarExcelModal.vue';
@@ -35,18 +37,19 @@ const {
   estadoGuardado,
   editData, cargandoPlantilla, activeTab, selectedCampo, isNewCampo, editingHojaSeccionId,
   leftWidth, rightWidth, examplesWidth, highlightMissingCaptura, campoErrorInsercionId, ejemplosCount, jsonPreview,
+  avisosListas, irAAvisoLista, descartarAvisosListas,
   showImportEstructura,
   modoEdicion, setModoEdicion, borradoresPorCampo, confirmarBorradorCampo,
   handleUpdateDefaultValue, handleUpdateExampleValue,
   secciones, safeIdx, seccionActiva, isFirst, isLast, showExamples,
-  ejemplos, activeEjemplo, editedValores, excelDesactualizado, showNuevoEjemplo, deleteTarget, volcarTarget, volcarEstructura,
+  ejemplos, activeEjemplo, editedValores, excelDesactualizado, showNuevoEjemplo, deleteTarget, volcarTarget, volcarEstructura, editarDatosTarget, editarDatosError,
   archivoExcelAsignado, showExcelCatalogModal, showPreview, showInsertConfirm, isInserting, insertProgress, insertProgressLabel,
   previewFileUrl, previewFileName, descargandoEjemploId,
   handleLeftResize, handleRightResize, handleExamplesResize, handleTabChange, handleSectionSelect,
   goToPrevSection, goToNextSection, handleFieldUpdate, handleAddCampo, handleAddNota, handleDuplicarCampo, handleDeleteCampo,
   handleSectionNameChange, handleSectionHojaChange, handleSubsectionNameChange,
   handleSubseccionAyudaChange, handleAddSubsection, handleSubsectionCodigoChange, handleDeleteSubsection, handleAddSection, handleDuplicarSeccion, handleDeleteSeccion,
-  handleCreateExample, handleDeleteEjemplo, handleToggleEjemploEstado, handleToggleReferenciaIA,
+  handleCreateExample, handleDeleteEjemplo, handleToggleEjemploEstado, handleToggleReferenciaIA, handleActualizarDatosEjemplo,
   handleDownloadExcel, handlePreviewExample, handleInsertExcel,
   handleVolcarExcel, handleVolcarEstructura, handleConfirmarVolcado, getDefaultValores,
   handleImportEstructura,
@@ -132,6 +135,7 @@ function confirmarEliminarSeccion() {
             @toggle-estado="toggleEstadoTarget = $event"
             @toggle-referencia-ia="handleToggleReferenciaIA"
             @volcar-excel="handleVolcarExcel"
+            @editar-datos="editarDatosTarget = $event; editarDatosError = null"
           />
         </div>
         <ResizeHandle @resize="handleExamplesResize" />
@@ -161,6 +165,12 @@ function confirmarEliminarSeccion() {
 
       <div class="flex-1 min-w-0 flex flex-col overflow-hidden bg-white">
         <div class="flex-1 overflow-y-auto bg-white p-6 mr-1.5">
+          <AvisosListasBanner
+            v-if="avisosListas.length > 0"
+            :avisos="avisosListas"
+            @ir="irAAvisoLista"
+            @cerrar="descartarAvisosListas"
+          />
           <SectionLoadingSkeleton v-if="cargandoSeccion" :cantidad-campos="seccionActiva?.cantidadCampos" />
           <SectionContent
             v-else-if="seccionActiva && claveSeccionMostrada === claveSeccion"
@@ -249,6 +259,14 @@ function confirmarEliminarSeccion() {
       @close="showNuevoEjemplo = false"
       @create="handleCreateExample"
       @assign-excel="showNuevoEjemplo = false; showExcelCatalogModal = true"
+    />
+
+    <EditarDatosEjemploModal
+      :is-open="!!editarDatosTarget"
+      :ejemplo="editarDatosTarget"
+      :error="editarDatosError"
+      @close="editarDatosTarget = null; editarDatosError = null"
+      @save="handleActualizarDatosEjemplo"
     />
 
     <ExcelCatalogModal

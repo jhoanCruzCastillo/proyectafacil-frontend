@@ -449,8 +449,16 @@ export interface Usuario {
   correo?: string;
   /** Avatar generado (DiceBear) o subido — ilustrado, no una foto real. */
   fotoUrl?: string | null;
-  /** Solo tiene sentido cuando rol === 'cliente' y origen === 'alumno' — fecha ISO (YYYY-MM-DD). */
+  /** Solo tiene sentido cuando rol === 'cliente' y origen === 'alumno' — fecha ISO (YYYY-MM-DD),
+   * calculada por el backend a partir de `vigenciaMeses` + fecha de registro. Solo lectura. */
   vigenciaAlumnoHasta?: string | null;
+  /** Escritura únicamente (create/update) — duración elegida en el modal, nunca viene del backend
+   * en un GET. number = meses (1/3/6/12); null = sin vigencia; undefined/ausente al editar = no
+   * tocar la vigencia ya guardada. Ver OrigenClienteFields.vue y UsuariosController::create/update. */
+  vigenciaMeses?: number | null;
+  /** Solo en la respuesta de POST /usuarios (create) — true si además se le mandó el correo con sus
+   * credenciales de forma automática (alumno con correo cargado). */
+  correoEnviado?: boolean;
   /** Solo tiene sentido cuando rol === 'cliente' y origen === 'alumno'. cursoNombre/cursoColorAccent
    * vienen ya resueltos del backend (join), no hace falta cruzar contra useCursosQuery para pintar el chip. */
   cursoId?: string | null;
@@ -1155,6 +1163,10 @@ export interface ResultadoImportacion {
   /** Solo la importación de Especialistas lo manda: 'candidatos' = se restauró un Excel de
    * respaldo exportado desde esa misma pantalla; 'asesores' = carga masiva de 4 columnas. */
   tipo?: 'candidatos' | 'asesores';
+  /** Solo la importación de alumnos lo manda: filas que SÍ se crearon pero tuvieron un problema no
+   * bloqueante (ej. no se pudo enviar el correo de accesos) — a diferencia de `omitidos`, estas filas
+   * no fallaron, es solo un aviso. */
+  avisos?: { fila: number; motivo: string }[];
 }
 
 export interface CandidatoDetalle {

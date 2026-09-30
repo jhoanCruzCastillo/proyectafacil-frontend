@@ -5,12 +5,20 @@ import { faCopy, faCircleCheck, faEnvelope, faCheck } from '@/lib/icons';
 import { useEnviarAccesosDirecto } from '@/composables/useUsuarios';
 import { useUiStore } from '@/stores/ui';
 
-const props = defineProps<{ id: string; usuario: string; password: string; correo?: string }>();
+const props = defineProps<{
+  id: string;
+  usuario: string;
+  password: string;
+  correo?: string;
+  /** true = el backend ya le mandó el correo de accesos automáticamente al crearlo (alumno con
+   * correo cargado, ver UsuariosController::create) — no hace falta que el admin haga nada más. */
+  correoEnviado?: boolean;
+}>();
 const emit = defineEmits<{ close: [] }>();
 
 const ui = useUiStore();
 const enviarAccesosDirecto = useEnviarAccesosDirecto();
-const enviado = ref(false);
+const enviado = ref(props.correoEnviado ?? false);
 
 function copiar() {
   const texto = `Usuario: ${props.usuario}\nContraseña: ${props.password}`;
@@ -50,7 +58,7 @@ async function notificarPorCorreo() {
       :class="enviado ? 'border-brand-200 bg-brand-50 text-brand-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-60'"
     >
       <FontAwesomeIcon :icon="enviado ? faCheck : faEnvelope" class="w-3.5 h-3.5" />
-      {{ enviado ? 'Notificación enviada' : enviarAccesosDirecto.isPending.value ? 'Enviando…' : `Notificar por correo a ${correo}` }}
+      {{ correoEnviado ? `Se notificó automáticamente a ${correo}` : enviado ? 'Notificación enviada' : enviarAccesosDirecto.isPending.value ? 'Enviando…' : `Notificar por correo a ${correo}` }}
     </button>
 
     <div class="flex gap-3">

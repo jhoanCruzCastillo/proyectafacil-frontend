@@ -568,14 +568,20 @@ const COLUMNAS_IMPORT_ALUMNOS = [
   { nombre: 'Nombre', detalle: 'Nombres y apellidos (obligatorio)' },
   { nombre: 'Correo', detalle: 'Correo electrónico único (obligatorio)' },
   { nombre: 'Teléfono', detalle: 'Opcional' },
-  { nombre: 'Vigencia hasta', detalle: 'Fecha AAAA-MM-DD hasta la que tendrá acceso como alumno (opcional)' },
+  { nombre: 'Vigencia', detalle: 'Cuánto tiempo tendrá acceso desde su registro: 1 mes, 3 meses, 6 meses o 1 año (opcional, elige de la lista)' },
   { nombre: 'Curso', detalle: 'Elige uno de la lista desplegable (opcional)' },
   { nombre: 'Beneficio', detalle: 'Elige uno de la lista desplegable; se otorga sin cobro (opcional)' },
 ];
+const NOTA_IMPORT_ALUMNOS = 'A cada alumno creado se le envía por correo su usuario y contraseña automáticamente.';
 const mostrarImportarAlumnos = ref(false);
-function importacionAlumnosCompletada(_resultado: ResultadoImportacion) {
+function importacionAlumnosCompletada(resultado: ResultadoImportacion) {
   queryClient.invalidateQueries({ queryKey: ['usuarios'] });
-  ui.toast('Alumnos importados');
+  const fallosCorreo = resultado.avisos?.length ?? 0;
+  ui.toast(
+    fallosCorreo > 0
+      ? `Alumnos importados — a ${fallosCorreo} no se le pudo enviar el correo, revisa el detalle`
+      : 'Alumnos importados y notificados por correo',
+  );
 }
 function handleEditar(u: Usuario) {
   menuAccionAbierto.value = null;
@@ -1381,6 +1387,7 @@ async function handleDelete() {
       :is-open="mostrarImportarAlumnos"
       titulo="Importar clientes-alumnos desde Excel"
       :columnas="COLUMNAS_IMPORT_ALUMNOS"
+      :nota="NOTA_IMPORT_ALUMNOS"
       :subir="importarAlumnosExcel"
       :descargar-plantilla="descargarPlantillaAlumnos"
       @importado="importacionAlumnosCompletada"
