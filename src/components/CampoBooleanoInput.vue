@@ -45,8 +45,9 @@ const marcado = computed(() => seleccionado.value === 'true');
 function elegirSiNo(esTrue: boolean) {
   if (!props.editable) return;
   const etiqueta = esTrue ? labels.value.true : labels.value.false;
-  if (props.value === etiqueta) return;
-  emit('change', etiqueta);
+  // Volver a marcar la opción ya seleccionada la desmarca (igual que toggleCasilla) — pedido
+  // explícito del usuario: antes quedaba pegada sin forma de volver a "sin responder".
+  emit('change', props.value === etiqueta ? '' : etiqueta);
 }
 
 function toggleCasilla() {

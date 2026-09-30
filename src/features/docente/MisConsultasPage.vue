@@ -18,7 +18,7 @@ import { useMisSolicitudesQuery, useAceptarSolicitud, useCompletarVideo } from '
 import { useUsuariosQuery, useActualizarUsuario } from '@/composables/useUsuarios';
 import { tiempoHastaVencer, tiempoRelativo } from '@/lib/tiempoRelativo';
 import { ESTADO_ASESORIA_LABEL as ESTADO_LABEL, ESTADO_ASESORIA_CLASE as ESTADO_CLASE } from '@/lib/estadoAsesoria';
-import { colorCategoria, formatFechaHoraVideo, ventanaDeLlamada, unirseALlamada, puedeCompletarAsesoria, etiquetaCategoriaConsulta } from '@/lib/consultaAsesorUI';
+import { colorCategoria, formatFechaHoraVideo, ventanaDeLlamada, unirseALlamada, puedeCompletarAsesoria, etiquetaCategoriaConsulta, codigoTicket } from '@/lib/consultaAsesorUI';
 import type { SolicitudAsesoria } from '@/types';
 
 const session = useSessionStore();
@@ -307,6 +307,7 @@ function cambiarPorPagina(valor: number) {
           <table class="w-full text-sm border-collapse">
             <thead>
               <tr class="text-left text-xs font-semibold text-gray-600 bg-gray-50 border-b border-gray-200">
+                <th class="py-3 px-4">Ticket</th>
                 <th class="py-3 px-4">Alumno</th>
                 <th class="py-3 px-4">Categoría</th>
                 <th class="py-3 px-4">Modalidad</th>
@@ -318,6 +319,7 @@ function cambiarPorPagina(valor: number) {
             </thead>
             <tbody>
               <tr v-for="s in listaPaginada" :key="s.id" class="border-b border-gray-100 last:border-b-0">
+                <td class="py-4 px-4 font-mono text-xs text-heading whitespace-nowrap">{{ codigoTicket(s) }}</td>
                 <td class="py-4 px-4">
                   <div class="flex items-center gap-3">
                     <Avatar :nombre="s.clienteNombre ?? '?'" :fotoUrl="s.clienteFotoUrl" size="w-11 h-11" />

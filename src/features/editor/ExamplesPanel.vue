@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { faSearch, faPlus, faCheck, faCircle, faInfoCircle, faTrash, faEye, faDownload, faSpinner, faBoxArchive, faCloudArrowUp, faFileImport, faStar } from '@/lib/icons';
+import { faSearch, faPlus, faCheck, faCircle, faInfoCircle } from '@/lib/icons';
+import EjemploAccionesMenu from './EjemploAccionesMenu.vue';
 import type { Ejemplo } from '@/types';
 
 const props = defineProps<{
@@ -20,6 +21,7 @@ const emit = defineEmits<{
   'toggle-estado': [ejemplo: Ejemplo];
   'volcar-excel': [ejemplo: Ejemplo];
   'toggle-referencia-ia': [ejemplo: Ejemplo];
+  'editar-datos': [ejemplo: Ejemplo];
 }>();
 
 const search = ref('');
@@ -71,65 +73,19 @@ const filtered = computed(() =>
           <div class="text-sm font-medium text-heading truncate">{{ ej.nombre }}</div>
           <div class="text-xs text-muted truncate">{{ ej.subtitulo }} · {{ ej.detalle }}</div>
         </div>
-        <div class="flex items-center gap-0.5 shrink-0">
+        <div class="flex items-center gap-0.5 shrink-0" @click.stop>
           <FontAwesomeIcon v-if="activeEjemplo?.id === ej.id" :icon="faCheck" class="w-3.5 h-3.5 text-brand-600 mr-1" />
-          <button
-            @click.stop="emit('toggle-estado', ej)"
-            type="button"
-            :title="ej.estado === 'publicado' ? 'Volver a borrador' : 'Publicar ejemplo'"
-            class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-medium transition-colors duration-75 mr-1"
-            :class="ej.estado === 'publicado' ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'"
-          >
-            <FontAwesomeIcon :icon="ej.estado === 'publicado' ? faCloudArrowUp : faBoxArchive" class="w-2.5 h-2.5" />
-            {{ ej.estado === 'publicado' ? 'Publicado' : 'Borrador' }}
-          </button>
-          <button
-            @click.stop="emit('toggle-referencia-ia', ej)"
-            type="button"
-            :title="ej.esReferenciaIA ? 'Ejemplo de referencia para IA — clic para quitar' : 'Usar como ejemplo de referencia para IA (few-shot del llenado automático)'"
-            class="flex w-7 h-7 rounded-md items-center justify-center transition-colors duration-75"
-            :class="ej.esReferenciaIA ? 'text-amber-500 hover:bg-amber-100' : 'text-gray-300 hover:bg-amber-50 hover:text-amber-500'"
-          >
-            <FontAwesomeIcon :icon="faStar" class="w-3.5 h-3.5" />
-          </button>
-          <button
-            @click.stop="emit('volcar-excel', ej)"
-            type="button"
-            class="flex w-7 h-7 rounded-md items-center justify-center text-gray-400 hover:bg-emerald-100 hover:text-emerald-600 transition-colors duration-75"
-            title="Volcar datos desde un Excel llenado"
-          >
-            <FontAwesomeIcon :icon="faFileImport" class="w-3.5 h-3.5" />
-          </button>
-          <button
-            @click.stop="emit('preview', ej)"
-            type="button"
-            class="flex w-7 h-7 rounded-md items-center justify-center text-gray-400 hover:bg-brand-100 hover:text-brand-600 transition-colors duration-75"
-            title="Previsualizar"
-          >
-            <FontAwesomeIcon :icon="faEye" class="w-3.5 h-3.5" />
-          </button>
-          <button
-            @click.stop="descargandoEjemploId !== ej.id && emit('download', ej)"
-            type="button"
-            :disabled="descargandoEjemploId === ej.id"
-            class="flex w-7 h-7 rounded-md items-center justify-center text-gray-400 hover:bg-brand-100 hover:text-brand-600 transition-colors duration-75 disabled:hover:bg-transparent disabled:cursor-wait"
-            :class="{ 'text-brand-600': descargandoEjemploId === ej.id }"
-            :title="descargandoEjemploId === ej.id ? 'Descargando…' : 'Descargar Excel'"
-          >
-            <FontAwesomeIcon
-              :icon="descargandoEjemploId === ej.id ? faSpinner : faDownload"
-              class="w-3.5 h-3.5"
-              :class="{ 'animate-spin': descargandoEjemploId === ej.id }"
-            />
-          </button>
-          <button
-            @click.stop="emit('delete', ej)"
-            type="button"
-            class="flex w-7 h-7 rounded-md items-center justify-center text-gray-400 hover:bg-red-100 hover:text-red-600 transition-colors duration-75"
-            title="Eliminar"
-          >
-            <FontAwesomeIcon :icon="faTrash" class="w-3.5 h-3.5" />
-          </button>
+          <EjemploAccionesMenu
+            :ejemplo="ej"
+            :descargando="descargandoEjemploId === ej.id"
+            @toggle-estado="emit('toggle-estado', ej)"
+            @toggle-referencia-ia="emit('toggle-referencia-ia', ej)"
+            @editar-datos="emit('editar-datos', ej)"
+            @volcar-excel="emit('volcar-excel', ej)"
+            @preview="emit('preview', ej)"
+            @download="emit('download', ej)"
+            @delete="emit('delete', ej)"
+          />
         </div>
       </div>
       <p v-if="filtered.length === 0" class="px-3 py-6 text-center text-sm text-muted">No hay ejemplos que coincidan.</p>

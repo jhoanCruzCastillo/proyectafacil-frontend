@@ -98,8 +98,11 @@ watch([sectorId, tipo], () => {
   }
 });
 
+// Solo plantillas PUBLICADAS — el admin puede tener borradores a medio construir (ver esta misma
+// sesión) y un cliente no debe poder elegirlos para su ficha. Pedido explícito del usuario
+// (2026-09-30): antes el filtro solo miraba sector/tipo/nivel, sin mirar `estado`.
 const plantillasCoincidentes = computed(() =>
-  plantillas.value.filter((p) => p.sectorId === sectorId.value && p.instrumento === tipo.value && (!esNivel0.value || p.disponibleNivel0)),
+  plantillas.value.filter((p) => p.sectorId === sectorId.value && p.instrumento === tipo.value && p.estado === 'publicado' && (!esNivel0.value || p.disponibleNivel0)),
 );
 
 async function handleSubmit() {

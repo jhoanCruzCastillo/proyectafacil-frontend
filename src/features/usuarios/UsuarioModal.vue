@@ -43,10 +43,12 @@ const password = ref('');
 const rol = ref<RolUsuario>('cliente');
 const origen = ref<OrigenCliente>('alumno');
 const origenGuardado = ref<OrigenCliente | null>(null);
-const vigenciaAlumnoHasta = ref('');
+/** number = duración en meses; null = sin vigencia; undefined = "no cambiar" (default al editar un
+ * alumno ya existente — ver OrigenClienteFields.vue). */
+const vigenciaMeses = ref<number | null | undefined>(null);
 const cursoId = ref<string | null>(null);
 const error = ref('');
-const credencialGenerada = ref<{ id: string; usuario: string; password: string; correo?: string } | null>(null);
+const credencialGenerada = ref<{ id: string; usuario: string; password: string; correo?: string; correoEnviado?: boolean } | null>(null);
 
 watch(
   () => props.isOpen,
@@ -61,7 +63,9 @@ watch(
     rol.value = props.usuario?.rol ?? rolesSeleccionables.value[rolesSeleccionables.value.length - 1] ?? 'cliente';
     origen.value = props.usuario?.origen ?? 'alumno';
     origenGuardado.value = props.usuario?.origen ?? null;
-    vigenciaAlumnoHasta.value = props.usuario?.vigenciaAlumnoHasta ?? '';
+    // Editando: por defecto "no cambiar" (undefined) — la vigencia ya guardada no se toca a menos
+    // que el admin elija una duración a propósito. Creando: "sin vigencia" hasta que elija una.
+    vigenciaMeses.value = esEdicion.value ? undefined : null;
     cursoId.value = props.usuario?.cursoId ?? null;
     error.value = '';
   },
@@ -78,13 +82,20 @@ async function handleSubmit() {
     return;
   }
 
+  // vigenciaMeses solo se manda cuando hay algo que decidir: si el origen deja de ser "alumno" se
+  // limpia a propósito (null, igual que antes); si sigue siendo "alumno" pero el admin dejó "No
+  // cambiar" (undefined), se omite la clave entera para que el backend no toque lo ya guardado.
   const datosOrigen = rol.value === 'cliente'
     ? {
         origen: origen.value,
-        vigenciaAlumnoHasta: origen.value === 'alumno' ? (vigenciaAlumnoHasta.value || null) : null,
         cursoId: origen.value === 'alumno' ? cursoId.value : null,
+        ...(origen.value !== 'alumno'
+          ? { vigenciaMeses: null }
+          : vigenciaMeses.value !== undefined
+            ? { vigenciaMeses: vigenciaMeses.value }
+            : {}),
       }
-    : { origen: null, vigenciaAlumnoHasta: null, cursoId: null };
+    : { origen: null, cursoId: null };
 
   if (esEdicion.value && props.usuario) {
     const rolCambio = rol.value !== props.usuario.rol;
@@ -122,7 +133,7 @@ async function handleSubmit() {
   });
   await pushActividad.mutateAsync({ mensaje: `Se creó el usuario "${nombre.value.trim()}"`, color: 'green', categoria: 'Usuarios y permisos' });
   if (creado.password) {
-    credencialGenerada.value = { id: creado.id, usuario: creado.usuario, password: creado.password, correo: creado.correo };
+    credencialGenerada.value = { id: creado.id, usuario: creado.usuario, password: creado.password, correo: creado.correo, correoEnviado: creado.correoEnviado };
   } else {
     ui.toast(`Usuario "${nombre.value.trim()}" creado`);
     emit('close');
@@ -152,6 +163,7 @@ async function handleEnviarAccesos() {
             :usuario="credencialGenerada.usuario"
             :password="credencialGenerada.password"
             :correo="credencialGenerada.correo"
+            :correo-enviado="credencialGenerada.correoEnviado"
             @close="emit('close')"
           />
 
@@ -211,11 +223,13 @@ async function handleEnviarAccesos() {
             <OrigenClienteFields
               v-if="rol === 'cliente'"
               v-model:origen="origen"
-              v-model:vigenciaAlumnoHasta="vigenciaAlumnoHasta"
+              v-model:vigencia-meses="vigenciaMeses"
               v-model:curso-id="cursoId"
               :origen-guardado="origenGuardado ?? undefined"
               :cambiado-por-nombre="usuario?.origenCambiadoPorNombre"
               :cambiado-en="usuario?.origenCambiadoEn"
+              :es-edicion="esEdicion"
+              :vigencia-actual="usuario?.vigenciaAlumnoHasta"
             />
 
             <PlanActualInfo v-if="esEdicion && rol === 'cliente' && usuario" :usuario-id="usuario.cuentaClienteId ?? usuario.id" />

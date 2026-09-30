@@ -394,6 +394,13 @@ function leerTablaSimple(
   periodos: string[] = [],
   detectarCrecimiento = true,
   controles: IndiceControlesBooleanos = new Map(),
+  // Fila física (ya con el shift de crecimientos previos aplicado) donde empieza el SIGUIENTE campo
+  // declarado en la misma hoja — el "growth detection" de abajo nunca debe cruzarla. Sin este límite,
+  // una fila que en Excel es de OTRO campo (ej. la etiqueta de un campo suelto justo debajo de la
+  // tabla) puede compartir el mismo estilo de celda que las filas base y colarse como fila fantasma
+  // de esta tabla (encontrado en 01.15.3: la fila 670, que es el campo 01.15.4 "Demanda de Aulas
+  // Funcionales - JEC", se leía como una 10ma fila de la tabla de 9 filas de NIVEL SECUNDARIA).
+  limiteFilaFisica?: number,
 ): TablaLeida {
   const filasBase = config.captura!.filasBase!;
   // Cada fila BASE ocupa `alto` filas físicas de Excel (4.10) — 1 salvo que la tabla declare
@@ -428,6 +435,7 @@ function leerTablaSimple(
   let filasExtra = 0;
   while (detectarCrecimiento && filasExtra < MAX_FILAS_EXTRA) {
     const filaFisica = filaFisicaInicial + (filasBase + filasExtra) * alto;
+    if (limiteFilaFisica !== undefined && filaFisica >= limiteFilaFisica) break;
     if (!esDeLaMismaTabla(libro, hoja, config.columnas, filaFisica, estilosBase)) break;
     const fila = leerFilaTabla(libro, hoja, config, filaFisica, periodos, controles);
     if (!fila.tieneDatos) break;
@@ -841,6 +849,18 @@ export async function leerValoresDeExcel(
     const shift = (filaOriginal: number) =>
       crecimientos.reduce((total, c) => (c.despuesDeFila < filaOriginal ? total + c.cantidad : total), 0);
 
+    // Filas de inicio (coordenadas originales, sin shift) de TODOS los campos de esta hoja —
+    // tablas y campos sueltos por igual — ordenadas, para acotar el "growth detection" de cada
+    // tabla plana: nunca debe leer más allá de donde empieza el siguiente campo declarado, aunque
+    // esa fila comparta por casualidad el mismo estilo de celda que las filas base de la tabla.
+    const iniciosDeCampos = tareas
+      .map(({ campo }) => (TIPOS_TABLA.includes(campo.tipo) ? campo.configTabla?.captura?.filaInicial : campo.captura?.fila))
+      .filter((f): f is number => typeof f === 'number')
+      .sort((a, b) => a - b);
+    function limiteFilaSiguiente(filaOriginal: number): number | undefined {
+      return iniciosDeCampos.find((f) => f > filaOriginal);
+    }
+
     // 1) Tablas, en orden de aparición en la hoja
     const tablas = tareas
       .filter((t) => TIPOS_TABLA.includes(t.campo.tipo))
@@ -876,7 +896,9 @@ export async function leerValoresDeExcel(
       }
 
       // Plana (con o sin columnas dinámicas). Solo la variante simple detecta filas insertadas.
-      const lectura = leerTablaSimple(libro, hoja, config, filaFisica, periodos, esTablaPlanaSimple(config), controles);
+      const limiteOriginal = limiteFilaSiguiente(filaOriginal);
+      const limiteFilaFisica = limiteOriginal !== undefined ? limiteOriginal + shift(limiteOriginal) : undefined;
+      const lectura = leerTablaSimple(libro, hoja, config, filaFisica, periodos, esTablaPlanaSimple(config), controles, limiteFilaFisica);
       if (lectura.filasExtra > 0) {
         // `filasExtra` cuenta filas BASE; el desplazamiento real de lo que sigue en la hoja es en
         // filas FÍSICAS, así que hay que multiplicar por lo que ocupa cada fila base (4.10).

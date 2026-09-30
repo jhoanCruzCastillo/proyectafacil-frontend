@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import {
-  faCalendarCheck, faComments, faVideo, faXmark,
+  faComments, faVideo, faXmark,
   faTriangleExclamation, faCartShopping, faClock, faStar,
   faChevronLeft, faChevronRight, faSearch,
 } from '@/lib/icons';
@@ -25,7 +25,7 @@ import { useMisSolicitudesQuery, useCancelarSolicitud, useMensajesQuery } from '
 import { useHistorialConexionQuery, useGrabacionesQuery } from '@/composables/useTicketsAsesoria';
 import { cuentaEfectivaDe } from '@/lib/permisos';
 import { ESTADO_ASESORIA_LABEL as ESTADO_LABEL, ESTADO_ASESORIA_CLASE as ESTADO_CLASE } from '@/lib/estadoAsesoria';
-import { etiquetaCategoriaConsulta } from '@/lib/consultaAsesorUI';
+import { etiquetaCategoriaConsulta, codigoTicket } from '@/lib/consultaAsesorUI';
 import { addOns } from '@/data/planes';
 import type { SolicitudAsesoria, TipoAsesoria } from '@/types';
 
@@ -232,13 +232,28 @@ function formatFechaHoraAgendada(s: SolicitudAsesoria): string | null {
           </div>
         </div>
 
+        <!-- Copia exacta de la tarjeta de modalidad que antes vivía en el primer paso de
+             SolicitarAsesoriaModal.vue — esta página ya sabe de qué modalidad es (chat o video, ver
+             props.modalidad), así que ese paso de "¿cómo prefieres tu asesoría?" sobraba. Pedido
+             explícito del usuario (2026-09-29): reemplaza el botón de antes 1:1, sin más cambios. -->
         <button
           @click="showSolicitar = true"
           type="button"
-          class="px-6 py-3 rounded-lg bg-brand-600 text-white font-semibold text-sm hover:bg-brand-700 transition-colors flex items-center gap-2 shrink-0"
+          class="p-5 rounded-xl border border-gray-200 bg-white hover:border-brand-500 hover:bg-brand-50/50 transition-colors text-center shrink-0 w-full sm:w-64"
         >
-          <FontAwesomeIcon :icon="faCalendarCheck" class="w-3.5 h-3.5" />
-          Solicitar asesoría
+          <div
+            class="w-12 h-12 mx-auto rounded-full flex items-center justify-center mb-3"
+            :class="modalidad === 'chat' ? 'bg-brand-100 text-brand-600' : 'bg-red-100 text-red-600'"
+          >
+            <FontAwesomeIcon :icon="ICONO_MODALIDAD[modalidad]" class="w-5 h-5" />
+          </div>
+          <p class="font-semibold text-heading text-sm">{{ modalidad === 'chat' ? 'Por chat' : 'Por videollamada' }}</p>
+          <p class="text-xs text-muted mt-1">
+            {{ modalidad === 'chat' ? 'Recibe respuesta cuando el asesor esté disponible, no es en tiempo real.' : 'Agenda un horario y conéctate en vivo con un asesor.' }}
+          </p>
+          <p class="text-[11px] font-medium mt-2" :class="modalidad === 'chat' ? 'text-brand-600' : 'text-red-600'">
+            {{ fichasDisponibles.length }} ficha{{ fichasDisponibles.length === 1 ? '' : 's' }} disponible{{ fichasDisponibles.length === 1 ? '' : 's' }}<template v-if="duracionFicha"> · {{ duracionFicha }} min</template>
+          </p>
         </button>
       </div>
       <div v-else class="relative flex items-start gap-4">
@@ -314,6 +329,7 @@ function formatFechaHoraAgendada(s: SolicitudAsesoria): string | null {
         <table class="w-full text-sm">
           <thead>
             <tr class="text-left text-[11px] uppercase tracking-widest text-muted bg-gray-50 border-b border-gray-200">
+              <th class="py-2.5 px-4 font-semibold">Ticket</th>
               <th class="py-2.5 px-4 font-semibold">Fecha</th>
               <th class="py-2.5 px-4 font-semibold">Categoría</th>
               <th class="py-2.5 px-4 font-semibold">Docente asignado</th>
@@ -323,6 +339,7 @@ function formatFechaHoraAgendada(s: SolicitudAsesoria): string | null {
           </thead>
           <tbody>
             <tr v-for="s in solicitudesPagina" :key="s.id" class="border-b border-gray-100 last:border-0 hover:bg-gray-50/60 transition-colors duration-75">
+              <td class="py-3 px-4 font-mono text-xs text-heading whitespace-nowrap">{{ codigoTicket(s) }}</td>
               <td class="py-3 px-4 text-heading whitespace-nowrap">{{ formatFecha(s.creadoEn) }}</td>
               <td class="py-3 px-4">
                 <span class="px-2.5 py-1 rounded-full text-[11px] font-medium bg-gray-100 text-gray-600">{{ etiquetaCategoriaConsulta(s) }}</span>
@@ -406,7 +423,7 @@ function formatFechaHoraAgendada(s: SolicitudAsesoria): string | null {
     </div>
   </PageShell>
 
-  <SolicitarAsesoriaModal :is-open="showSolicitar" @close="showSolicitar = false" @creada="handleCreada" />
+  <SolicitarAsesoriaModal :is-open="showSolicitar" :modalidad="modalidad" @close="showSolicitar = false" @creada="handleCreada" />
 
   <ConsultaEnviadaModal
     :is-open="!!consultaEnviada"
