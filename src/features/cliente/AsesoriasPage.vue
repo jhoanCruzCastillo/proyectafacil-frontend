@@ -25,7 +25,7 @@ import { useMisSolicitudesQuery, useCancelarSolicitud, useMensajesQuery } from '
 import { useHistorialConexionQuery, useGrabacionesQuery } from '@/composables/useTicketsAsesoria';
 import { cuentaEfectivaDe } from '@/lib/permisos';
 import { ESTADO_ASESORIA_LABEL as ESTADO_LABEL, ESTADO_ASESORIA_CLASE as ESTADO_CLASE } from '@/lib/estadoAsesoria';
-import { etiquetaCategoriaConsulta } from '@/lib/consultaAsesorUI';
+import { etiquetaCategoriaConsulta, codigoTicket } from '@/lib/consultaAsesorUI';
 import { addOns } from '@/data/planes';
 import type { SolicitudAsesoria, TipoAsesoria } from '@/types';
 
@@ -329,6 +329,7 @@ function formatFechaHoraAgendada(s: SolicitudAsesoria): string | null {
         <table class="w-full text-sm">
           <thead>
             <tr class="text-left text-[11px] uppercase tracking-widest text-muted bg-gray-50 border-b border-gray-200">
+              <th class="py-2.5 px-4 font-semibold">Ticket</th>
               <th class="py-2.5 px-4 font-semibold">Fecha</th>
               <th class="py-2.5 px-4 font-semibold">Categoría</th>
               <th class="py-2.5 px-4 font-semibold">Docente asignado</th>
@@ -338,6 +339,7 @@ function formatFechaHoraAgendada(s: SolicitudAsesoria): string | null {
           </thead>
           <tbody>
             <tr v-for="s in solicitudesPagina" :key="s.id" class="border-b border-gray-100 last:border-0 hover:bg-gray-50/60 transition-colors duration-75">
+              <td class="py-3 px-4 font-mono text-xs text-heading whitespace-nowrap">{{ codigoTicket(s) }}</td>
               <td class="py-3 px-4 text-heading whitespace-nowrap">{{ formatFecha(s.creadoEn) }}</td>
               <td class="py-3 px-4">
                 <span class="px-2.5 py-1 rounded-full text-[11px] font-medium bg-gray-100 text-gray-600">{{ etiquetaCategoriaConsulta(s) }}</span>
